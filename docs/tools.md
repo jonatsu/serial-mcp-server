@@ -52,12 +52,16 @@ Open a serial port connection. Returns a `connection_id` for use with other tool
   "stopbits": 1,
   "timeout_ms": 200,
   "write_timeout_ms": 200,
+  "inter_char_delay_ms": 0,
   "encoding": "utf-8",
   "newline": "\r\n"
 }
 ```
 
 Only `port` is required. All other parameters have defaults.
+
+Set `inter_char_delay_ms` from 0 to 1000 to pause between transmitted characters. The default is `0` (no pacing).
+This connection setting applies to `serial.write` and writes forwarded through a read/write PTY mirror.
 
 Returns:
 
@@ -74,6 +78,7 @@ Returns:
     "stopbits": 1,
     "timeout_ms": 200,
     "write_timeout_ms": 200,
+    "inter_char_delay_ms": 0,
     "encoding": "utf-8",
     "newline": "'\\r\\n'"
   },
@@ -138,6 +143,12 @@ Write data to a serial port.
 
 - `as`: `"text"` (default), `"hex"`, or `"base64"` — how to interpret the `data` string
 - `append_newline`: append the connection's newline (`\r\n` by default) after data
+- `inter_char_delay_ms`: optional delay between transmitted characters, from 0 to 1000 milliseconds.
+
+A write uses the connection's delay unless it supplies `inter_char_delay_ms`. Set the value to `0` on a write to disable pacing for that call.
+
+`bytes_written` counts bytes accepted by the host serial layer. It does not confirm that the receiving device got them.
+A delay of 8 ms per character can help receivers that overrun during long writes, at the cost of longer write times.
 
 Returns `{ "ok": true, "message": "Wrote 12 byte(s) to /dev/ttyUSB0.", "bytes_written": 12 }`.
 

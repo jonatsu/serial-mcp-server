@@ -119,6 +119,35 @@ class TestOpen:
         assert not result["ok"]
         assert result["error"]["code"] == "invalid_params"
 
+    async def test_open_with_character_pacing(self, serial_state, mock_serial, mock_reader):
+        with (
+            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader) as make_reader,
+        ):
+            result = await handle_open(
+                serial_state,
+                {"port": "/dev/ttyUSB0", "inter_char_delay_ms": 8},
+            )
+
+        assert result["ok"]
+        assert result["config"]["inter_char_delay_ms"] == 8
+        assert make_reader.call_args.args[-1] == 8
+
+    @pytest.mark.parametrize(
+        "delay",
+        [
+            -1,
+            1001,
+            "not-a-number",
+            True,
+            1.5,
+        ],
+    )
+    async def test_open_rejects_invalid_character_delay(self, delay):
+        result = await handle_open(SerialState(), {"port": "/dev/ttyUSB0", "inter_char_delay_ms": delay})
+        assert not result["ok"]
+        assert result["error"]["code"] == "invalid_params"
+
     async def test_open_duplicate_port(self):
         state = SerialState()
         mock_ser = MagicMock()
@@ -237,6 +266,65 @@ class TestWrite:
         result = await handle_write(state, {"connection_id": "s1", "data": "hello", "append_newline": True})
         assert result["ok"]
         conn.ser.write.assert_called_once_with(b"hello\n")
+
+    async def test_write_with_connection_character_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.inter_char_delay_ms = 8
+        conn.ser.write.side_effect = len
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(state, {"connection_id": "s1", "data": "ABC"})
+
+        assert result["bytes_written"] == 3
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
+        assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
+
+    async def test_write_with_per_call_character_delay_override(self, connected_entry):
+        state, conn = connected_entry
+        conn.inter_char_delay_ms = 2
+        conn.ser.write.side_effect = len
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(
+                state,
+                {"connection_id": "s1", "data": "ABC", "inter_char_delay_ms": 8},
+            )
+
+        assert result["bytes_written"] == 3
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
+        assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
+
+    async def test_write_zero_character_delay_disables_connection_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.inter_char_delay_ms = 8
+        conn.ser.write.return_value = 5
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(
+                state,
+                {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
+            )
+
+        assert result["bytes_written"] == 5
+        conn.ser.write.assert_called_once_with(b"ABCDE")
+        sleep.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "delay",
+        [
+            -1,
+            1001,
+            "not-a-number",
+            True,
+            1.5,
+        ],
+    )
+    async def test_write_rejects_invalid_character_delay_override(self, connected_entry, delay):
+        state, conn = connected_entry
+        result = await handle_write(
+            state,
+            {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": delay},
+        )
+        assert not result["ok"]
+        assert result["error"]["code"] == "invalid_params"
+        conn.ser.write.assert_not_called()
 
 
 class TestReadline:

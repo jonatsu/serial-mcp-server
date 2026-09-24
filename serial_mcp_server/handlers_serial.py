@@ -13,7 +13,7 @@ import serial.tools.list_ports
 from mcp.types import Tool
 
 from serial_mcp_server.helpers import MIRROR_PTY, MIRROR_PTY_LINK, _coerce_bool, _err, _ok
-from serial_mcp_server.mirror import SerialBuffer, create_reader
+from serial_mcp_server.mirror import SerialBuffer, create_reader, write_serial_payload
 from serial_mcp_server.state import SerialConnection, SerialState
 
 logger = logging.getLogger("serial_mcp_server")
@@ -45,6 +45,7 @@ BYTESIZE_MAP = {
 
 # Maximum read size to prevent accidental huge allocations.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
+MAX_INTER_CHAR_DELAY_MS = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,19 @@ def _format_data(raw: bytes, fmt: str, encoding: str) -> dict[str, Any]:
     return {"data": raw.decode(encoding, errors="replace"), "format": "text", "encoding": encoding}
 
 
+def _parse_inter_char_delay(value: Any) -> int:
+    """Validate a character pacing delay in milliseconds."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError("inter_char_delay_ms must be an integer from 0 to 1000.")
+    try:
+        delay_ms = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("inter_char_delay_ms must be an integer from 0 to 1000.") from exc
+    if not 0 <= delay_ms <= MAX_INTER_CHAR_DELAY_MS:
+        raise ValueError("inter_char_delay_ms must be between 0 and 1000 milliseconds.")
+    return delay_ms
+
+
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
     """Return a dict describing the connection's serial configuration."""
     return {
@@ -72,6 +86,7 @@ def _conn_config(conn: SerialConnection) -> dict[str, Any]:
         "stopbits": conn.stopbits,
         "timeout_ms": round(conn.timeout * 1000),
         "write_timeout_ms": round(conn.write_timeout * 1000),
+        "inter_char_delay_ms": conn.inter_char_delay_ms,
         "encoding": conn.encoding,
         "newline": repr(conn.newline),
     }
@@ -140,6 +155,14 @@ TOOLS: list[Tool] = [
                     "type": ["integer", "string"],
                     "default": 200,
                     "description": "Write timeout in milliseconds (default 200).",
+                },
+                "inter_char_delay_ms": {
+                    "type": ["integer", "string"],
+                    "default": 0,
+                    "description": (
+                        "Delay between transmitted characters in milliseconds (0 disables pacing; max 1000). "
+                        "Applies to serial.write and read/write PTY forwarding."
+                    ),
                 },
                 "exclusive": {
                     "type": ["boolean", "string"],
@@ -217,7 +240,10 @@ TOOLS: list[Tool] = [
     # ---- 6. write ----
     Tool(
         name="serial.write",
-        description="Write data to a serial port. Returns the number of bytes written.",
+        description=(
+            "Write data to a serial port. Returns the number of bytes accepted by the host serial layer; "
+            "use inter_char_delay_ms to pace writes for a slow receiver."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -241,6 +267,13 @@ TOOLS: list[Tool] = [
                     "enum": ["text", "hex", "base64"],
                     "default": "text",
                     "description": "How to interpret 'data': text (encode with encoding), hex, or base64.",
+                },
+                "inter_char_delay_ms": {
+                    "type": ["integer", "string"],
+                    "description": (
+                        "Override the connection's delay between transmitted characters in milliseconds "
+                        "for this write (0 disables pacing; max 1000)."
+                    ),
                 },
             },
             "required": ["connection_id", "data"],
@@ -443,6 +476,10 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     stopbits = float(args.get("stopbits", 1))
     timeout_ms = int(args.get("timeout_ms", 200))
     write_timeout_ms = int(args.get("write_timeout_ms", 200))
+    try:
+        inter_char_delay_ms = _parse_inter_char_delay(args.get("inter_char_delay_ms", 0))
+    except ValueError as exc:
+        return _err("invalid_params", str(exc))
     exclusive = _coerce_bool(args["exclusive"]) if "exclusive" in args else None
     encoding = args.get("encoding", "utf-8")
     newline = args.get("newline", "\r\n")
@@ -484,7 +521,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     connection_id = state.generate_id()
     buf = SerialBuffer()
-    reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK)
+    reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, inter_char_delay_ms)
     reader.start()
 
     conn = SerialConnection(
@@ -499,6 +536,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         encoding=encoding,
         newline=newline,
         ser=ser,
+        inter_char_delay_ms=inter_char_delay_ms,
         buffer=buf,
         reader=reader,
     )
@@ -569,6 +607,14 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     encoding = args.get("encoding", conn.encoding)
     append_newline = _coerce_bool(args.get("append_newline", False))
     newline = args.get("newline", conn.newline)
+    try:
+        inter_char_delay_ms = (
+            _parse_inter_char_delay(args["inter_char_delay_ms"])
+            if "inter_char_delay_ms" in args
+            else conn.inter_char_delay_ms
+        )
+    except ValueError as exc:
+        return _err("invalid_params", str(exc))
 
     # Convert to bytes based on format
     if fmt == "hex":
@@ -596,8 +642,9 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
         if lock is not None:
             lock.acquire()
         try:
-            n = conn.ser.write(payload)
-            conn.ser.flush()
+            n = write_serial_payload(conn.ser, payload, inter_char_delay_ms)
+            if not inter_char_delay_ms:
+                conn.ser.flush()
             return n
         finally:
             if lock is not None:
