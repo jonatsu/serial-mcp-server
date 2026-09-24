@@ -45,7 +45,8 @@ BYTESIZE_MAP = {
 
 # Maximum read size to prevent accidental huge allocations.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
-MAX_INTER_CHAR_DELAY_MS = 1000
+MAX_WRITE_DELAY_MS = 1000
+PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
 
 
 # ---------------------------------------------------------------------------
@@ -63,17 +64,37 @@ def _format_data(raw: bytes, fmt: str, encoding: str) -> dict[str, Any]:
     return {"data": raw.decode(encoding, errors="replace"), "format": "text", "encoding": encoding}
 
 
-def _parse_inter_char_delay(value: Any) -> int:
-    """Validate a character pacing delay in milliseconds."""
+def _parse_pacing_number(value: Any, name: str, maximum: int | None = None) -> int:
+    """Parse a non-negative integer used for write pacing."""
     if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise ValueError("inter_char_delay_ms must be an integer from 0 to 1000.")
+        raise ValueError(f"{name} must be a non-negative integer.")
     try:
-        delay_ms = int(value)
+        number = int(value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("inter_char_delay_ms must be an integer from 0 to 1000.") from exc
-    if not 0 <= delay_ms <= MAX_INTER_CHAR_DELAY_MS:
-        raise ValueError("inter_char_delay_ms must be between 0 and 1000 milliseconds.")
-    return delay_ms
+        raise ValueError(f"{name} must be a non-negative integer.") from exc
+    if number < 0 or (maximum is not None and number > maximum):
+        bound = f" from 0 to {maximum}" if maximum is not None else " greater than or equal to 0"
+        raise ValueError(f"{name} must be an integer{bound}.")
+    return number
+
+
+def _parse_write_pacing(
+    args: dict[str, Any], default: tuple[int, int, int] = (0, 0, 0)
+) -> tuple[int, int, int]:
+    """Return character delay, chunk size, and chunk delay for one write."""
+    if not any(key in args for key in PACING_KEYS):
+        return default
+
+    inter_char_delay_ms = _parse_pacing_number(
+        args.get("inter_char_delay_ms", 0), "inter_char_delay_ms", MAX_WRITE_DELAY_MS
+    )
+    chunk_size = _parse_pacing_number(args.get("chunk_size", 0), "chunk_size")
+    chunk_delay_ms = _parse_pacing_number(args.get("chunk_delay_ms", 0), "chunk_delay_ms", MAX_WRITE_DELAY_MS)
+    if (chunk_size == 0) != (chunk_delay_ms == 0):
+        raise ValueError("chunk_size and chunk_delay_ms must both be positive to enable chunk pacing.")
+    if inter_char_delay_ms and chunk_size:
+        raise ValueError("inter_char_delay_ms cannot be combined with chunk pacing.")
+    return inter_char_delay_ms, chunk_size, chunk_delay_ms
 
 
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
@@ -87,6 +108,8 @@ def _conn_config(conn: SerialConnection) -> dict[str, Any]:
         "timeout_ms": round(conn.timeout * 1000),
         "write_timeout_ms": round(conn.write_timeout * 1000),
         "inter_char_delay_ms": conn.inter_char_delay_ms,
+        "chunk_size": conn.chunk_size,
+        "chunk_delay_ms": conn.chunk_delay_ms,
         "encoding": conn.encoding,
         "newline": repr(conn.newline),
     }
@@ -161,8 +184,19 @@ TOOLS: list[Tool] = [
                     "default": 0,
                     "description": (
                         "Delay between transmitted characters in milliseconds (0 disables pacing; max 1000). "
-                        "Applies to serial.write and read/write PTY forwarding."
+                        "Applies to serial.write and read/write PTY forwarding. "
+                        "Cannot be combined with chunk pacing."
                     ),
+                },
+                "chunk_size": {
+                    "type": ["integer", "string"],
+                    "default": 0,
+                    "description": "Bytes per chunk in chunk pacing mode; set with chunk_delay_ms (0 disables).",
+                },
+                "chunk_delay_ms": {
+                    "type": ["integer", "string"],
+                    "default": 0,
+                    "description": "Delay after each drained chunk in milliseconds (0 disables; max 1000).",
                 },
                 "exclusive": {
                     "type": ["boolean", "string"],
@@ -242,7 +276,7 @@ TOOLS: list[Tool] = [
         name="serial.write",
         description=(
             "Write data to a serial port. Returns the number of bytes accepted by the host serial layer; "
-            "use inter_char_delay_ms to pace writes for a slow receiver."
+            "use inter_char_delay_ms or chunk_size with chunk_delay_ms to pace a slow receiver."
         ),
         inputSchema={
             "type": "object",
@@ -272,8 +306,16 @@ TOOLS: list[Tool] = [
                     "type": ["integer", "string"],
                     "description": (
                         "Override the connection's delay between transmitted characters in milliseconds "
-                        "for this write (0 disables pacing; max 1000)."
+                        "for this write (0 disables pacing; max 1000). Cannot be combined with chunk pacing."
                     ),
+                },
+                "chunk_size": {
+                    "type": ["integer", "string"],
+                    "description": "Override bytes per chunk for this write; set with chunk_delay_ms.",
+                },
+                "chunk_delay_ms": {
+                    "type": ["integer", "string"],
+                    "description": "Override delay after each drained chunk in milliseconds (max 1000).",
                 },
             },
             "required": ["connection_id", "data"],
@@ -477,7 +519,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     timeout_ms = int(args.get("timeout_ms", 200))
     write_timeout_ms = int(args.get("write_timeout_ms", 200))
     try:
-        inter_char_delay_ms = _parse_inter_char_delay(args.get("inter_char_delay_ms", 0))
+        inter_char_delay_ms, chunk_size, chunk_delay_ms = _parse_write_pacing(args)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
     exclusive = _coerce_bool(args["exclusive"]) if "exclusive" in args else None
@@ -521,7 +563,9 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     connection_id = state.generate_id()
     buf = SerialBuffer()
-    reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, inter_char_delay_ms)
+    reader = create_reader(
+        ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, inter_char_delay_ms, chunk_size, chunk_delay_ms
+    )
     reader.start()
 
     conn = SerialConnection(
@@ -537,6 +581,8 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         newline=newline,
         ser=ser,
         inter_char_delay_ms=inter_char_delay_ms,
+        chunk_size=chunk_size,
+        chunk_delay_ms=chunk_delay_ms,
         buffer=buf,
         reader=reader,
     )
@@ -608,10 +654,9 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     append_newline = _coerce_bool(args.get("append_newline", False))
     newline = args.get("newline", conn.newline)
     try:
-        inter_char_delay_ms = (
-            _parse_inter_char_delay(args["inter_char_delay_ms"])
-            if "inter_char_delay_ms" in args
-            else conn.inter_char_delay_ms
+        inter_char_delay_ms, chunk_size, chunk_delay_ms = _parse_write_pacing(
+            args,
+            (conn.inter_char_delay_ms, conn.chunk_size, conn.chunk_delay_ms),
         )
     except ValueError as exc:
         return _err("invalid_params", str(exc))
@@ -642,8 +687,8 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
         if lock is not None:
             lock.acquire()
         try:
-            n = write_serial_payload(conn.ser, payload, inter_char_delay_ms)
-            if not inter_char_delay_ms:
+            n = write_serial_payload(conn.ser, payload, inter_char_delay_ms, chunk_size, chunk_delay_ms)
+            if not inter_char_delay_ms and not chunk_size:
                 conn.ser.flush()
             return n
         finally:

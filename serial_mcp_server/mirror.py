@@ -116,20 +116,29 @@ def write_serial_payload(
     ser: Any,
     payload: bytes,
     inter_char_delay_ms: int = 0,
+    chunk_size: int = 0,
+    chunk_delay_ms: int = 0,
 ) -> int:
-    """Write bytes to a serial port, optionally pausing between drained characters."""
-    if not inter_char_delay_ms:
+    """Write bytes to a serial port, optionally pausing between drained segments."""
+    if inter_char_delay_ms:
+        write_size = 1
+        delay_ms = inter_char_delay_ms
+    elif chunk_size:
+        write_size = chunk_size
+        delay_ms = chunk_delay_ms
+    else:
         return ser.write(payload)
 
     n_written = 0
-    for index, byte in enumerate(payload):
-        n = ser.write(bytes((byte,)))
+    for offset in range(0, len(payload), write_size):
+        segment = payload[offset : offset + write_size]
+        n = ser.write(segment)
         n_written += n
         ser.flush()
-        if n != 1:
+        if n != len(segment):
             break
-        if index + 1 < len(payload):
-            time.sleep(inter_char_delay_ms / 1000.0)
+        if offset + write_size < len(payload):
+            time.sleep(delay_ms / 1000.0)
     return n_written
 
 
@@ -141,10 +150,14 @@ class ReaderThread:
         ser: Any,
         buffer: SerialBuffer,
         inter_char_delay_ms: int = 0,
+        chunk_size: int = 0,
+        chunk_delay_ms: int = 0,
     ) -> None:
         self.ser = ser
         self.buffer = buffer
         self.inter_char_delay_ms = inter_char_delay_ms
+        self.chunk_size = chunk_size
+        self.chunk_delay_ms = chunk_delay_ms
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.write_lock = threading.Lock()
@@ -219,8 +232,10 @@ class MirrorSession(ReaderThread):
         mode: str,
         link_path: str | None = None,
         inter_char_delay_ms: int = 0,
+        chunk_size: int = 0,
+        chunk_delay_ms: int = 0,
     ) -> None:
-        super().__init__(ser, buffer, inter_char_delay_ms)
+        super().__init__(ser, buffer, inter_char_delay_ms, chunk_size, chunk_delay_ms)
         self.mode = mode  # "ro" or "rw"
         self.link_path = link_path
 
@@ -312,6 +327,8 @@ class MirrorSession(ReaderThread):
                                     self.ser,
                                     pty_data,
                                     self.inter_char_delay_ms,
+                                    self.chunk_size,
+                                    self.chunk_delay_ms,
                                 )
                     except OSError:
                         pass  # PTY client disconnected.
@@ -362,13 +379,15 @@ def create_reader(
     mirror_mode: str,
     mirror_link_base: str | None,
     inter_char_delay_ms: int = 0,
+    chunk_size: int = 0,
+    chunk_delay_ms: int = 0,
 ) -> ReaderThread:
     """Create the appropriate reader for a serial connection.
 
     *mirror_mode*: ``"off"``, ``"ro"``, or ``"rw"``.
     """
     if mirror_mode == "off" or not _IS_UNIX:
-        return ReaderThread(ser, buffer, inter_char_delay_ms)
+        return ReaderThread(ser, buffer, inter_char_delay_ms, chunk_size, chunk_delay_ms)
 
     link_path: str | None = None
     mirror_index: int | None = None
@@ -382,6 +401,8 @@ def create_reader(
         mode=mirror_mode,
         link_path=link_path,
         inter_char_delay_ms=inter_char_delay_ms,
+        chunk_size=chunk_size,
+        chunk_delay_ms=chunk_delay_ms,
     )
     session._mirror_index = mirror_index
     return session
