@@ -10,7 +10,7 @@ from typing import Any
 
 import serial as pyserial
 import serial.tools.list_ports
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import MIRROR_PTY, MIRROR_PTY_LINK, _coerce_bool, _err, _ok
 from serial_mcp_server.mirror import SerialBuffer, create_reader, write_serial_payload
@@ -123,12 +123,15 @@ TOOLS: list[Tool] = [
     # ---- 1. list_ports ----
     Tool(
         name="serial.list_ports",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
         description="List available serial ports on the system.",
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
     # ---- 2. open ----
     Tool(
         name="serial.open",
+        # Opening a port can assert DTR/RTS and reset the target.
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Open a serial port connection. Returns a connection_id for use with other serial tools. "
             "The port stays open across tool calls until serial.close is called or the server exits. "
@@ -219,6 +222,7 @@ TOOLS: list[Tool] = [
     # ---- 3. close ----
     Tool(
         name="serial.close",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description="Close a serial port connection and release the port.",
         inputSchema={
             "type": "object",
@@ -231,6 +235,7 @@ TOOLS: list[Tool] = [
     # ---- 4. connection_status ----
     Tool(
         name="serial.connection_status",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="Check whether a serial connection is still open and return its configuration.",
         inputSchema={
             "type": "object",
@@ -241,8 +246,10 @@ TOOLS: list[Tool] = [
         },
     ),
     # ---- 5. read ----
+    # Reads consume bytes from the shared buffer, so they are not read-only.
     Tool(
         name="serial.read",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Read up to nbytes from a serial port. Returns immediately with whatever data "
             "is available within the timeout. Use serial.readline or serial.read_until for "
@@ -274,6 +281,7 @@ TOOLS: list[Tool] = [
     # ---- 6. write ----
     Tool(
         name="serial.write",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Write data to a serial port. Returns the number of bytes accepted by the host serial layer; "
             "use inter_char_delay_ms or chunk_size with chunk_delay_ms to pace a slow receiver."
@@ -324,6 +332,7 @@ TOOLS: list[Tool] = [
     # ---- 7. readline ----
     Tool(
         name="serial.readline",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Read a line from the serial port (reads until the newline character is received "
             "or max_bytes is reached). Uses the connection's newline setting by default."
@@ -358,6 +367,7 @@ TOOLS: list[Tool] = [
     # ---- 8. read_until ----
     Tool(
         name="serial.read_until",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Read from the serial port until a delimiter string is received or max_bytes is reached."
         ),
@@ -392,6 +402,7 @@ TOOLS: list[Tool] = [
     # ---- 9. flush ----
     Tool(
         name="serial.flush",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description="Flush serial port buffers (discard pending input/output data).",
         inputSchema={
             "type": "object",
@@ -410,6 +421,7 @@ TOOLS: list[Tool] = [
     # ---- 10. set_dtr ----
     Tool(
         name="serial.set_dtr",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description="Set the DTR (Data Terminal Ready) control line. Usage is device-specific — check the protocol spec or ask the user.",
         inputSchema={
             "type": "object",
@@ -423,6 +435,7 @@ TOOLS: list[Tool] = [
     # ---- 11. set_rts ----
     Tool(
         name="serial.set_rts",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description="Set the RTS (Request To Send) control line. Usage is device-specific — check the protocol spec or ask the user.",
         inputSchema={
             "type": "object",
@@ -436,6 +449,7 @@ TOOLS: list[Tool] = [
     # ---- 12. pulse_dtr ----
     Tool(
         name="serial.pulse_dtr",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Pulse the DTR line: sets low, waits duration_ms, then sets high. "
             "Commonly used to reset microcontrollers (e.g. Arduino, ESP32). "
@@ -457,6 +471,7 @@ TOOLS: list[Tool] = [
     # ---- 13. pulse_rts ----
     Tool(
         name="serial.pulse_rts",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Pulse the RTS line: sets low, waits duration_ms, then sets high. "
             "Some devices use RTS to enter bootloader mode. "

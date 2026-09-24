@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server import specs
 from serial_mcp_server.helpers import _err, _ok
@@ -17,6 +17,7 @@ from serial_mcp_server.state import SerialState
 TOOLS: list[Tool] = [
     Tool(
         name="serial.spec.template",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Return a markdown template for a new serial protocol spec. Optionally pre-fill with a device name."
         ),
@@ -33,6 +34,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.register",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
         description=(
             "Register a spec file in the index. Validates YAML front-matter "
             "(requires kind: serial-protocol and name). The file path can be "
@@ -51,6 +53,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.list",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="List all registered specs with their metadata and matching hints.",
         inputSchema={
             "type": "object",
@@ -60,6 +63,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.attach",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
         description=(
             "Attach a registered spec to a connection session (in-memory only). "
             "The spec will be available via serial.spec.get for the duration of this connection. "
@@ -81,6 +85,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.get",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="Get the attached spec for a connection (returns null if none attached).",
         inputSchema={
             "type": "object",
@@ -92,6 +97,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.read",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="Read full spec content, file path, and metadata by spec_id.",
         inputSchema={
             "type": "object",
@@ -103,6 +109,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.search",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Full-text search over a spec's content. Returns matching snippets "
             "with line numbers and surrounding context."
