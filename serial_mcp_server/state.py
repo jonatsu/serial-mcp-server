@@ -36,6 +36,8 @@ class SerialConnection:
     newline: str
     ser: pyserial.Serial
     inter_char_delay_ms: int = 0
+    chunk_size: int = 0
+    chunk_delay_ms: int = 0
     buffer: SerialBuffer = field(default_factory=SerialBuffer)
     reader: ReaderThread | None = None
     opened_at: float = field(default_factory=time.time)

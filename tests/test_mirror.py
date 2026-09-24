@@ -209,6 +209,48 @@ def test_character_pacing_stops_after_a_short_write():
     sleep.assert_not_called()
 
 
+def test_chunk_delay_starts_after_output_buffer_drains_without_trailing_wait():
+    events = []
+    ser = MagicMock()
+
+    def record_write(data):
+        events.append(("write", data))
+        return len(data)
+
+    ser.write.side_effect = record_write
+    ser.flush.side_effect = lambda: events.append(("flush",))
+    with patch(
+        "serial_mcp_server.mirror.time.sleep",
+        side_effect=lambda seconds: events.append(("sleep", seconds)),
+    ):
+        n_written = write_serial_payload(ser, b"ABCDE", chunk_size=2, chunk_delay_ms=5)
+
+    assert n_written == 5
+    assert events == [
+        ("write", b"AB"),
+        ("flush",),
+        ("sleep", 0.005),
+        ("write", b"CD"),
+        ("flush",),
+        ("sleep", 0.005),
+        ("write", b"E"),
+        ("flush",),
+    ]
+
+
+def test_chunk_pacing_stops_after_a_short_write():
+    ser = MagicMock()
+    ser.write.return_value = 1
+
+    with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        n_written = write_serial_payload(ser, b"ABCDE", chunk_size=2, chunk_delay_ms=5)
+
+    assert n_written == 1
+    ser.write.assert_called_once_with(b"AB")
+    ser.flush.assert_called_once_with()
+    sleep.assert_not_called()
+
+
 class TestReaderThread:
     def test_data_flows_to_buffer(self):
         buf = SerialBuffer()
@@ -311,6 +353,35 @@ class TestMirrorSession:
 
         assert forwarded == [b"A", b"B", b"C", b"D", b"E"]
         assert [call.args[0] for call in sleep.call_args_list] == [0.001] * 4
+
+    def test_rw_forwards_using_connection_chunk_pacing(self):
+        serial_read_fd, serial_write_fd = os.pipe()
+        ser = MagicMock()
+        ser.baudrate = 115200
+        ser.fileno.return_value = serial_read_fd
+        forwarded = []
+        finished = threading.Event()
+
+        def record_write(data):
+            forwarded.append(data)
+            if sum(map(len, forwarded)) == 5:
+                finished.set()
+            return len(data)
+
+        ser.write.side_effect = record_write
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            mirror = MirrorSession(ser, SerialBuffer(), mode="rw", chunk_size=2, chunk_delay_ms=1)
+            try:
+                mirror.start()
+                os.write(mirror._slave_fd, b"ABCDE")
+                assert finished.wait(timeout=1)
+            finally:
+                mirror.stop()
+                os.close(serial_read_fd)
+                os.close(serial_write_fd)
+
+        assert forwarded == [b"AB", b"CD", b"E"]
+        assert [call.args[0] for call in sleep.call_args_list] == [0.001] * 2
 
     def test_symlink_creation(self, tmp_path):
         link = str(tmp_path / "testlink")

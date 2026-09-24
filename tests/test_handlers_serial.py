@@ -131,7 +131,23 @@ class TestOpen:
 
         assert result["ok"]
         assert result["config"]["inter_char_delay_ms"] == 8
-        assert make_reader.call_args.args[-1] == 8
+        assert make_reader.call_args.args[-3:] == (8, 0, 0)
+
+    async def test_open_with_chunk_pacing(self, serial_state, mock_serial, mock_reader):
+        with (
+            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader) as make_reader,
+        ):
+            result = await handle_open(
+                serial_state,
+                {"port": "/dev/ttyUSB0", "chunk_size": 3, "chunk_delay_ms": 5},
+            )
+
+        assert result["ok"]
+        assert result["config"]["inter_char_delay_ms"] == 0
+        assert result["config"]["chunk_size"] == 3
+        assert result["config"]["chunk_delay_ms"] == 5
+        assert make_reader.call_args.args[-3:] == (0, 3, 5)
 
     @pytest.mark.parametrize(
         "delay",
@@ -145,6 +161,24 @@ class TestOpen:
     )
     async def test_open_rejects_invalid_character_delay(self, delay):
         result = await handle_open(SerialState(), {"port": "/dev/ttyUSB0", "inter_char_delay_ms": delay})
+        assert not result["ok"]
+        assert result["error"]["code"] == "invalid_params"
+
+    @pytest.mark.parametrize(
+        "pacing",
+        [
+            {"chunk_size": 3},
+            {"chunk_delay_ms": 5},
+            {"chunk_size": 0, "chunk_delay_ms": 5},
+            {"chunk_size": 3, "chunk_delay_ms": 0},
+            {"chunk_size": -1, "chunk_delay_ms": 5},
+            {"chunk_size": 3, "chunk_delay_ms": -1},
+            {"chunk_size": 3, "chunk_delay_ms": 1001},
+            {"inter_char_delay_ms": 8, "chunk_size": 3, "chunk_delay_ms": 5},
+        ],
+    )
+    async def test_open_rejects_invalid_chunk_pacing(self, pacing):
+        result = await handle_open(SerialState(), {"port": "/dev/ttyUSB0", **pacing})
         assert not result["ok"]
         assert result["error"]["code"] == "invalid_params"
 
@@ -278,6 +312,18 @@ class TestWrite:
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
         assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
 
+    async def test_write_with_connection_chunk_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.chunk_size = 2
+        conn.chunk_delay_ms = 5
+        conn.ser.write.side_effect = len
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(state, {"connection_id": "s1", "data": "ABCDE"})
+
+        assert result["bytes_written"] == 5
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"AB", b"CD", b"E"]
+        assert [call.args[0] for call in sleep.call_args_list] == [0.005, 0.005]
+
     async def test_write_with_per_call_character_delay_override(self, connected_entry):
         state, conn = connected_entry
         conn.inter_char_delay_ms = 2
@@ -291,6 +337,40 @@ class TestWrite:
         assert result["bytes_written"] == 3
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
         assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
+
+    async def test_write_with_per_call_chunk_override_from_character_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.inter_char_delay_ms = 8
+        conn.ser.write.side_effect = len
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(
+                state,
+                {
+                    "connection_id": "s1",
+                    "data": "ABCDEFG",
+                    "chunk_size": 3,
+                    "chunk_delay_ms": 5,
+                },
+            )
+
+        assert result["bytes_written"] == 7
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"ABC", b"DEF", b"G"]
+        assert [call.args[0] for call in sleep.call_args_list] == [0.005, 0.005]
+
+    async def test_write_zero_override_disables_connection_chunk_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.chunk_size = 2
+        conn.chunk_delay_ms = 5
+        conn.ser.write.return_value = 5
+        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+            result = await handle_write(
+                state,
+                {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
+            )
+
+        assert result["bytes_written"] == 5
+        conn.ser.write.assert_called_once_with(b"ABCDE")
+        sleep.assert_not_called()
 
     async def test_write_zero_character_delay_disables_connection_pacing(self, connected_entry):
         state, conn = connected_entry
@@ -322,6 +402,26 @@ class TestWrite:
             state,
             {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": delay},
         )
+        assert not result["ok"]
+        assert result["error"]["code"] == "invalid_params"
+        conn.ser.write.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "pacing",
+        [
+            {"chunk_size": 3},
+            {"chunk_delay_ms": 5},
+            {"chunk_size": 0, "chunk_delay_ms": 5},
+            {"chunk_size": 3, "chunk_delay_ms": 0},
+            {"chunk_size": -1, "chunk_delay_ms": 5},
+            {"chunk_size": 3, "chunk_delay_ms": -1},
+            {"chunk_size": 3, "chunk_delay_ms": 1001},
+            {"inter_char_delay_ms": 8, "chunk_size": 3, "chunk_delay_ms": 5},
+        ],
+    )
+    async def test_write_rejects_invalid_chunk_pacing(self, connected_entry, pacing):
+        state, conn = connected_entry
+        result = await handle_write(state, {"connection_id": "s1", "data": "ABCDE", **pacing})
         assert not result["ok"]
         assert result["error"]["code"] == "invalid_params"
         conn.ser.write.assert_not_called()

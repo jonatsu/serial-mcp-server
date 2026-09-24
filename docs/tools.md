@@ -53,6 +53,8 @@ Open a serial port connection. Returns a `connection_id` for use with other tool
   "timeout_ms": 200,
   "write_timeout_ms": 200,
   "inter_char_delay_ms": 0,
+  "chunk_size": 0,
+  "chunk_delay_ms": 0,
   "encoding": "utf-8",
   "newline": "\r\n"
 }
@@ -62,6 +64,8 @@ Only `port` is required. All other parameters have defaults.
 
 Set `inter_char_delay_ms` from 0 to 1000 to pause between transmitted characters. The default is `0` (no pacing).
 This connection setting applies to `serial.write` and writes forwarded through a read/write PTY mirror.
+Alternatively, set both `chunk_size` and `chunk_delay_ms` to positive values to pause after each chunk drains.
+Only one pacing mode may be active. Both chunk settings default to `0`.
 
 Returns:
 
@@ -79,6 +83,8 @@ Returns:
     "timeout_ms": 200,
     "write_timeout_ms": 200,
     "inter_char_delay_ms": 0,
+    "chunk_size": 0,
+    "chunk_delay_ms": 0,
     "encoding": "utf-8",
     "newline": "'\\r\\n'"
   },
@@ -144,8 +150,11 @@ Write data to a serial port.
 - `as`: `"text"` (default), `"hex"`, or `"base64"` — how to interpret the `data` string
 - `append_newline`: append the connection's newline (`\r\n` by default) after data
 - `inter_char_delay_ms`: optional delay between transmitted characters, from 0 to 1000 milliseconds.
+- `chunk_size` and `chunk_delay_ms`: optional positive byte count and delay in milliseconds, up to 1000 ms. Both must be set to use chunk pacing.
 
-A write uses the connection's delay unless it supplies `inter_char_delay_ms`. Set the value to `0` on a write to disable pacing for that call.
+A write uses the connection's pacing settings unless it specifies any pacing option. A per-write option replaces the complete connection pacing mode. Set `inter_char_delay_ms` to `0` on a write to disable pacing for that call. Character and chunk pacing cannot both be active.
+
+For example, `{"connection_id": "s1a2b3c4", "data": "AT+VERSION", "chunk_size": 4, "chunk_delay_ms": 8}` writes at most four bytes per chunk, with an 8 ms pause after each drained chunk except the last.
 
 `bytes_written` counts bytes accepted by the host serial layer. It does not confirm that the receiving device got them.
 A delay of 8 ms per character can help receivers that overrun during long writes, at the cost of longer write times.
