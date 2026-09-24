@@ -4,6 +4,8 @@ All tools return structured JSON:
 `{ "ok": true, ... }` on success,
 `{ "ok": false, "error": { "code": "...", "message": "..." } }` on failure.
 
+Built-in tools provide MCP tool annotations so clients can classify their behavior. These are hints; each client decides whether to use a tool automatically or request approval. Serial read tools consume the shared buffer, so they are not marked read-only. Plugin tools keep the annotations supplied by their authors.
+
 ---
 
 ## Serial Core

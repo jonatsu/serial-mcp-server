@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import Server
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import _err, _ok
 from serial_mcp_server.plugins import PluginManager
@@ -99,6 +99,7 @@ def _suggest_plugin_path(plugins_dir: Path, device_name: str | None = None) -> P
 TOOLS: list[Tool] = [
     Tool(
         name="serial.plugin.list",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "List loaded plugins with their tool names and metadata. "
             "Each plugin may include a 'meta' dict with matching hints like "
@@ -116,6 +117,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.plugin.reload",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Hot-reload a plugin by name. Re-imports the module and refreshes tools. "
             "Requires SERIAL_MCP_PLUGINS env var to be set."
@@ -133,6 +135,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.plugin.template",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Return a Python plugin template. Use this when creating a new plugin. "
             "Optionally pre-fill with a device name. Save the result to "
@@ -152,6 +155,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.plugin.load",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
             "Load a new plugin from a file or directory path. Requires SERIAL_MCP_PLUGINS env var to be set."
         ),

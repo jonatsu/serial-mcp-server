@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import _ok
 from serial_mcp_server.state import SerialState
@@ -16,6 +16,7 @@ from serial_mcp_server.state import SerialState
 TOOLS: list[Tool] = [
     Tool(
         name="serial.connections.list",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "List all open serial connections with their status, port, configuration, "
             "and timestamps. Useful for recovering connection IDs after context loss."

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import _ok
 from serial_mcp_server.state import SerialState
@@ -17,6 +17,7 @@ from serial_mcp_server.trace import get_trace_buffer
 TOOLS: list[Tool] = [
     Tool(
         name="serial.trace.status",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="Return tracing config and event count.",
         inputSchema={
             "type": "object",
@@ -26,6 +27,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.trace.tail",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description="Return last N trace events (default 50).",
         inputSchema={
             "type": "object",
