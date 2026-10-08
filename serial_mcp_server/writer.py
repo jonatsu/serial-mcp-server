@@ -8,11 +8,14 @@ a slow paced write cannot delay receiving.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 from collections import deque
 from concurrent.futures import Future, InvalidStateError
 from dataclasses import dataclass, field
 from typing import Any
+
+import serial as pyserial
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -50,6 +53,22 @@ class Pacing:
     def is_paced(self) -> bool:
         return bool(self.inter_char_delay_ms or self.chunk_size)
 
+    @property
+    def segment_size(self) -> int:
+        """Bytes per write; character pacing is chunk pacing with a chunk of 1. Zero when unpaced."""
+        return 1 if self.inter_char_delay_ms else self.chunk_size
+
+    @property
+    def segment_delay_ms(self) -> int:
+        return self.inter_char_delay_ms or self.chunk_delay_ms
+
+    def estimated_seconds(self, payload_size: int) -> float:
+        """Upper-bound pacing time for *payload_size* bytes: segments times the delay."""
+        if not self.is_paced:
+            return 0.0
+        segments = math.ceil(payload_size / self.segment_size)
+        return segments * self.segment_delay_ms / 1000.0
+
 
 NO_PACING = Pacing()
 
@@ -65,6 +84,16 @@ class WriteJob:
     cancel: threading.Event = field(default_factory=threading.Event)
 
 
+def _write_segment(ser: Any, segment: bytes, bytes_before: int) -> int:
+    """Write one segment, turning a pyserial write timeout into ``WriteAborted``."""
+    try:
+        return ser.write(segment)
+    except pyserial.SerialTimeoutException as exc:
+        # n_written counts completed segments only, so it is a lower bound:
+        # the host may have accepted part of this segment.
+        raise WriteAborted(f"Write timed out after {bytes_before} byte(s): {exc}", bytes_before) from exc
+
+
 def write_serial_payload(
     ser: Any, payload: bytes, pacing: Pacing, cancel: threading.Event | None = None
 ) -> int:
@@ -74,27 +103,25 @@ def write_serial_payload(
         The number of bytes the port accepted.
 
     Raises:
-        WriteAborted: *cancel* was set before the payload was fully sent.
+        WriteAborted: *cancel* was set, or the port timed out, before the payload
+            was fully sent. ``bytes_written`` counts completed segments.
     """
-    if pacing.inter_char_delay_ms:
-        write_size, delay_ms = 1, pacing.inter_char_delay_ms
-    elif pacing.chunk_size:
-        write_size, delay_ms = pacing.chunk_size, pacing.chunk_delay_ms
-    else:
-        return ser.write(payload)
+    if not pacing.is_paced:
+        return _write_segment(ser, payload, bytes_before=0)
 
     cancel = cancel or threading.Event()
+    size, delay_s = pacing.segment_size, pacing.segment_delay_ms / 1000.0
     n_written = 0
-    for offset in range(0, len(payload), write_size):
+    for offset in range(0, len(payload), size):
         if cancel.is_set():
             raise WriteAborted("Write cancelled.", n_written)
-        segment = payload[offset : offset + write_size]
-        n = ser.write(segment)
+        segment = payload[offset : offset + size]
+        n = _write_segment(ser, segment, n_written)
         n_written += n
         ser.flush()
         if n != len(segment):
             break
-        if offset + write_size < len(payload) and cancel.wait(delay_ms / 1000.0):
+        if offset + size < len(payload) and cancel.wait(delay_s):
             raise WriteAborted("Write cancelled.", n_written)
     return n_written
 

@@ -165,6 +165,8 @@ Returns `{ "ok": true, "message": "Wrote 12 byte(s) to /dev/ttyUSB0.", "bytes_wr
 
 Writes to one connection run in order on a single writer thread, so concurrent writes and mirror input never interleave within a payload. If the connection closes while a write is queued, the call returns the error code `connection_closed`. If a write stops early because `serial.flush` discarded it, or because the connection closed mid-write, the call returns the error code `write_aborted` and a `bytes_written` count. Cancelling the request stops a paced write between segments and returns no result.
 
+A paced write is rejected with `invalid_params` before any byte is sent when its estimated duration, the number of segments times the delay, exceeds `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60). Time spent queued behind other writes is not counted. A write timeout partway through returns `write_aborted` with `bytes_written` set to the bytes of completed segments, which is a lower bound because the host may have accepted part of the failed segment.
+
 ### serial.readline
 
 Read a line from the serial port (reads until the newline character is received or `max_bytes` is reached). Uses the connection's newline setting by default.

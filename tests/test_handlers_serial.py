@@ -7,6 +7,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
+import serial as pyserial
 
 from serial_mcp_server.handlers_serial import (
     HANDLERS,
@@ -679,3 +680,76 @@ class TestWriterIntegration:
         assert queued_result["error"]["code"] == "write_aborted"
         assert queued_result["bytes_written"] == 0
         assert port.writes == [b"first"]
+
+
+class TestWriteDurationCap:
+    async def test_write_over_the_cap_is_rejected_before_any_byte_is_sent(self, connected_entry, monkeypatch):
+        state, conn = connected_entry
+        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "1")
+
+        result = await handle_write(
+            state, {"connection_id": "s1", "data": "A" * 200, "inter_char_delay_ms": 8}
+        )
+
+        assert result["error"]["code"] == "invalid_params"
+        assert "1.6 s" in result["error"]["message"]
+        assert "1 s cap" in result["error"]["message"]
+        conn.ser.write.assert_not_called()
+
+    async def test_write_at_the_cap_is_accepted(self, connected_entry, monkeypatch):
+        state, conn = connected_entry
+        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "0.016")
+        conn.ser.write.side_effect = len
+
+        with patch.object(threading.Event, "wait", return_value=False):
+            result = await handle_write(
+                state, {"connection_id": "s1", "data": "AB", "inter_char_delay_ms": 8}
+            )
+
+        assert result["bytes_written"] == 2
+
+    async def test_default_cap_allows_7500_characters_at_8_ms(self, connected_entry, monkeypatch):
+        state, conn = connected_entry
+        monkeypatch.delenv("SERIAL_MCP_MAX_WRITE_SECONDS", raising=False)
+        conn.ser.write.side_effect = len
+
+        with patch.object(threading.Event, "wait", return_value=False):
+            result = await handle_write(
+                state, {"connection_id": "s1", "data": "A" * 7500, "inter_char_delay_ms": 8}
+            )
+
+        assert result["bytes_written"] == 7500
+
+    @pytest.mark.parametrize("raw", ["abc", "0", "-5", "nan", "inf"])
+    async def test_invalid_cap_falls_back_to_the_default(self, connected_entry, monkeypatch, raw):
+        state, conn = connected_entry
+        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", raw)
+
+        result = await handle_write(
+            state, {"connection_id": "s1", "data": "A" * 7501, "inter_char_delay_ms": 8}
+        )
+
+        assert result["error"]["code"] == "invalid_params"
+        assert "60 s cap" in result["error"]["message"]
+
+    async def test_timeout_mid_write_reports_bytes_written(self, connected_entry):
+        state, conn = connected_entry
+        conn.ser.write.side_effect = [2, 2, pyserial.SerialTimeoutException("write timeout")]
+
+        with patch.object(threading.Event, "wait", return_value=False):
+            result = await handle_write(
+                state,
+                {"connection_id": "s1", "data": "ABCDEFGH", "chunk_size": 2, "chunk_delay_ms": 1},
+            )
+
+        assert result["error"]["code"] == "write_aborted"
+        assert result["bytes_written"] == 4
+
+    async def test_unpaced_write_ignores_a_bad_cap(self, connected_entry, monkeypatch):
+        state, conn = connected_entry
+        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "nan")
+        conn.ser.write.return_value = 3
+
+        result = await handle_write(state, {"connection_id": "s1", "data": "abc"})
+
+        assert result["bytes_written"] == 3
