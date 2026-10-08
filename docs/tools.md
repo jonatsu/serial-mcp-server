@@ -135,7 +135,9 @@ Check whether a serial connection is still open and return its configuration.
 { "connection_id": "s1a2b3c4" }
 ```
 
-Returns `{ "ok": true, "is_open": true, "config": { ... }, "buffered_bytes": 0 }`. Includes `mirror` when active.
+Returns `{ "ok": true, "is_open": true, "config": { ... }, "buffered_bytes": 0, "dropped_bytes": 0 }`. Includes `mirror` when active and `log` when logging.
+
+`dropped_bytes` counts received bytes the 1 MiB read buffer discarded because nothing read them in time. A value above zero means earlier output is lost, so read more often. Each drop also records a `buffer_drop` event in the port log.
 
 ### serial.configure
 
@@ -231,6 +233,7 @@ Flush serial port buffers (discard pending data).
 ```
 
 `what` can be `"input"`, `"output"`, or `"both"` (default).
+Flushing output also cancels writes still queued; they return `write_aborted`.
 
 ### serial.set_dtr
 
@@ -265,6 +268,54 @@ Pulse the RTS line: sets low, waits `duration_ms`, then sets high. Some devices 
 ```json
 { "connection_id": "s1a2b3c4", "duration_ms": 100 }
 ```
+
+---
+
+## Port Log
+
+These tools start, stop, inspect, and annotate the port log of an open connection. `serial.open` can also start a log at open time; its section describes the formats, file names, and what each file holds.
+
+### serial.log.start
+
+Start recording the connection's bytes on the wire in new files.
+
+```json
+{ "connection_id": "s1a2b3c4", "log_formats": ["text", "jsonl"], "log_text_timestamps": "elapsed" }
+```
+
+Only `connection_id` is required. The formats default to `SERIAL_MCP_LOG_FORMATS`, then `text`. The first `jsonl` event is `open`, with the connection's configuration. A connection that is already logging returns `already_logging`; call `serial.log.stop` first. If the files cannot be created, the call returns `log_failed`.
+
+Returns `{ "ok": true, "log": { "formats": [...], "files": { "text": "<path>" }, "entries": 0, "dropped_bytes": 0 } }`.
+
+### serial.log.stop
+
+Flush and close the log files. The connection stays open, and a later `serial.log.start` begins new files.
+
+```json
+{ "connection_id": "s1a2b3c4" }
+```
+
+Returns `{ "ok": true, "files": [{ "format": "text", "path": "<path>", "bytes": 1234 }], "entries": 12, "dropped_bytes": 0 }`. A connection that is not logging returns `not_logging`.
+
+### serial.log.status
+
+Report whether the connection is logging.
+
+```json
+{ "connection_id": "s1a2b3c4" }
+```
+
+Returns `{ "ok": true, "logging": false }`, or, while logging, `logging: true` with `formats`, `files`, `entries`, and `dropped_bytes`. `entries` counts logged chunks and events; `dropped_bytes` counts bytes lost because the disk fell behind.
+
+### serial.log.mark
+
+Write a labelled marker into the log between the surrounding traffic, for example at the start of a test step.
+
+```json
+{ "connection_id": "s1a2b3c4", "label": "step 2: boot" }
+```
+
+The `jsonl` format records `{"event": "mark", "label": "step 2: boot"}` and the `lines` format records the same event. The `text` and `raw` files stay byte-identical to the received data. A connection that is not logging returns `not_logging`.
 
 ---
 

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 from serial_mcp_server.portlog_formats import (
+    CLOSE_EVENT,
     FORMATS,
     KIND_EVENT,
     KIND_OVERFLOW,
@@ -267,7 +268,7 @@ class PortLogSlot:
         """Record a ``close`` event, then flush and close the log if one is active."""
         log = self.detach()
         if log is not None:
-            log.event("close")
+            log.event(CLOSE_EVENT)
             log.close()
 
 
@@ -337,6 +338,15 @@ def resolve_log_request(
         log = formats is not None or os.environ.get(ENV_LOG, "").strip().lower() in _TRUE_VALUES
     if not log:
         return None
+    return build_log_request(formats, text_timestamps)
+
+
+def build_log_request(formats: Any = None, text_timestamps: Any = None) -> LogRequest:
+    """Build a request for a log that is definitely wanted, filling gaps from the environment.
+
+    Raises:
+        ValueError: A format list or the timestamp mode is invalid.
+    """
     if formats is not None:
         names = parse_formats(formats, "log_formats")
     else:

@@ -4,6 +4,7 @@
 
 ### Added
 - Port log: set `SERIAL_MCP_LOG=1`, or pass `log` or `log_formats` to `serial.open`, to record the bytes on the wire in `text` (received bytes unchanged, with optional `grabserial`-style timestamps), `jsonl` (both directions plus control events), `lines` (one entry per line, with partial prompts flagged), and `raw` (received bytes, byte-exact) files under `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`). Off by default; files are mode `0600`. See [docs/tools.md](docs/tools.md#serialopen).
+- `serial.log.start`, `serial.log.stop`, `serial.log.status`, and `serial.log.mark` start, stop, inspect, and annotate the port log of an open connection. `serial.connection_status` now reports `dropped_bytes`, the received bytes the read buffer discarded because nothing read them, and each drop is recorded as a `buffer_drop` event in the port log.
 - `serial.configure` changes write pacing, encoding, and newline on an open connection without reopening it, which avoids a DTR or RTS toggle that can reset the device.
 - `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced write; longer writes are rejected with `invalid_params` before any byte is sent.
 

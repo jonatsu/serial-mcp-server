@@ -52,6 +52,7 @@ The dispatcher in `server.py` catches common exceptions (KeyError, SerialExcepti
 2. Write the handler function following the signature above
 3. Add the mapping to the `HANDLERS` dict
 4. Add tests in the corresponding `test_*.py`
+5. Keep the text the MCP client sees in step with the behavior: the tool `description` and each property `description` in the `Tool(...)` definition. Change them in the same commit as any change to what a tool does, accepts, returns, or fails with. Write them as instructions for the agent: lead with the trigger ("Use it when the user asks to ..."), state each fact once, phrase the target behavior positively, and share a schema between tools rather than copying it.
 
 Tool names follow the convention `serial.<action>` for core tools (e.g., `serial.read`, `serial.open`) and `serial.<category>.<action>` for subsystems (e.g., `serial.spec.read`, `serial.plugin.reload`).
 

@@ -14,6 +14,7 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any
 
@@ -41,6 +42,9 @@ if _IS_UNIX:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_BUFFER_BYTES = 1_048_576  # 1 MiB
+
+
 class SerialBuffer:
     """Thread-safe byte buffer with blocking reads.
 
@@ -48,23 +52,34 @@ class SerialBuffer:
     read from it.
     """
 
-    def __init__(self, max_size: int = 1_048_576) -> None:
+    def __init__(
+        self, max_size: int = DEFAULT_BUFFER_BYTES, on_drop: Callable[[int], None] | None = None
+    ) -> None:
         self._buf = bytearray()
         self._lock = threading.Lock()
         self._cond = threading.Condition(self._lock)
         self._max_size = max_size
+        self._on_drop = on_drop
+        self._dropped_bytes = 0
 
     def write(self, data: bytes) -> None:
-        """Append data to the buffer and wake any waiting readers."""
+        """Append data to the buffer and wake any waiting readers.
+
+        When the buffer exceeds its limit, the oldest bytes are dropped and counted, and
+        ``on_drop`` is called with the count after the lock is released.
+        """
         if not data:
             return
+        excess = 0
         with self._cond:
             self._buf.extend(data)
-            # Trim from the front if we exceed max size (drop oldest data).
             if len(self._buf) > self._max_size:
                 excess = len(self._buf) - self._max_size
                 del self._buf[:excess]
+                self._dropped_bytes += excess
             self._cond.notify_all()
+        if excess and self._on_drop is not None:
+            self._on_drop(excess)
 
     def read(self, nbytes: int, timeout: float) -> bytes:
         """Read up to *nbytes*, blocking until data arrives or *timeout* expires."""
@@ -108,6 +123,12 @@ class SerialBuffer:
         """Discard all buffered data."""
         with self._lock:
             self._buf.clear()
+
+    @property
+    def dropped_bytes(self) -> int:
+        """Bytes discarded because the buffer was full and nothing read them in time."""
+        with self._lock:
+            return self._dropped_bytes
 
     @property
     def available(self) -> int:
