@@ -11,6 +11,7 @@ uv.lock
 serial_mcp_server/_version.py
 .serial_mcp/index.json
 .serial_mcp/traces/
+.serial_mcp/logs/
 coverage.md
 .coverage
 .DS_Store

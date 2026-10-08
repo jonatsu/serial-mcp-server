@@ -876,3 +876,36 @@ says "already submitted". `clean-code-reviewer`: added a docstring to `_is_text_
 codecs that raise `UnicodeError`, and removed a trailing blank line. Declined: merging the pacing property schemas
 shared by `serial.open`, `serial.write`, and `serial.configure`, because it rewrites existing tool schemas outside
 this unit. Noted, not changed: `serial.open` does not validate `encoding` or `newline`.
+
+### Unit 4: Port Log Pipeline with Text and JSONL Formats
+
+Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `python-error-handling`,
+`python-testing`, and a `security-auditor` pass for the path and file-opening code (P2's `security-review`).
+
+P1 results: 377 tests passed on three consecutive runs, `ruff check` clean, `ruff format --check` clean on
+`serial_mcp_server` and `tests`, `bandit` clean.
+
+Reviews. `code-reviewer` (Opus, medium effort): the `log` and `log_formats` schema entries were nested inside the
+`newline` property, so clients never saw them (fixed, with a schema test); the `open` event could follow bytes a
+device sends at startup (now logged before the threads start); a failure creating the reader leaked the log and
+the port (all setup now sits in one try/finally); and the jsonl `text` field ignored a later `serial.configure`
+encoding (it now follows the `configure` event). `clean-code-reviewer`: shared `_FileWriter` base, the
+`serial.open` format enum generated from `FORMATS`, `LOG_FILE_PREFIX`, shared test helper in `tests/helpers.py`.
+Declined: extracting a helper from `handle_open`, which is long but now cleanly structured around one try/finally.
+`security-auditor`: no path traversal, symlink, or injection defect; no agent value reaches a path or file name.
+Fixed: `serial.open` now rejects an unusable `encoding` before opening the port, which also stops a bytes-to-bytes
+codec from silently disabling the jsonl log; the disk thread now closes its own files, so a stuck thread leaks no
+descriptors; a failed format closes its file.
+
+Open items for the user, not changed because each needs a design decision beyond the accepted plan:
+
+- An agent can enable logging and choose formats, and nothing caps a log's size or the number of log files. A
+  chatty device with `jsonl` (about four times the raw bytes) can fill the disk, and 1,000 opens in one minute
+  exhaust the running-number names. Possible fixes are an operator cap on bytes per file and per directory, and an
+  operator switch that makes the environment authoritative.
+- The queue limit counts payload bytes only, so a stalled disk lets many tiny entries and events use more memory
+  than 8 MiB.
+- The default directory, `<spec root>/logs/`, can sit inside another project's tree, where `.gitignore` does not
+  cover it. A per-user state directory would avoid that.
+- `mkdir` sets mode `0700` only on the leaf directory it creates and never tightens an existing one. File contents
+  stay private because files are `0600`.

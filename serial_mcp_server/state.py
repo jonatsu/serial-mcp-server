@@ -12,6 +12,7 @@ from typing import Any
 import serial as pyserial
 
 from serial_mcp_server.mirror import ReaderThread, SerialBuffer
+from serial_mcp_server.portlog import PortLogSlot
 from serial_mcp_server.writer import SerialWriter
 
 logger = logging.getLogger("serial_mcp_server")
@@ -43,6 +44,11 @@ class SerialConnection:
     opened_at: float = field(default_factory=time.time)
     last_seen_ts: float = field(default_factory=time.time)
     spec: dict[str, Any] | None = None
+
+    @property
+    def log_slot(self) -> PortLogSlot:
+        """The port log holder shared with this connection's writer and reader."""
+        return self.writer.log_slot
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +103,7 @@ class SerialState:
 
 
 def stop_connections(conns: list[SerialConnection]) -> None:
-    """Signal every connection's threads before joining any, then close the ports."""
+    """Signal every connection's threads before joining any, then close the logs and ports."""
     for conn in conns:
         conn.writer.stop()
         if conn.reader is not None:
@@ -109,6 +115,10 @@ def stop_connections(conns: list[SerialConnection]) -> None:
                 conn.reader.join()
             except Exception:
                 logger.warning("Reader for %s did not stop cleanly.", conn.port, exc_info=True)
+        try:
+            conn.log_slot.close_log()
+        except Exception:
+            logger.warning("Closing the port log for %s failed.", conn.port, exc_info=True)
         try:
             if conn.ser.is_open:
                 conn.ser.close()
