@@ -1,6 +1,6 @@
 # Write Pacing, Port Logging, and Script Input Implementation Plan
 
-Status: proposed. No implementation has run.
+Status: accepted by the user on 8 October 2026, after plan-critic review. No implementation has run.
 Basis: `main` at `bceb725` (feat(mcp): require SDK 1.30 and annotate tools), the pacing review of commits `690b8a6`
 and `fcf1d72`, the decisions recorded in [Design Basis](#design-basis), and the
 [script runner design](script-runner-design.md) for units 8 to 12.
