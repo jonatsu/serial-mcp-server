@@ -2,7 +2,8 @@
 
 Status: proposed. No implementation has run.
 Basis: `main` at `bceb725` (feat(mcp): require SDK 1.30 and annotate tools), the pacing review of commits `690b8a6`
-and `fcf1d72`, and the decisions recorded in [Design Basis](#design-basis).
+and `fcf1d72`, the decisions recorded in [Design Basis](#design-basis), and the
+[script runner design](script-runner-design.md) for units 8 to 12.
 Execution record: [Execution Record](#execution-record) at the end of this plan; the repository has no other tracker.
 
 ## Implementation Overview
@@ -11,7 +12,7 @@ This plan delivers three capabilities in order. Write pacing never stalls the re
 bytes the port sends and receives, and marks any gap. File input feeds a device from text files for automated
 tests. Each capability depends on the one before it. The port log records transmitted bytes where they leave the
 host. That single exit point exists only after the pacing work moves all writes onto one writer thread. File input
-and scripts then use the log's markers and the live reconfiguration tool, so a test run reads back step by step.
+and scripts then write through that writer and record into the port log, so a test run reads back step by step.
 
 The pacing work comes first because it fixes a defect. In read/write mirror mode, the thread that reads the port
 also forwards data typed into the mirror terminal, and it now paces that forwarding. A 4 KiB paste at 8 ms per
@@ -27,9 +28,14 @@ flowchart LR
     U4 --> U6[6. Runtime log tools and drop visibility]
     U2 --> U7[7. serial.send_file]
     U4 --> U7
-    U3 --> U8[8. Script runner, blocked on design]
-    U6 --> U8
-    U7 --> U8
+    U7 --> U8[8. Script parser]
+    U4 --> U9[9. Output matcher]
+    U8 --> U10[10. Script engine and results]
+    U9 --> U10
+    U10 --> U11[11. MCP script tools]
+    U6 --> U11
+    U3 --> U11
+    U10 --> U12[12. Command-line runner]
 ```
 
 Units 4 to 6 could run beside units 2 and 3 once unit 1 lands. Sequential ownership is still the default, because
@@ -55,7 +61,7 @@ flowchart LR
 ## Design Basis
 
 No separate design document exists. The decisions below come from the review of the pacing commits and the
-user's direction on that review, and they govern every unit. Unit 8 is the exception: its design is not settled.
+user's direction on that review, and they govern units 1 to 7. The script runner design governs units 8 to 12.
 
 ### Pacing
 
@@ -122,8 +128,8 @@ the port; `serial.open` and `serial.log.status` return each connection's log pat
 operator-controlled directory, because a free path would let an agent send any readable file, such as an SSH key,
 out over the serial line.
 
-The script runner, which interprets a text file as a sequence of commands and expectations, has no settled design.
-Unit 8 records what that design must decide.
+The script runner interprets a text file as a sequence of commands and expectations. Its
+[design](script-runner-design.md) governs units 8 to 12.
 
 ## Shared Preflight
 
@@ -526,7 +532,9 @@ pacing overrides, and submits the file's bytes to the writer like `serial.write`
 strictly inside `SERIAL_MCP_FILES_DIR` (new, default `<spec root>/files/`), checked as `PluginManager.load()`
 checks plugin paths in `serial_mcp_server/plugins.py`. That check also accepts the directory itself, so add two
 checks before reading. The target must be a regular file by `stat.S_ISREG`, because a FIFO would hang the read.
-Its size from `stat` must not exceed 1 MiB, the existing `MAX_READ_BYTES`.
+Its size from `stat` must not exceed 1 MiB, the existing `MAX_READ_BYTES`. Put this check in a new module,
+`serial_mcp_server/paths.py`, as `resolve_confined_file(root, relative, max_bytes)`. The module imports nothing
+from `mcp`, because the script engine in units 8 to 12 reuses it and must stay free of MCP imports.
 
 Without pacing, submit the file in 4 KiB segments with no delay, so cancellation and `bytes_written` work as they
 do for paced writes. Estimate an unpaced transfer's duration from the baud rate at ten bits per byte. The unit 2
@@ -547,25 +555,241 @@ the path checks.
 - An oversize file and a file whose estimate exceeds the cap are refused before any byte is written.
 - With the port log active, the transfer's `tx` entries sit between its start and end events.
 
-## Unit 8: Script Runner (Blocked on Design)
+## Script Runner Units
 
-The script runner turns a text file into commands and expectations for automated tests. It cannot be planned until
-a design settles these questions. Route them to `technical-design`, and resume this unit when the design is
-accepted:
+Units 8 to 12 realize the [script runner design](script-runner-design.md). The design owns the script language,
+the matching model, run states, the tool contracts, and the CLI behavior; these units cite its sections rather
+than restating them. The engine lives in a new package, `serial_mcp_server/script/`, with no MCP import, so the
+MCP tools (unit 11) and the command-line runner (unit 12) share it.
 
-- Syntax: a line-oriented, expect-style language or a structured YAML format. The expect-style candidate has
-  `send`, `sendline`, `expect <regex> [timeout]`, `fail_on`, `sleep`, `pulse_dtr`, `configure`, and `mark`, with
-  bare lines meaning `sendline`. The choice decides how test authors write and diff scripts.
-- Reading model: whether `expect` consumes the shared `SerialBuffer`, as `serial.read_until` does, or reads a
-  separate stream so the agent's reads and the script do not compete.
-- Line pacing: whether waiting for a prompt or echo after each line belongs in the script language or in the
-  writer as a pacing mode.
-- Execution: scripts can outlast an MCP request, so the runner likely needs a background job with
-  `serial.script.status` and `serial.script.cancel`. The design must say how results and failures are reported.
-- Headless use: whether the interpreter is a library that `tools/serial_cli.py` can run in CI without an agent.
-- Safety: the script language has no shell escape, and scripts load from a confined directory like unit 7's.
+The units add these practices to the shared preflight. Load `python-architecture` before creating the package and
+the console entry point. Name every `argparse` option with hyphen-joined words, as the Python rules require.
+Apply `security-review` to units 8 and 11, which parse untrusted script text and resolve agent-supplied paths.
+Dispatch `code-reviewer` with `model: opus` for units 9, 10, and 11, which add threads, waits, and cancellation.
 
-Units 3, 6, and 7 provide the configure, mark, and file-sending primitives a script would call.
+## Unit 8: Script Parser
+
+### Outcome and Rationale
+
+Script text and variables become a validated list of steps, or a complete list of errors with line numbers, before
+anything touches a port. This is the design's guarantee that nothing is sent before the whole script parses
+(design sections 6.1 and 8.1).
+
+### Changes
+
+Add `serial_mcp_server/script/parser.py` with `parse(source, vars, files_dir)`. It classifies each line as the
+design's table in section 8.1 describes, substitutes `{{NAME}}` variables before splitting directive arguments
+with `shlex` in POSIX mode, and escapes values with `re.escape` inside pattern arguments. It decodes the escapes
+of `@send`, `@sendline`, and `@newline`, parses durations, and resolves `@send_file` paths with unit 7's path
+check. Each step keeps its line number and source text. Errors are collected, not raised one at a time, so an
+author sees every problem in one pass; `ScriptSyntaxError` carries them all.
+
+Add `docs/scripts.md`, a reference for the script language: line forms, every directive, durations, variables,
+the matching model, and the echo pitfall from design section 8.2. Keep the directive table in one module
+constant, `DIRECTIVES`, which the parser uses for dispatch and unit 11's `serial.script.template` returns. A test
+keeps the Markdown reference in step with that constant.
+
+### Dependencies and Constraints
+
+Depends on unit 7's `resolve_confined_file` in `serial_mcp_server/paths.py` for `@send_file`, which rejects
+non-regular files at parse time. The parser is pure apart from that file-system check, and it must never open a
+port.
+
+### Verification and Completion
+
+Add `tests/test_script_parser.py`:
+
+- Every directive in design section 8.1 parses to its step, including `--timeout`, `--off`, and `--clear` forms.
+- A bare line is sent exactly as written; `@@x` sends `@x`; blank lines and `#` comments produce no step.
+- `{{IP}}` substitutes in bare lines and arguments, is escaped inside patterns, and an undefined name is an
+  error at its line. `${loadaddr}` passes through unchanged.
+- A bare number as a duration, an unknown directive, an unbalanced quote, and a `@send_file` path outside the
+  files directory are each reported with their line, and a script with three errors reports all three.
+- Every directive name in `DIRECTIVES` appears in `docs/scripts.md`, and the document names no other directive.
+- Each step keeps the source text before substitution, so `setenv serverip {{SERVER_IP}}` is recorded unchanged.
+
+## Unit 9: Output Matcher
+
+### Outcome and Rationale
+
+A run can wait for device output without competing with the agent's reads, and the reader thread never evaluates
+a pattern (design section 8.2, decision D3).
+
+### Changes
+
+Add `serial_mcp_server/script/matcher.py` with `OutputMatcher`. `feed(data)` runs on the reader thread, so it only
+decodes with an incremental decoder, appends to the window, and notifies the condition. `close()` records end of
+stream, and `interrupt()` wakes a waiter without data; both notify the condition. `wait(deadline)` blocks on the
+condition until new text, end of stream, an interrupt, or the deadline. Searching belongs to the runner (unit 10):
+the matcher exposes the unconsumed text from the cursor, a method that moves the cursor, and the text received
+since the last fail-pattern check with its 256-character overlap. The window drops its oldest unconsumed text past
+1 MiB and counts the drop. `discard()` empties it.
+
+Extend `ReaderThread._deliver` from unit 4 with subscribers that receive each chunk after the buffer and the port
+log. Store them as a tuple replaced under a lock on subscribe and unsubscribe, so the reader thread iterates a
+snapshot while the runner thread changes the set. `subscribe()` returns the function that removes the subscriber.
+When the reader thread stops after repeated errors, it calls `close()` on each subscriber.
+
+### Dependencies and Constraints
+
+Depends on unit 4's `_deliver` seam. A subscriber's exception must not stop the reader thread or the other
+subscribers: catch it, log it at warning level, remove that subscriber, and call its `close()` with the error so
+its run ends `errored` (design section 6.4).
+
+### Verification and Completion
+
+Add `tests/test_script_matcher.py`, using events rather than sleeps:
+
+- Consuming through a match leaves only the later text, so two expects for one string need two occurrences.
+- The fail-pattern view includes the 256-character overlap, so a pattern split across two `feed` calls is found.
+- A multibyte UTF-8 character split across chunks decodes correctly.
+- `wait` returns on `feed`, on `close`, on `interrupt`, and at its deadline.
+- Feeding more than 1 MiB without consuming keeps the window at 1 MiB and reports the exact drop count.
+- Subscribing and unsubscribing while another thread feeds never raises or skips the other subscriber.
+- A subscriber that raises is removed and closed with the error; the reader thread and `serial.read` continue.
+- A reader that stops after repeated errors closes its subscribers.
+- With a `MirrorSession` and a subscriber, `serial.read` still receives every byte the matcher receives.
+
+## Unit 10: Script Engine and Results
+
+### Outcome and Rationale
+
+A parsed script runs to a definite state, passed, failed, errored, or cancelled, against any `PortSession`, and
+produces the result structure and file of design section 8.3.
+
+### Changes
+
+Add `serial_mcp_server/script/session.py` with the `PortSession` protocol from design section 5.2, and
+`serial_mcp_server/script/runner.py` with `ScriptRunner` and `RunResult`. The runner executes steps on its own
+thread as design sections 6.1 to 6.4 describe, applying run-scoped settings, the prompt wait after bare lines and
+`@sendline`, the per-step timeout, and the `SERIAL_MCP_SCRIPT_MAX_SECONDS` limit. `snapshot()` returns the
+current status for unit 11 without blocking the runner.
+
+The run has one stop event. `cancel()` sets it and calls `matcher.interrupt()`. Expect, the prompt wait, and
+`@sleep` all loop on `matcher.wait(deadline)`; after each wake the runner checks the stop event, end of stream,
+and the fail patterns over the matcher's new text, then searches for its own pattern. A fail-pattern hit sets the
+stop event with the reason `fail_pattern`, so it ends a wait at once. Writes pass the stop event to the writer
+job, so a paced write ends between segments on cancel or on a fail-pattern hit noticed by an earlier wake. A
+`WriterClosed` error from a closed connection ends the run `cancelled`.
+
+`RunResult.to_json()` produces the structure in design section 8.3. Step text is the source text before
+substitution, and the variable list holds names only. A result writer names the file
+`serial-mcp-script-<DDMMYYYY>-<HHMM>[-n].json` with unit 4's naming and opening rules.
+
+### Dependencies and Constraints
+
+Depends on units 8 and 9, unit 2's cancellable writer jobs, and unit 4's naming and file rules. The engine
+package must not import `mcp`, directly or through `helpers.py` and `handlers_serial.py`, which both do.
+
+### Verification and Completion
+
+Add `tests/test_script_runner.py` with a fake `PortSession` that answers each sent line from a table, the way
+`examples/demo-device/pty_server.py` answers commands:
+
+- The design's example script, with the fake device answering correctly, ends `passed` with one record per step.
+- A missing answer ends `failed` at the right line with the reason `timeout` and the trailing output.
+- A fail pattern arriving in the middle of a 60-second `@sleep` ends the run within one wake with the reason
+  `fail_pattern`.
+- Cancel during an expect, a sleep, and a paced write each ends `cancelled` within one wake or segment.
+- A write that raises a serial error ends `errored`; a matcher closed for end of stream ends `errored`; a writer
+  that raises `WriterClosed` ends `cancelled`.
+- A run past the maximum duration fails with `max_duration`.
+- The result file and `snapshot()` show `{{NAME}}` in step text and no variable value in the variable list, and
+  the file name follows the numbering rule.
+- In a fresh interpreter, importing `serial_mcp_server.script` leaves `mcp` out of `sys.modules`.
+
+## Unit 11: MCP Script Tools
+
+### Outcome and Rationale
+
+The agent can run, watch, cancel, list, and learn scripts through MCP, and a running script owns its connection's
+writes (design section 5.3, decisions D4, D5, and D6).
+
+### Changes
+
+Add `serial_mcp_server/handlers_script.py` with the five tools of design section 5.3 and register it in
+`build_server()`. Add `ScriptJobs` to `SerialState` for claims, active runs, and the last 20 results. Add
+`ConnectionSession`, which adapts a `SerialConnection` to `PortSession` through its writer, port log slot, and
+reader.
+
+`serial.script.run` resolves `path` under `SERIAL_MCP_SCRIPTS_DIR` with unit 7's checks, or takes `source` up to
+256 KiB, parses, claims, starts the runner, and waits up to `wait_ms` with `asyncio` so the event loop stays free.
+When `log` is true and no port log is active, the run starts one in the default formats and stops it at the end.
+
+Make the tools listed in design section 5.3 return `script_running` while a claim is held, by one check helper
+that each of those handlers calls first. Keep the check inside the handlers, not in `_call_tool` in
+`serial_mcp_server/server.py`, because plugins call `handle_write` directly (`handlers_plugin.py`) and must be
+rejected too.
+
+`serial.script.cancel` and `serial.close` cancel a run and wait up to five seconds off the event loop; a runner
+still alive after that is handled as design section 6.3 describes. `SerialState.shutdown` sets every run's stop
+event without waiting, because `server.py` allows shutdown only 0.25 seconds, then runs unit 1's signal-all and
+join-all sequence. Document the tools in `docs/tools.md`, the new environment variables in `README.md`, and link
+`docs/scripts.md` from both.
+
+### Dependencies and Constraints
+
+Depends on unit 10, unit 6's log tools and unit 3's `serial.configure` (both on the rejection list), and unit 7's
+path checks. The claim must be released on every exit path, including an exception inside the runner.
+
+### Verification and Completion
+
+Extend `tests/test_server.py` and add `tests/test_handlers_script.py`:
+
+- `serial.script.run` with a parse error returns every error and sends nothing to the mock port.
+- During a run, each tool on the rejection list returns `script_running`, while `serial.read`,
+  `serial.connection_status`, and `serial.log.mark` succeed.
+- A second run on the same connection is rejected; a run on another connection proceeds.
+- `wait_ms` returns the full result for a short script, and `serial.script.status` reports the same result later.
+- `serial.close` during a run ends it `cancelled` and releases the claim; a runner that raises also releases it.
+- A plugin tool that calls `handle_write` during a run gets `script_running`.
+- `serial.script.cancel` ends a running script `cancelled`; with a runner held past five seconds, it returns
+  `cancel_requested: true`, and the claim is released once the runner returns.
+- `serial.script.status` with a `connection_id` returns that connection's latest run.
+- `serial.script.list` returns each script's size and first comment line, and `serial.script.template` returns the
+  `DIRECTIVES` reference.
+- A run with `log` defaulted starts and stops a port log in the default formats, `log_formats` changes them, and a
+  log already active is left running.
+- `SerialState.shutdown` with an active run returns within its 0.25-second budget and leaves the run `cancelled`.
+- `path` values with `../`, an absolute path, and a FIFO are refused.
+
+## Unit 12: Command-Line Runner
+
+### Outcome and Rationale
+
+A CI job runs a script without an agent and reads the outcome from the exit status and the result file (design
+section 6.5, decision D8).
+
+### Changes
+
+Add `serial_mcp_server/script_cli.py` and the console entry point `serial_mcp_script` in `pyproject.toml`, next
+to `serial_mcp`. It parses `SCRIPT`, `--port`, `--baud`, repeated `--var NAME=VALUE`, `--log-format`, `--no-log`,
+`--log-dir`, `--files-dir`, and `--result`. It prints progress to stderr and exits with the codes in design
+section 6.5.
+
+Extract the stack setup from `handle_open` into an `mcp`-free function, `open_port_stack()` in
+`serial_mcp_server/port_stack.py`, that builds the `SerialWriter`, the reader, and the `PortLogSlot` for an open
+port. `handle_open` and the CLI both call it, so the CLI never imports the MCP handlers.
+
+The main thread waits on the runner with `done.wait(0.2)` in a loop, so Python can deliver SIGINT between waits.
+On `KeyboardInterrupt`, it cancels the run, waits for the runner's teardown, writes the result file, and exits
+130.
+
+### Dependencies and Constraints
+
+Depends on unit 10 directly, and through it on units 1, 2, 4, and 7, whose writer, cancellable jobs, port log,
+and path checks the CLI uses. The CLI accepts any script path, because it runs with the operator's authority, but
+`@send_file` still resolves inside the files directory (design section 8.4). Mark the subprocess PTY tests
+POSIX-only, as `tests/test_mirror.py` marks its PTY tests.
+
+### Verification and Completion
+
+Add `tests/test_script_cli.py`, running the CLI in a subprocess against a PTY pair whose other end answers like
+the demo device:
+
+- A passing script exits 0 and writes a result file that matches the unit 10 structure.
+- A failing script exits 1, and a parse error or a missing port exits 2 with a message and no traceback.
+- SIGINT during a long `@sleep` exits 130 and records `cancelled`.
 
 ## Final Integration
 
@@ -575,12 +799,19 @@ against a pseudo-terminal device. Start `examples/demo-device/pty_server.py`. St
 
 - a 4 KiB paste into the mirror terminal at 8 ms per character does not delay device output in `serial.read`;
 - the `jsonl`, `text`, `lines`, and `raw` files agree on the received bytes and the line boundaries;
-- `serial.send_file` with chunk pacing appears in the log as paced `tx` segments between its marks; and
-- a server started without the new variables creates no log files.
+- `serial.send_file` with chunk pacing appears in the log as paced `tx` segments between its start and end events;
+- a script that sends `version` and `ping` and expects their answers at the `> ` prompt passes through
+  `serial.script.run`, and the same script passes through `serial_mcp_script`, with result files of the same
+  structure;
+- the same script with a wrong expected answer fails at that line, and the port log holds the device's output
+  (the demo device does not echo input, so the echo pitfall in the design's section 8.2 stays covered only by unit
+  10's fake device); and
+- a server started without the new variables creates no log files outside script runs.
 
 A `code-reviewer` dispatched with `model: opus` reviews the combined diff for cross-unit correctness. Separately,
-dispatch a fresh reviewer whose brief names `conformance-review` and supplies this plan, its Design Basis as the
-governing design, and the base revision `bceb725` and the head revision. There is no separate spec, so the
+dispatch a fresh reviewer whose brief names `conformance-review` and supplies this plan, its Design Basis and the
+[script runner design](script-runner-design.md) as the governing designs, and the base revision `bceb725` and the
+head revision. There is no separate spec, so the
 conformance review reports that as a coverage limit. Both reviews record their findings in the execution record,
 and both close before integration does. Merging and pushing require the user's authorization.
 
