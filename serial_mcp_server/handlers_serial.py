@@ -33,7 +33,14 @@ from serial_mcp_server.portlog_formats import (
     is_text_encoding,
 )
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
-from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
+from serial_mcp_server.writer import (
+    MAX_PACING_DELAY_MS,
+    NO_PACING,
+    Pacing,
+    SerialWriter,
+    WriteAborted,
+    WriterClosed,
+)
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -64,7 +71,7 @@ BYTESIZE_MAP = {
 
 # Maximum read size to prevent accidental huge allocations.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
-MAX_WRITE_DELAY_MS = 1000
+MAX_WRITE_DELAY_MS = MAX_PACING_DELAY_MS
 BITS_PER_BYTE_ON_WIRE = 10  # start bit, 8 data bits, stop bit
 PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
 

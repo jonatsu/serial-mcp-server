@@ -817,7 +817,7 @@ and both close before integration does. Merging and pushing require the user's a
 
 ## Execution Record
 
-No results have been recorded. For each unit, record the branch and commit, applied guidance, the P1 command
+For each unit, record its branch and commit, applied guidance, P1 command and results, reviewer findings with their disposition, and any authorized deviation from this plan.
 
 ### Unit 1: Writer Thread per Connection
 
@@ -841,7 +841,6 @@ Deviations. Unit 1 pulled forward from unit 2 the cancel event, `WriteAborted`, 
 timeout-exception mapping, and chunk-size-1 refactor remain in unit 2. The old pacing tests moved to
 `tests/test_writer.py` in this unit, because `write_serial_payload` moved. `handle_close` removes the connection on
 the event loop and joins threads in `asyncio.to_thread`, instead of running `close_connection` in the thread.
-results, reviewer findings with their disposition, and any authorized deviation from this plan.
 
 ### Unit 2: Bounded, Cancellable Paced Writes
 
@@ -992,3 +991,21 @@ Open items for the user:
 - Separate from this unit, the security audit noted that `specs.register_spec` reads any file under the project root
   that has valid front-matter and returns its content. If "the agent cannot read anything else" should hold
   project-wide, that channel needs its own review.
+
+### Unit 8: Script Parser
+
+Committed on `feat/pacing-logging-scripts` as `feat(script): add validated script parser`. Guidance applied: `coding-standards`, `python-style`, `python-error-handling`, `python-architecture`, `python-testing`, `test-driven-development`, `python-async-patterns`, `writing-documentation`, and `writing-for-humans`. Unit 8 adds no asynchronous path.
+
+P1 results: `uv run --extra test python -m pytest tests -q` passed with 563 tests. `uv run --with ruff ruff check .` passed. The targeted format check passed with 44 files already formatted. The Bandit command exited successfully and printed manager warnings about comment words not being test names or ids. The focused parser suite passed with 33 tests, and direct parser smokes confirmed pulse-line and timeout variable expansion.
+
+Reviews: `code-reviewer` and `clean-code-reviewer` approved after fixes.
+
+Review findings are fixed. `@pulse` now expands its line name. Invalid chunk sizes become collected syntax errors. `@expect --timeout` now expands variables. The send-file test asserts its resolved path, and the regex test detects missing escaping.
+
+Regression tests failed before the pulse, chunk-size, and timeout fixes, then passed. The user waived a dedicated security review. The Bandit gate still ran.
+
+Deviations from design: variables are substituted after argument splitting, so values with spaces or quotes remain one argument. Text escapes are decoded before substitution, so backslashes in values remain literal.
+
+`@send`, `@sendline`, `@sendhex`, `@newline`, and `@mark` take the rest of the line without quote processing.
+
+Bare lines preserve leading whitespace. Only column-zero `@` starts a directive. `@@` sends a line beginning with `@`. `\xHH` is a Unicode code point encoded with the connection's encoding.

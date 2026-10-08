@@ -26,6 +26,7 @@ SOURCE_MCP = "mcp"
 SOURCE_MIRROR = "mirror"
 
 JOIN_TIMEOUT_S = 3.0
+MAX_PACING_DELAY_MS = 1000  # longest pause between segments that a pacing setting may ask for
 
 
 class WriterClosed(Exception):

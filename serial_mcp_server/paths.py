@@ -16,6 +16,7 @@ from serial_mcp_server.specs import resolve_spec_root
 ENV_FILES_DIR = "SERIAL_MCP_FILES_DIR"
 FILES_DIR_NAME = "files"
 READ_CHUNK_BYTES = 64 * 1024
+MAX_CONFINED_FILE_BYTES = 1_048_576  # 1 MiB; a confined file is held in memory whole
 
 # O_BINARY keeps Windows from translating line endings; the others are absent on some platforms.
 _OPEN_FLAGS = (
