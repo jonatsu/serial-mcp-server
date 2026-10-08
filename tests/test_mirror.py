@@ -17,6 +17,7 @@ from serial_mcp_server.mirror import (
     SerialBuffer,
     create_reader,
 )
+from serial_mcp_server.script.matcher import OutputMatcher
 from serial_mcp_server.writer import Pacing, SerialWriter
 
 # MirrorSession is Unix-only
@@ -197,6 +198,29 @@ class TestReaderThread:
         reader = ReaderThread(ser, buf)
         assert reader.mirror_info() is None
 
+    def test_delivers_to_subscriber_after_log_and_buffer(self):
+        buffer = SerialBuffer()
+        events = []
+
+        class LogSlot:
+            def rx(self, data):
+                events.append(("log", data))
+
+        class Subscriber:
+            def feed(self, data):
+                events.append(("subscriber", data, buffer.available))
+
+            def close(self, error=None):
+                pass
+
+        reader = ReaderThread(MagicMock(), buffer, LogSlot())
+        reader.subscribe(Subscriber())
+
+        reader._deliver(b"hello")
+
+        assert events == [("log", b"hello"), ("subscriber", b"hello", 5)]
+        assert buffer.read(5, timeout=0.01) == b"hello"
+
 
 # ---------------------------------------------------------------------------
 # MirrorSession (Unix only)
@@ -265,6 +289,39 @@ class TestMirrorSession:
         mirror.stop()
         # PTY fds are closed, no error expected
         assert not mirror.alive
+
+    def test_repeated_serial_errors_close_subscribers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        read_fd, write_fd = os.pipe()
+        os.write(write_fd, b"data")
+
+        class FailedPort:
+            port = "mirror-test-port"
+            baudrate = 115200
+
+            def fileno(self) -> int:
+                return read_fd
+
+            @property
+            def in_waiting(self) -> int:
+                raise OSError("device unavailable")
+
+        monkeypatch.setattr(ReaderThread, "_MAX_CONSECUTIVE_ERRORS", 2)
+        port = FailedPort()
+        mirror = MirrorSession(port, SerialBuffer(), writer=SerialWriter(port), mode="ro")
+        matcher = OutputMatcher("utf-8")
+        mirror.subscribe(matcher)
+        _ = matcher.snapshot()
+        mirror.start()
+
+        try:
+            stream_closed = matcher.wait(time.monotonic() + 1.0)
+        finally:
+            mirror.stop()
+            os.close(read_fd)
+            os.close(write_fd)
+
+        assert stream_closed
+        assert matcher.closed
 
 
 # ---------------------------------------------------------------------------

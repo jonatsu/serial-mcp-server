@@ -16,7 +16,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future
-from typing import Any
+from typing import Any, Protocol
 
 from serial_mcp_server.portlog import PortLogSlot
 from serial_mcp_server.writer import SOURCE_MIRROR, SerialWriter, WriterClosed
@@ -142,6 +142,12 @@ class SerialBuffer:
 # ---------------------------------------------------------------------------
 
 
+class _ReaderSubscriber(Protocol):
+    def feed(self, data: bytes) -> None: ...
+
+    def close(self, error: Exception | None = None) -> None: ...
+
+
 class ReaderThread:
     """Background thread that continuously reads from a serial port into a buffer."""
 
@@ -151,6 +157,9 @@ class ReaderThread:
         self.log_slot = log_slot if log_slot is not None else PortLogSlot()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._subscribers: tuple[_ReaderSubscriber, ...] = ()
+        self._subscribers_lock = threading.Lock()
+        self._subscriber_stream_ended = False
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True, name="serial-reader")
@@ -173,6 +182,43 @@ class ReaderThread:
     @property
     def alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def subscribe(self, subscriber: _ReaderSubscriber) -> Callable[[], None]:
+        """Subscribe to received chunks and return a function that removes the subscriber."""
+        with self._subscribers_lock:
+            if self._subscriber_stream_ended:
+                close_now = True
+            else:
+                self._subscribers = (*self._subscribers, subscriber)
+                close_now = False
+        if close_now:
+            self._close_subscriber(subscriber)
+
+        def unsubscribe() -> None:
+            self._remove_subscriber(subscriber)
+
+        return unsubscribe
+
+    def _remove_subscriber(self, subscriber: _ReaderSubscriber) -> None:
+        with self._subscribers_lock:
+            self._subscribers = tuple(current for current in self._subscribers if current is not subscriber)
+
+    def _close_subscriber(self, subscriber: _ReaderSubscriber, error: Exception | None = None) -> None:
+        try:
+            if error is None:
+                subscriber.close()
+            else:
+                subscriber.close(error)
+        except Exception as exc:
+            logger.warning("Reader subscriber close for %s failed: %s", self.ser.port, exc, exc_info=True)
+
+    def _close_subscribers(self) -> None:
+        with self._subscribers_lock:
+            self._subscriber_stream_ended = True
+            subscribers = self._subscribers
+            self._subscribers = ()
+        for subscriber in subscribers:
+            self._close_subscriber(subscriber)
 
     _MAX_CONSECUTIVE_ERRORS = 10
 
@@ -199,13 +245,29 @@ class ReaderThread:
                     logger.warning(
                         "Reader thread for %s stopping after %d consecutive errors.", self.ser.port, errors
                     )
+                    self._close_subscribers()
+
                     break
                 time.sleep(0.1)
 
     def _deliver(self, data: bytes) -> None:
-        """Record received bytes in the port log, then the buffer. Every reader calls this once per chunk."""
+        """Record each chunk before delivering it to the current subscribers."""
+        with self._subscribers_lock:
+            subscribers = self._subscribers
         self.log_slot.rx(data)
         self.buffer.write(data)
+        for subscriber in subscribers:
+            try:
+                subscriber.feed(data)
+            except Exception as exc:
+                logger.warning(
+                    "Reader subscriber for %s failed and was removed: %s",
+                    self.ser.port,
+                    exc,
+                    exc_info=True,
+                )
+                self._remove_subscriber(subscriber)
+                self._close_subscriber(subscriber, exc)
 
     def _on_data(self, data: bytes) -> None:
         """Called when data arrives from the serial port. Override to tee; call ``_deliver`` once."""
@@ -299,6 +361,8 @@ class MirrorSession(ReaderThread):
 
     def _run(self) -> None:
         ser_fd = self.ser.fileno()
+        select_errors = 0
+        serial_errors = 0
 
         while not self._stop.is_set():
             try:
@@ -306,8 +370,18 @@ class MirrorSession(ReaderThread):
             except (OSError, ValueError):
                 if self._stop.is_set():
                     break
+                select_errors += 1
+                if select_errors >= self._MAX_CONSECUTIVE_ERRORS:
+                    logger.warning(
+                        "Mirror reader for %s stopping after %d consecutive select errors.",
+                        self.ser.port,
+                        select_errors,
+                    )
+                    self._close_subscribers()
+                    return
                 time.sleep(0.1)
                 continue
+            select_errors = 0
 
             for fd in readable:
                 if fd == ser_fd:
@@ -319,7 +393,18 @@ class MirrorSession(ReaderThread):
                     except Exception:
                         if self._stop.is_set():
                             return
+                        serial_errors += 1
+                        if serial_errors >= self._MAX_CONSECUTIVE_ERRORS:
+                            logger.warning(
+                                "Mirror reader for %s stopping after %d consecutive serial errors.",
+                                self.ser.port,
+                                serial_errors,
+                            )
+                            self._close_subscribers()
+                            return
                         time.sleep(0.1)
+                    else:
+                        serial_errors = 0
 
                 elif fd == self._master_fd:
                     try:
