@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -11,6 +12,7 @@ from typing import Any
 import serial as pyserial
 
 from serial_mcp_server.mirror import ReaderThread, SerialBuffer
+from serial_mcp_server.writer import SerialWriter
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -35,9 +37,7 @@ class SerialConnection:
     encoding: str
     newline: str
     ser: pyserial.Serial
-    inter_char_delay_ms: int = 0
-    chunk_size: int = 0
-    chunk_delay_ms: int = 0
+    writer: SerialWriter
     buffer: SerialBuffer = field(default_factory=SerialBuffer)
     reader: ReaderThread | None = None
     opened_at: float = field(default_factory=time.time)
@@ -89,33 +89,28 @@ class SerialState:
             )
         return self.connections.pop(connection_id)
 
-    def close_connection(self, connection_id: str) -> dict[str, Any]:
-        """Close and remove a connection. Idempotent on already-closed ports."""
-        conn = self.remove_connection(connection_id)
-        # Stop the background reader first (cleans up PTY if mirror is active).
+    async def shutdown(self) -> None:
+        """Stop all readers and writers and close all open serial ports."""
+        conns = list(self.connections.values())
+        self.connections.clear()
+        await asyncio.to_thread(stop_connections, conns)
+
+
+def stop_connections(conns: list[SerialConnection]) -> None:
+    """Signal every connection's threads before joining any, then close the ports."""
+    for conn in conns:
+        conn.writer.stop()
+        if conn.reader is not None:
+            conn.reader.signal_stop()
+    for conn in conns:
+        conn.writer.join()
         if conn.reader is not None:
             try:
-                conn.reader.stop()
+                conn.reader.join()
             except Exception:
-                pass
+                logger.warning("Reader for %s did not stop cleanly.", conn.port, exc_info=True)
         try:
             if conn.ser.is_open:
                 conn.ser.close()
         except Exception:
-            pass
-        return {"connection_id": connection_id, "port": conn.port}
-
-    async def shutdown(self) -> None:
-        """Stop all readers and close all open serial ports."""
-        for conn in list(self.connections.values()):
-            if conn.reader is not None:
-                try:
-                    conn.reader.stop()
-                except Exception:
-                    pass
-            try:
-                if conn.ser.is_open:
-                    conn.ser.close()
-            except Exception:
-                pass
-        self.connections.clear()
+            logger.warning("Closing %s failed.", conn.port, exc_info=True)

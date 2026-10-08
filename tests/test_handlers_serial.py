@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,6 +27,7 @@ from serial_mcp_server.handlers_serial import (
     handle_write,
 )
 from serial_mcp_server.state import SerialState
+from serial_mcp_server.writer import Pacing, SerialWriter
 
 
 class TestToolRegistration:
@@ -131,7 +134,7 @@ class TestOpen:
 
         assert result["ok"]
         assert result["config"]["inter_char_delay_ms"] == 8
-        assert make_reader.call_args.args[-3:] == (8, 0, 0)
+        assert make_reader.call_args.kwargs["writer"].pacing == Pacing(8, 0, 0)
 
     async def test_open_with_chunk_pacing(self, serial_state, mock_serial, mock_reader):
         with (
@@ -147,7 +150,7 @@ class TestOpen:
         assert result["config"]["inter_char_delay_ms"] == 0
         assert result["config"]["chunk_size"] == 3
         assert result["config"]["chunk_delay_ms"] == 5
-        assert make_reader.call_args.args[-3:] == (0, 3, 5)
+        assert make_reader.call_args.kwargs["writer"].pacing == Pacing(0, 3, 5)
 
     @pytest.mark.parametrize(
         "delay",
@@ -303,9 +306,9 @@ class TestWrite:
 
     async def test_write_with_connection_character_pacing(self, connected_entry):
         state, conn = connected_entry
-        conn.inter_char_delay_ms = 8
+        conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.side_effect = len
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(state, {"connection_id": "s1", "data": "ABC"})
 
         assert result["bytes_written"] == 3
@@ -314,10 +317,9 @@ class TestWrite:
 
     async def test_write_with_connection_chunk_pacing(self, connected_entry):
         state, conn = connected_entry
-        conn.chunk_size = 2
-        conn.chunk_delay_ms = 5
+        conn.writer.pacing = Pacing(chunk_size=2, chunk_delay_ms=5)
         conn.ser.write.side_effect = len
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(state, {"connection_id": "s1", "data": "ABCDE"})
 
         assert result["bytes_written"] == 5
@@ -326,9 +328,9 @@ class TestWrite:
 
     async def test_write_with_per_call_character_delay_override(self, connected_entry):
         state, conn = connected_entry
-        conn.inter_char_delay_ms = 2
+        conn.writer.pacing = Pacing(inter_char_delay_ms=2)
         conn.ser.write.side_effect = len
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABC", "inter_char_delay_ms": 8},
@@ -340,9 +342,9 @@ class TestWrite:
 
     async def test_write_with_per_call_chunk_override_from_character_pacing(self, connected_entry):
         state, conn = connected_entry
-        conn.inter_char_delay_ms = 8
+        conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.side_effect = len
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(
                 state,
                 {
@@ -359,10 +361,9 @@ class TestWrite:
 
     async def test_write_zero_override_disables_connection_chunk_pacing(self, connected_entry):
         state, conn = connected_entry
-        conn.chunk_size = 2
-        conn.chunk_delay_ms = 5
+        conn.writer.pacing = Pacing(chunk_size=2, chunk_delay_ms=5)
         conn.ser.write.return_value = 5
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
@@ -374,9 +375,9 @@ class TestWrite:
 
     async def test_write_zero_character_delay_disables_connection_pacing(self, connected_entry):
         state, conn = connected_entry
-        conn.inter_char_delay_ms = 8
+        conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.return_value = 5
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
+        with patch.object(threading.Event, "wait", return_value=False) as sleep:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
@@ -517,7 +518,8 @@ class TestOpenResourceCleanup:
             pytest.raises(RuntimeError),
         ):
             await handle_open(state, {"port": "/dev/ttyUSB0"})
-        mock_reader.stop.assert_called_once()
+        mock_reader.signal_stop.assert_called_once()
+        mock_reader.join.assert_called_once()
         mock_ser.close.assert_called_once()
 
 
@@ -538,3 +540,142 @@ class TestFormatData:
     def test_text_replace_errors(self):
         r = _format_data(b"\xff\xfe", "text", "utf-8")
         assert "\ufffd" in r["data"]
+
+
+class _HeldPort:
+    """Port double whose first ``write`` blocks until released."""
+
+    def __init__(self) -> None:
+        self.writes: list[bytes] = []
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self._first = True
+        self.is_open = True
+
+    def write(self, data: bytes) -> int:
+        self.writes.append(data)
+        if self._first:
+            self._first = False
+            self.entered.set()
+            self.release.wait(2)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def reset_output_buffer(self) -> None:
+        pass
+
+    def close(self) -> None:
+        self.is_open = False
+
+
+@pytest.fixture()
+def held_entry(connected_entry):
+    """A connection whose writer drives a ``_HeldPort``."""
+    state, conn = connected_entry
+    port = _HeldPort()
+    conn.writer.stop()
+    conn.writer.join()
+    conn.ser = port
+    conn.writer = SerialWriter(port)
+    conn.writer.start()
+    yield state, conn, port
+    port.release.set()
+    conn.writer.stop()
+    conn.writer.join()
+
+
+async def _wait_until_held(port: _HeldPort) -> None:
+    assert await asyncio.to_thread(port.entered.wait, 2)
+
+
+class TestWriterIntegration:
+    async def test_concurrent_writes_do_not_interleave(self, held_entry):
+        state, conn, port = held_entry
+        args = {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1}
+
+        first = asyncio.create_task(handle_write(state, {**args, "data": "AAAA"}))
+        await _wait_until_held(port)
+        second = asyncio.create_task(handle_write(state, {**args, "data": "BBBB"}))
+        await asyncio.sleep(0)
+        port.release.set()
+        results = await asyncio.gather(first, second)
+
+        assert [r["bytes_written"] for r in results] == [4, 4]
+        assert port.writes == [b"AA", b"AA", b"BB", b"BB"]
+
+    async def test_cancelling_a_queued_write_sends_nothing(self, held_entry):
+        state, conn, port = held_entry
+
+        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
+        await _wait_until_held(port)
+        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "never"}))
+        await asyncio.sleep(0)
+        queued.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queued
+        port.release.set()
+        await first
+
+        assert port.writes == [b"first"]
+
+    async def test_cancelling_a_running_paced_write_stops_it_between_segments(self, held_entry):
+        state, conn, port = held_entry
+        args = {"connection_id": "s1", "data": "ABCDEF", "chunk_size": 1, "chunk_delay_ms": 1000}
+
+        task = asyncio.create_task(handle_write(state, args))
+        await _wait_until_held(port)
+        task.cancel()
+        port.release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.to_thread(conn.writer.stop)
+        await asyncio.to_thread(conn.writer.join)
+
+        assert port.writes == [b"A"]
+
+    async def test_close_fails_a_queued_write_and_ends_the_writer_thread(self, held_entry):
+        state, conn, port = held_entry
+
+        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
+        await _wait_until_held(port)
+        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "queued"}))
+        await asyncio.sleep(0)
+        stopped = threading.Event()
+        real_stop = conn.writer.stop
+        conn.writer.stop = lambda: (real_stop(), stopped.set())
+        closing = asyncio.create_task(handle_close(state, {"connection_id": "s1"}))
+        assert await asyncio.to_thread(stopped.wait, 2)
+        port.release.set()
+        await closing
+        queued_result = await queued
+        await first
+
+        assert queued_result["error"]["code"] == "connection_closed"
+        assert port.writes == [b"first"]
+        assert not conn.writer.alive
+
+    async def test_write_after_the_writer_stops_reports_a_closed_connection(self, held_entry):
+        state, conn, _port = held_entry
+        conn.writer.stop()
+
+        result = await handle_write(state, {"connection_id": "s1", "data": "x"})
+
+        assert result["error"]["code"] == "connection_closed"
+
+    async def test_flush_output_discards_queued_writes(self, held_entry):
+        state, conn, port = held_entry
+
+        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
+        await _wait_until_held(port)
+        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "queued"}))
+        await asyncio.sleep(0)
+        await handle_flush(state, {"connection_id": "s1", "what": "output"})
+        port.release.set()
+        await first
+        queued_result = await queued
+
+        assert queued_result["error"]["code"] == "write_aborted"
+        assert queued_result["bytes_written"] == 0
+        assert port.writes == [b"first"]

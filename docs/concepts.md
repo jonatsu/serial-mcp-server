@@ -169,18 +169,21 @@ When the MCP server opens a serial port, it has exclusive access — no other to
 
 ### Architecture
 
-Every open connection has a background reader thread and a thread-safe buffer. All reads go through the buffer, whether or not mirroring is enabled.
+Every open connection has a background reader thread, a thread-safe buffer, and a writer thread. All reads go through the buffer, whether or not mirroring is enabled. All writes go through the writer thread, so a slow paced write never delays receiving.
 
 ```
 Always (all platforms):
 
   serial port → background reader thread → SerialBuffer → MCP tools read from here
+  MCP write tools → writer thread → serial port
 
 Mirror on (macOS/Linux only):
 
   background reader thread also → PTY master → PTY slave (external tool reads here)
-  PTY slave (rw mode) → PTY master → background reader thread → serial port
+  PTY slave (rw mode) → PTY master → background reader thread (queues only) → writer thread → serial port
 ```
+
+The writer thread runs one job at a time in submission order, so an MCP write and a paste into the mirror never interleave within one payload. In `rw` mode the writer holds at most 64 KiB of mirror input. Past that, the mirror stops reading the PTY, and the excess waits in the kernel's PTY buffer, which slows the pasting terminal instead of losing bytes.
 
 ### Modes
 
@@ -188,7 +191,7 @@ Mirror on (macOS/Linux only):
 |---|---|
 | `off` | No PTY. Serial data goes to the buffer only. |
 | `ro` | Serial data is teed to both the buffer and the PTY. External tools can observe but not write. |
-| `rw` | Same as `ro`, plus data written to the PTY slave is forwarded to the real serial port. A write lock prevents interleaving between MCP writes and PTY writes. |
+| `rw` | Same as `ro`, plus data written to the PTY slave is forwarded to the real serial port. The writer thread serializes MCP writes and PTY writes, so payloads never interleave. |
 
 ### Configuration
 

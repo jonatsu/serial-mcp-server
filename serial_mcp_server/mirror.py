@@ -14,11 +14,19 @@ import os
 import sys
 import threading
 import time
+from concurrent.futures import Future
 from typing import Any
+
+from serial_mcp_server.writer import SOURCE_MIRROR, SerialWriter, WriterClosed
 
 logger = logging.getLogger("serial_mcp_server")
 
 _IS_UNIX = sys.platform != "win32"
+
+# Bytes typed into the mirror that may wait in the writer. Past this, the PTY
+# master leaves the select set and the excess waits in the kernel's PTY buffer.
+MIRROR_BACKLOG_LIMIT = 64 * 1024
+_PTY_READ_SIZE = 4096
 
 if _IS_UNIX:
     import fcntl
@@ -112,65 +120,32 @@ class SerialBuffer:
 # ---------------------------------------------------------------------------
 
 
-def write_serial_payload(
-    ser: Any,
-    payload: bytes,
-    inter_char_delay_ms: int = 0,
-    chunk_size: int = 0,
-    chunk_delay_ms: int = 0,
-) -> int:
-    """Write bytes to a serial port, optionally pausing between drained segments."""
-    if inter_char_delay_ms:
-        write_size = 1
-        delay_ms = inter_char_delay_ms
-    elif chunk_size:
-        write_size = chunk_size
-        delay_ms = chunk_delay_ms
-    else:
-        return ser.write(payload)
-
-    n_written = 0
-    for offset in range(0, len(payload), write_size):
-        segment = payload[offset : offset + write_size]
-        n = ser.write(segment)
-        n_written += n
-        ser.flush()
-        if n != len(segment):
-            break
-        if offset + write_size < len(payload):
-            time.sleep(delay_ms / 1000.0)
-    return n_written
-
-
 class ReaderThread:
     """Background thread that continuously reads from a serial port into a buffer."""
 
-    def __init__(
-        self,
-        ser: Any,
-        buffer: SerialBuffer,
-        inter_char_delay_ms: int = 0,
-        chunk_size: int = 0,
-        chunk_delay_ms: int = 0,
-    ) -> None:
+    def __init__(self, ser: Any, buffer: SerialBuffer) -> None:
         self.ser = ser
         self.buffer = buffer
-        self.inter_char_delay_ms = inter_char_delay_ms
-        self.chunk_size = chunk_size
-        self.chunk_delay_ms = chunk_delay_ms
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.write_lock = threading.Lock()
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run, daemon=True, name="serial-reader")
         self._thread.start()
 
-    def stop(self) -> None:
+    def signal_stop(self) -> None:
+        """Ask the thread to stop without waiting for it."""
         self._stop.set()
+
+    def join(self) -> None:
+        """Wait for the thread to exit. Call after ``signal_stop``."""
         if self._thread is not None:
             self._thread.join(timeout=3)
             self._thread = None
+
+    def stop(self) -> None:
+        self.signal_stop()
+        self.join()
 
     @property
     def alive(self) -> bool:
@@ -230,12 +205,11 @@ class MirrorSession(ReaderThread):
         ser: Any,
         buffer: SerialBuffer,
         mode: str,
+        writer: SerialWriter,
         link_path: str | None = None,
-        inter_char_delay_ms: int = 0,
-        chunk_size: int = 0,
-        chunk_delay_ms: int = 0,
     ) -> None:
-        super().__init__(ser, buffer, inter_char_delay_ms, chunk_size, chunk_delay_ms)
+        super().__init__(ser, buffer)
+        self.writer = writer
         self.mode = mode  # "ro" or "rw"
         self.link_path = link_path
 
@@ -272,8 +246,9 @@ class MirrorSession(ReaderThread):
             except OSError as exc:
                 logger.warning("Failed to create mirror symlink %s: %s", self.link_path, exc)
 
-    def stop(self) -> None:
-        super().stop()
+    def join(self) -> None:
+        """Join the thread, then release the PTY, symlink, and mirror index."""
+        super().join()
         # Clean up PTY and symlink.
         try:
             os.close(self._master_fd)
@@ -295,11 +270,10 @@ class MirrorSession(ReaderThread):
 
     def _run(self) -> None:
         ser_fd = self.ser.fileno()
-        read_fds = [ser_fd, self._master_fd] if self.mode == "rw" else [ser_fd]
 
         while not self._stop.is_set():
             try:
-                readable, _, _ = select.select(read_fds, [], [], 0.05)
+                readable, _, _ = select.select(self._read_fds(ser_fd), [], [], 0.05)
             except (OSError, ValueError):
                 if self._stop.is_set():
                     break
@@ -320,18 +294,27 @@ class MirrorSession(ReaderThread):
 
                 elif fd == self._master_fd:
                     try:
-                        pty_data = os.read(self._master_fd, 4096)
-                        if pty_data:
-                            with self.write_lock:
-                                write_serial_payload(
-                                    self.ser,
-                                    pty_data,
-                                    self.inter_char_delay_ms,
-                                    self.chunk_size,
-                                    self.chunk_delay_ms,
-                                )
+                        pty_data = os.read(self._master_fd, _PTY_READ_SIZE)
                     except OSError:
-                        pass  # PTY client disconnected.
+                        continue  # PTY client disconnected.
+                    if pty_data and not self._forward(pty_data):
+                        return
+
+    def _read_fds(self, ser_fd: int) -> list[int]:
+        """File descriptors to wait on; the PTY master only while the writer has room."""
+        if self.mode != "rw":
+            return [ser_fd]
+        room = MIRROR_BACKLOG_LIMIT - self.writer.pending_bytes(SOURCE_MIRROR)
+        return [ser_fd, self._master_fd] if room >= _PTY_READ_SIZE else [ser_fd]
+
+    def _forward(self, data: bytes) -> bool:
+        """Queue PTY input for the port. Return False once the writer is closed."""
+        try:
+            job = self.writer.submit(data, source=SOURCE_MIRROR)
+        except WriterClosed:
+            return False
+        job.future.add_done_callback(_log_forward_failure)
+        return True
 
     def _on_data(self, data: bytes) -> None:
         """Write to both the buffer and the PTY master."""
@@ -347,6 +330,14 @@ class MirrorSession(ReaderThread):
             "link": self.link_path,
             "mode": self.mode,
         }
+
+
+def _log_forward_failure(future: Future[int]) -> None:
+    if future.cancelled():
+        return
+    exc = future.exception()
+    if exc is not None and not isinstance(exc, WriterClosed):
+        logger.warning("Forwarding mirror input to the serial port failed: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -378,16 +369,16 @@ def create_reader(
     buffer: SerialBuffer,
     mirror_mode: str,
     mirror_link_base: str | None,
-    inter_char_delay_ms: int = 0,
-    chunk_size: int = 0,
-    chunk_delay_ms: int = 0,
+    *,
+    writer: SerialWriter,
 ) -> ReaderThread:
     """Create the appropriate reader for a serial connection.
 
-    *mirror_mode*: ``"off"``, ``"ro"``, or ``"rw"``.
+    *mirror_mode*: ``"off"``, ``"ro"``, or ``"rw"``. In ``rw`` mode the mirror
+    forwards PTY input through *writer*.
     """
     if mirror_mode == "off" or not _IS_UNIX:
-        return ReaderThread(ser, buffer, inter_char_delay_ms, chunk_size, chunk_delay_ms)
+        return ReaderThread(ser, buffer)
 
     link_path: str | None = None
     mirror_index: int | None = None
@@ -395,14 +386,6 @@ def create_reader(
         mirror_index = _acquire_mirror_index()
         link_path = f"{mirror_link_base}{mirror_index}"
 
-    session = MirrorSession(
-        ser,
-        buffer,
-        mode=mirror_mode,
-        link_path=link_path,
-        inter_char_delay_ms=inter_char_delay_ms,
-        chunk_size=chunk_size,
-        chunk_delay_ms=chunk_delay_ms,
-    )
+    session = MirrorSession(ser, buffer, mode=mirror_mode, writer=writer, link_path=link_path)
     session._mirror_index = mirror_index
     return session

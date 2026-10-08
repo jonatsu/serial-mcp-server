@@ -6,7 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from serial_mcp_server.state import SerialConnection, SerialState
+from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
+from serial_mcp_server.writer import SerialWriter
 
 
 class TestSerialState:
@@ -30,6 +31,7 @@ class TestSerialState:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.add_connection(conn)
         assert state.get_connection("s1") is conn
@@ -53,6 +55,7 @@ class TestSerialState:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.add_connection(conn1)
 
@@ -68,6 +71,7 @@ class TestSerialState:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         with pytest.raises(RuntimeError, match="Maximum connections"):
             state.add_connection(conn2)
@@ -86,6 +90,7 @@ class TestSerialState:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.add_connection(conn)
         removed = state.remove_connection("s1")
@@ -113,10 +118,10 @@ class TestSerialState:
             encoding="utf-8",
             newline="\n",
             ser=mock_ser,
+            writer=SerialWriter(mock_ser),
         )
         state.add_connection(conn)
-        info = state.close_connection("s1")
-        assert info["port"] == "/dev/ttyUSB0"
+        stop_connections([state.remove_connection("s1")])
         mock_ser.close.assert_called_once()
         assert "s1" not in state.connections
 
@@ -139,6 +144,7 @@ class TestSerialState:
                 encoding="utf-8",
                 newline="\n",
                 ser=ser,
+                writer=SerialWriter(ser),
             )
             state.add_connection(conn)
         await state.shutdown()
@@ -161,6 +167,7 @@ class TestSerialConnection:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         assert conn.opened_at > 0
         assert conn.last_seen_ts > 0

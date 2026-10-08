@@ -163,6 +163,8 @@ A delay of 8 ms per character can help receivers that overrun during long writes
 
 Returns `{ "ok": true, "message": "Wrote 12 byte(s) to /dev/ttyUSB0.", "bytes_written": 12 }`.
 
+Writes to one connection run in order on a single writer thread, so concurrent writes and mirror input never interleave within a payload. If the connection closes while a write is queued, the call returns the error code `connection_closed`. If a write stops early because `serial.flush` discarded it, or because the connection closed mid-write, the call returns the error code `write_aborted` and a `bytes_written` count. Cancelling the request stops a paced write between segments and returns no result.
+
 ### serial.readline
 
 Read a line from the serial port (reads until the newline character is received or `max_bytes` is reached). Uses the connection's newline setting by default.
