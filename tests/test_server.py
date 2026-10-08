@@ -11,6 +11,7 @@ EXPECTED_TOOL_HINTS = {
     "serial.open": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.close": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.connection_status": {"readOnlyHint": True, "openWorldHint": False},
+    "serial.configure": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     "serial.read": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.write": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.readline": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
