@@ -952,3 +952,43 @@ with `writing-for-agents`. This unit rewrote the descriptions of `serial.open`, 
 `serial.configure`, and `serial.connection_status` for units 1 to 6, shares the log schemas between
 `serial.open` and `serial.log.start`, adds tests for the key phrases, and records the rule in `CONTRIBUTING.md`.
 Units 7 to 11 follow it.
+
+### Unit 7: `serial.send_file`
+
+Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `python-error-handling`,
+`python-testing`, `writing-for-agents` for the tool text, and a `security-auditor` pass for the path checks.
+
+P1 results: 530 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean. A mutation check removing each protection (identity check, `/proc` path check, absolute-path
+refusal, containment, regular-file check, `O_NOFOLLOW`) fails at least one test each.
+
+Reviews. `code-reviewer` (Opus, medium effort): `serial.send_file` would always fail on Windows because
+`os.O_NONBLOCK` does not exist there (flags now come from `getattr`, with `O_BINARY` so bytes arrive unchanged);
+any pacing argument skipped the transfer-time cap; a cancelled transfer logged `send_file_end` with zero bytes and
+before the writer's last `tx` entry; and the device-file test passed without the regular-file check. `security-auditor`:
+no way to read outside the directory through the `path` argument; one Medium race, a parent directory swapped for a
+symbolic link between the path check and the open, which `O_NOFOLLOW` does not cover. `clean-code-reviewer`: the
+write-job error mapping duplicated `handle_write`, the tool text did not follow `writing-for-agents`, and docs
+overstated which absolute paths are refused.
+
+Fixes: the open file must have the same device and inode as the checked path, and on Linux its real path must still
+lie inside the directory; absolute, drive, and UNC paths are refused before anything is resolved; the cap now uses
+the larger of the pauses and the time on the wire, for `serial.send_file` and for paced `serial.write` (unpaced
+`serial.write` stays uncapped, as before, and 7,500 characters at 8 ms still fits the 60-second default); the end
+event comes from a done-callback, so it follows the last `tx` entry and counts the bytes sent; responses and log
+events carry the path relative to the files directory, not the operator's layout; a zero baud rate no longer divides
+by zero; `run_write_job` is shared by `serial.write` and `serial.send_file`.
+
+Deviations: the handler is in a new `handlers_file.py` because `handlers_serial.py` is past the size guideline; the
+plan says the response reports "the resolved path", and it now reports the relative one for the reason above; the
+cap estimate differs from the plan's literal wording (paced: segments times delay) as described above.
+
+Open items for the user:
+
+- An operator who places a hard link or bind mount to a sensitive file inside the files directory defeats the
+  confinement, because it is indistinguishable from a regular file there. Worth one line in the operator docs.
+- The intermediate-directory race is closed by the identity and `/proc` checks on Linux and macOS-like systems with
+  stable inodes; on Windows the checks are weaker and untested. The suite has not run on Windows.
+- Separate from this unit, the security audit noted that `specs.register_spec` reads any file under the project root
+  that has valid front-matter and returns its content. If "the agent cannot read anything else" should hold
+  project-wide, that channel needs its own review.

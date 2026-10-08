@@ -202,6 +202,28 @@ Writes to one connection run in order on a single writer thread, so concurrent w
 
 A paced write is rejected with `invalid_params` before any byte is sent when its estimated duration, the number of segments times the delay, exceeds `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60). Time spent queued behind other writes is not counted. A write timeout partway through returns `write_aborted` with `bytes_written` set to the bytes of completed segments, which is a lower bound because the host may have accepted part of the failed segment.
 
+### serial.send_file
+
+Send a prepared file to the device, with the connection's pacing. Use it for long inputs, such as a U-Boot environment or a shell script, so the test input lives in a file rather than in tool arguments.
+
+```json
+{ "connection_id": "s1a2b3c4", "path": "uboot/env.txt", "chunk_size": 16, "chunk_delay_ms": 20 }
+```
+
+`path` is relative to the files directory, `SERIAL_MCP_FILES_DIR` (default `.serial_mcp/files/`). The server reads only regular files strictly inside that directory, so the agent cannot send other files, such as an SSH key, over the serial line. It refuses:
+
+- an absolute path, a path that leaves the directory through `..`, a symbolic link that points outside it, and the directory itself;
+- a directory, a FIFO, or a device file;
+- a file over 1 MiB.
+
+Each refusal returns `invalid_params` before any byte is sent. The server opens the file without following links and checks its type and size again on the open handle, so swapping a file for a link or FIFO between the check and the read does not help.
+
+The pacing arguments override the connection's, as on `serial.write`. Without pacing, the file goes out in 4 KiB segments. The estimated duration must fit the `SERIAL_MCP_MAX_WRITE_SECONDS` cap: it is the larger of the pauses between segments (the number of segments times the delay) and the time the bytes take on the wire at the connection's baud rate with ten bits per byte. A transfer that stops early returns `write_aborted` with `bytes_written`, as `serial.write` does.
+
+With a port log active, the log records `send_file_start` and `send_file_end` events with that path, and the transfer's `tx` entries sit between them, even when the transfer is cancelled.
+
+Returns `{ "ok": true, "bytes_written": 1234, "path": "uboot/env.txt" }`. The path is relative to the files directory, so neither the response nor the log shows the operator's directory layout.
+
 ### serial.readline
 
 Read a line from the serial port (reads until the newline character is received or `max_bytes` is reached). Uses the connection's newline setting by default.

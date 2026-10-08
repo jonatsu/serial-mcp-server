@@ -21,6 +21,7 @@ EXPECTED_TOOL_HINTS = {
     "serial.readline": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.read_until": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.flush": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
+    "serial.send_file": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.set_dtr": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.set_rts": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.pulse_dtr": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
