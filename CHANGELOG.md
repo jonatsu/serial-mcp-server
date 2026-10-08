@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to overflow.
+- Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
+- `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also discards writes still queued.
+- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early, and cancelling the request stops a paced write between segments.
+
 ## 0.1.3
 
 ### Fixed

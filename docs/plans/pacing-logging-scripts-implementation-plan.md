@@ -818,4 +818,27 @@ and both close before integration does. Merging and pushing require the user's a
 ## Execution Record
 
 No results have been recorded. For each unit, record the branch and commit, applied guidance, the P1 command
+
+### Unit 1: Writer Thread per Connection
+
+Branch `fix/serial-writer-thread`, based on `docs/pacing-logging-plan`. Guidance applied: `coding-standards`,
+`python-style`, `python-async-patterns`, `python-testing`.
+
+P1 results. Baseline at `bceb725`: 243 tests passed, `ruff check` and `bandit` clean, and `ruff format --check`
+flagged 2 files (`CONTRIBUTING.md` and one other; neither touched by this plan). After the unit: 264 tests passed
+on five consecutive runs, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean.
+
+Reviews. `code-reviewer` (Opus): approve, no production defects; two timing-dependent tests (one fixed in the
+cleanup below, one now waits on an event) and one inaccurate sentence in `docs/tools.md` (fixed).
+`clean-code-reviewer`: fixed the unused `SerialState.close_connection` (callers use `remove_connection` plus
+`stop_connections`), a racy test, the `MirrorSession.join` docstring, the duplicated queue-drain block, the silent
+join timeout (now logs and keeps the handle), and the `NO_PACING` placement. Declined: a `WriteSource` enum for the
+two `source` values (YAGNI until a third source exists).
+
+Deviations. Unit 1 pulled forward from unit 2 the cancel event, `WriteAborted`, and the `write_aborted` and
+`connection_closed` error codes, so that closing a connection cannot hang on a paced write. The 60-second cap,
+timeout-exception mapping, and chunk-size-1 refactor remain in unit 2. The old pacing tests moved to
+`tests/test_writer.py` in this unit, because `write_serial_payload` moved. `handle_close` removes the connection on
+the event loop and joins threads in `asyncio.to_thread`, instead of running `close_connection` in the thread.
 results, reviewer findings with their disposition, and any authorized deviation from this plan.

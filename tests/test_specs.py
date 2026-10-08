@@ -19,6 +19,7 @@ from serial_mcp_server.specs import (
     validate_spec_meta,
 )
 from serial_mcp_server.state import SerialConnection, SerialState
+from serial_mcp_server.writer import SerialWriter
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -493,6 +494,7 @@ class TestSpecHandlers:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.connections["c1"] = conn
 
@@ -525,6 +527,7 @@ class TestSpecHandlers:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.connections["c1"] = conn
 
@@ -569,6 +572,7 @@ class TestSpecHandlers:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         conn.spec = {"spec_id": "test123", "path": "/tmp/test.md", "meta": {}}
         state.connections["c1"] = conn
@@ -594,6 +598,7 @@ class TestSpecHandlers:
             encoding="utf-8",
             newline="\n",
             ser=MagicMock(),
+            writer=SerialWriter(MagicMock()),
         )
         state.connections["c1"] = conn
 

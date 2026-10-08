@@ -11,11 +11,12 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 from serial_mcp_server.mirror import (
+    MIRROR_BACKLOG_LIMIT,
     ReaderThread,
     SerialBuffer,
     create_reader,
-    write_serial_payload,
 )
+from serial_mcp_server.writer import Pacing, SerialWriter
 
 # MirrorSession is Unix-only
 _IS_UNIX = sys.platform != "win32"
@@ -162,95 +163,6 @@ class TestSerialBuffer:
         assert read_total == total_written
 
 
-# ---------------------------------------------------------------------------
-# ReaderThread
-# ---------------------------------------------------------------------------
-
-
-def test_character_delay_starts_after_output_buffer_drains_without_trailing_wait():
-    events = []
-    ser = MagicMock()
-
-    def record_write(data):
-        events.append(("write", data))
-        return len(data)
-
-    ser.write.side_effect = record_write
-    ser.flush.side_effect = lambda: events.append(("flush",))
-    with patch(
-        "serial_mcp_server.mirror.time.sleep",
-        side_effect=lambda seconds: events.append(("sleep", seconds)),
-    ):
-        n_written = write_serial_payload(ser, b"ABC", inter_char_delay_ms=5)
-
-    assert n_written == 3
-    assert events == [
-        ("write", b"A"),
-        ("flush",),
-        ("sleep", 0.005),
-        ("write", b"B"),
-        ("flush",),
-        ("sleep", 0.005),
-        ("write", b"C"),
-        ("flush",),
-    ]
-
-
-def test_character_pacing_stops_after_a_short_write():
-    ser = MagicMock()
-    ser.write.return_value = 0
-
-    with patch("serial_mcp_server.mirror.time.sleep") as sleep:
-        n_written = write_serial_payload(ser, b"ABC", inter_char_delay_ms=5)
-
-    assert n_written == 0
-    ser.write.assert_called_once_with(b"A")
-    ser.flush.assert_called_once_with()
-    sleep.assert_not_called()
-
-
-def test_chunk_delay_starts_after_output_buffer_drains_without_trailing_wait():
-    events = []
-    ser = MagicMock()
-
-    def record_write(data):
-        events.append(("write", data))
-        return len(data)
-
-    ser.write.side_effect = record_write
-    ser.flush.side_effect = lambda: events.append(("flush",))
-    with patch(
-        "serial_mcp_server.mirror.time.sleep",
-        side_effect=lambda seconds: events.append(("sleep", seconds)),
-    ):
-        n_written = write_serial_payload(ser, b"ABCDE", chunk_size=2, chunk_delay_ms=5)
-
-    assert n_written == 5
-    assert events == [
-        ("write", b"AB"),
-        ("flush",),
-        ("sleep", 0.005),
-        ("write", b"CD"),
-        ("flush",),
-        ("sleep", 0.005),
-        ("write", b"E"),
-        ("flush",),
-    ]
-
-
-def test_chunk_pacing_stops_after_a_short_write():
-    ser = MagicMock()
-    ser.write.return_value = 1
-
-    with patch("serial_mcp_server.mirror.time.sleep") as sleep:
-        n_written = write_serial_payload(ser, b"ABCDE", chunk_size=2, chunk_delay_ms=5)
-
-    assert n_written == 1
-    ser.write.assert_called_once_with(b"AB")
-    ser.flush.assert_called_once_with()
-    sleep.assert_not_called()
-
-
 class TestReaderThread:
     def test_data_flows_to_buffer(self):
         buf = SerialBuffer()
@@ -284,13 +196,6 @@ class TestReaderThread:
         reader = ReaderThread(ser, buf)
         assert reader.mirror_info() is None
 
-    def test_has_write_lock(self):
-        buf = SerialBuffer()
-        ser = MagicMock()
-        reader = ReaderThread(ser, buf)
-        assert hasattr(reader, "write_lock")
-        assert isinstance(reader.write_lock, type(threading.Lock()))
-
 
 # ---------------------------------------------------------------------------
 # MirrorSession (Unix only)
@@ -303,7 +208,7 @@ class TestMirrorSession:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        mirror = MirrorSession(ser, buf, mode="ro")
+        mirror = MirrorSession(ser, buf, writer=SerialWriter(ser), mode="ro")
         try:
             assert mirror.pty_slave_path
             assert os.path.exists(mirror.pty_slave_path)
@@ -315,7 +220,7 @@ class TestMirrorSession:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        mirror = MirrorSession(ser, buf, mode="rw")
+        mirror = MirrorSession(ser, buf, writer=SerialWriter(ser), mode="rw")
         try:
             info = mirror.mirror_info()
             assert info is not None
@@ -325,70 +230,12 @@ class TestMirrorSession:
         finally:
             mirror.stop()
 
-    def test_rw_forwards_using_connection_character_pacing(self):
-        serial_read_fd, serial_write_fd = os.pipe()
-        ser = MagicMock()
-        ser.baudrate = 115200
-        ser.fileno.return_value = serial_read_fd
-        forwarded = []
-        finished = threading.Event()
-
-        def record_write(data):
-            forwarded.append(data)
-            if sum(map(len, forwarded)) == 5:
-                finished.set()
-            return len(data)
-
-        ser.write.side_effect = record_write
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
-            mirror = MirrorSession(ser, SerialBuffer(), mode="rw", inter_char_delay_ms=1)
-            try:
-                mirror.start()
-                os.write(mirror._slave_fd, b"ABCDE")
-                assert finished.wait(timeout=1)
-            finally:
-                mirror.stop()
-                os.close(serial_read_fd)
-                os.close(serial_write_fd)
-
-        assert forwarded == [b"A", b"B", b"C", b"D", b"E"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.001] * 4
-
-    def test_rw_forwards_using_connection_chunk_pacing(self):
-        serial_read_fd, serial_write_fd = os.pipe()
-        ser = MagicMock()
-        ser.baudrate = 115200
-        ser.fileno.return_value = serial_read_fd
-        forwarded = []
-        finished = threading.Event()
-
-        def record_write(data):
-            forwarded.append(data)
-            if sum(map(len, forwarded)) == 5:
-                finished.set()
-            return len(data)
-
-        ser.write.side_effect = record_write
-        with patch("serial_mcp_server.mirror.time.sleep") as sleep:
-            mirror = MirrorSession(ser, SerialBuffer(), mode="rw", chunk_size=2, chunk_delay_ms=1)
-            try:
-                mirror.start()
-                os.write(mirror._slave_fd, b"ABCDE")
-                assert finished.wait(timeout=1)
-            finally:
-                mirror.stop()
-                os.close(serial_read_fd)
-                os.close(serial_write_fd)
-
-        assert forwarded == [b"AB", b"CD", b"E"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.001] * 2
-
     def test_symlink_creation(self, tmp_path):
         link = str(tmp_path / "testlink")
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        mirror = MirrorSession(ser, buf, mode="ro", link_path=link)
+        mirror = MirrorSession(ser, buf, writer=SerialWriter(ser), mode="ro", link_path=link)
         try:
             assert os.path.islink(link)
             assert os.readlink(link) == mirror.pty_slave_path
@@ -401,7 +248,7 @@ class TestMirrorSession:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        mirror = MirrorSession(ser, buf, mode="ro")
+        mirror = MirrorSession(ser, buf, writer=SerialWriter(ser), mode="ro")
         try:
             # Simulate data arriving via _on_data
             mirror._on_data(b"test data")
@@ -413,7 +260,7 @@ class TestMirrorSession:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        mirror = MirrorSession(ser, buf, mode="ro")
+        mirror = MirrorSession(ser, buf, writer=SerialWriter(ser), mode="ro")
         mirror.stop()
         # PTY fds are closed, no error expected
         assert not mirror.alive
@@ -428,7 +275,7 @@ class TestCreateReader:
     def test_off_returns_reader_thread(self):
         ser = MagicMock()
         buf = SerialBuffer()
-        reader = create_reader(ser, buf, "off", None)
+        reader = create_reader(ser, buf, "off", None, writer=SerialWriter(ser))
         assert isinstance(reader, ReaderThread)
         assert not isinstance(reader, MirrorSession) if _IS_UNIX else True
 
@@ -437,7 +284,7 @@ class TestCreateReader:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        reader = create_reader(ser, buf, "ro", None)
+        reader = create_reader(ser, buf, "ro", None, writer=SerialWriter(ser))
         try:
             assert isinstance(reader, MirrorSession)
             assert reader.mode == "ro"
@@ -449,7 +296,7 @@ class TestCreateReader:
         ser = MagicMock()
         ser.baudrate = 115200
         buf = SerialBuffer()
-        reader = create_reader(ser, buf, "rw", None)
+        reader = create_reader(ser, buf, "rw", None, writer=SerialWriter(ser))
         try:
             assert isinstance(reader, MirrorSession)
             assert reader.mode == "rw"
@@ -462,7 +309,7 @@ class TestCreateReader:
         ser.baudrate = 115200
         buf = SerialBuffer()
         link_base = str(tmp_path / "ttyMCP")
-        reader = create_reader(ser, buf, "ro", link_base)
+        reader = create_reader(ser, buf, "ro", link_base, writer=SerialWriter(ser))
         try:
             info = reader.mirror_info()
             assert info is not None
@@ -474,5 +321,149 @@ class TestCreateReader:
         ser = MagicMock()
         buf = SerialBuffer()
         with patch("serial_mcp_server.mirror._IS_UNIX", False):
-            reader = create_reader(ser, buf, "rw", None)
+            reader = create_reader(ser, buf, "rw", None, writer=SerialWriter(ser))
         assert type(reader) is ReaderThread
+
+
+# ---------------------------------------------------------------------------
+# Mirror input goes through the writer thread (Unix only)
+# ---------------------------------------------------------------------------
+
+WAIT_S = 2.0
+
+
+class _PipePort:
+    """Fake port: ``fileno`` and ``read`` use a pipe; the first ``write`` can be held."""
+
+    baudrate = 115200
+    in_waiting = 0
+
+    def __init__(self, hold_first_write: bool = False) -> None:
+        self._rx_read, self.rx_write = os.pipe()
+        self.writes: list[bytes] = []
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self._hold = hold_first_write
+
+    def fileno(self) -> int:
+        return self._rx_read
+
+    def read(self, n: int) -> bytes:
+        return os.read(self._rx_read, n)
+
+    def write(self, data: bytes) -> int:
+        self.writes.append(data)
+        if self._hold:
+            self._hold = False
+            self.entered.set()
+            assert self.release.wait(WAIT_S)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def close_pipe(self) -> None:
+        os.close(self._rx_read)
+        os.close(self.rx_write)
+
+
+@pytest.fixture()
+def rw_session():
+    """Factory for started rw ``MirrorSession`` objects; tears everything down."""
+    made = []
+
+    def make(port: _PipePort, pacing: Pacing | None = None):
+        buf = SerialBuffer()
+        writer = SerialWriter(port, pacing or Pacing())
+        session = MirrorSession(port, buf, writer=writer, mode="rw")
+        writer.start()
+        session.start()
+        made.append((port, writer, session))
+        return buf, writer, session
+
+    yield make
+    for port, writer, session in made:
+        port.release.set()
+        writer.stop()
+        session.signal_stop()
+        writer.join()
+        session.join()
+        port.close_pipe()
+
+
+@pytest.mark.skipif(not _IS_UNIX, reason="PTY mirror requires Unix")
+class TestMirrorForwarding:
+    def test_received_data_flows_while_a_paced_write_is_held(self, rw_session):
+        port = _PipePort(hold_first_write=True)
+        buf, _writer, session = rw_session(port, Pacing(chunk_size=1, chunk_delay_ms=8))
+
+        os.write(session._slave_fd, b"paste")
+        assert port.entered.wait(WAIT_S)
+
+        os.write(port.rx_write, b"device output")
+        received = b""
+        deadline = time.monotonic() + WAIT_S
+        while len(received) < len(b"device output") and time.monotonic() < deadline:
+            received += buf.read(100, timeout=0.05)
+        assert received == b"device output"
+
+    def test_pty_input_reaches_the_port_in_order(self, rw_session):
+        port = _PipePort()
+        _buf, writer, session = rw_session(port)
+
+        os.write(session._slave_fd, b"ABCDE")
+        deadline = time.monotonic() + WAIT_S
+        while sum(map(len, port.writes)) < 5 and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+        assert b"".join(port.writes) == b"ABCDE"
+
+    def test_forwards_using_the_connection_pacing(self, rw_session):
+        port = _PipePort()
+        _buf, _writer, session = rw_session(port, Pacing(chunk_size=2, chunk_delay_ms=1))
+
+        os.write(session._slave_fd, b"ABCDE")
+        deadline = time.monotonic() + WAIT_S
+        while sum(map(len, port.writes)) < 5 and time.monotonic() < deadline:
+            time.sleep(0.005)
+
+        assert port.writes == [b"AB", b"CD", b"E"]
+
+    def test_large_paste_stays_within_the_backlog_bound_and_arrives_whole(self, rw_session):
+        port = _PipePort(hold_first_write=True)
+        _buf, writer, session = rw_session(port)
+        paste = bytes(range(256)) * 800  # 200 KiB, more than the bound
+        # os.write may be partial on a full PTY, so loop in the thread.
+        pasted = threading.Thread(target=_write_all, args=(session._slave_fd, paste), daemon=True)
+        pasted.start()
+
+        assert port.entered.wait(WAIT_S)
+        peak = 0
+        deadline = time.monotonic() + 0.5
+        while time.monotonic() < deadline:
+            peak = max(peak, writer.pending_bytes("mirror"))
+            time.sleep(0.005)
+        assert 0 < peak <= MIRROR_BACKLOG_LIMIT
+
+        port.release.set()
+        pasted.join(WAIT_S * 5)
+        deadline = time.monotonic() + WAIT_S * 5
+        while sum(map(len, port.writes)) < len(paste) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert b"".join(port.writes) == paste
+
+    def test_session_exits_when_the_writer_closes(self, rw_session):
+        port = _PipePort()
+        _buf, writer, session = rw_session(port)
+
+        writer.stop()
+        os.write(session._slave_fd, b"late")
+        session._thread.join(WAIT_S)
+
+        assert not session.alive
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    view = memoryview(data)
+    while view:
+        view = view[os.write(fd, view) :]

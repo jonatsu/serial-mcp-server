@@ -13,8 +13,9 @@ import serial.tools.list_ports
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import MIRROR_PTY, MIRROR_PTY_LINK, _coerce_bool, _err, _ok
-from serial_mcp_server.mirror import SerialBuffer, create_reader, write_serial_payload
-from serial_mcp_server.state import SerialConnection, SerialState
+from serial_mcp_server.mirror import SerialBuffer, create_reader
+from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
+from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -78,10 +79,8 @@ def _parse_pacing_number(value: Any, name: str, maximum: int | None = None) -> i
     return number
 
 
-def _parse_write_pacing(
-    args: dict[str, Any], default: tuple[int, int, int] = (0, 0, 0)
-) -> tuple[int, int, int]:
-    """Return character delay, chunk size, and chunk delay for one write."""
+def _parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pacing:
+    """Return the pacing for one write, or *default* when *args* set none."""
     if not any(key in args for key in PACING_KEYS):
         return default
 
@@ -94,11 +93,12 @@ def _parse_write_pacing(
         raise ValueError("chunk_size and chunk_delay_ms must both be positive to enable chunk pacing.")
     if inter_char_delay_ms and chunk_size:
         raise ValueError("inter_char_delay_ms cannot be combined with chunk pacing.")
-    return inter_char_delay_ms, chunk_size, chunk_delay_ms
+    return Pacing(inter_char_delay_ms, chunk_size, chunk_delay_ms)
 
 
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
     """Return a dict describing the connection's serial configuration."""
+    pacing = conn.writer.pacing
     return {
         "port": conn.port,
         "baudrate": conn.baudrate,
@@ -107,9 +107,9 @@ def _conn_config(conn: SerialConnection) -> dict[str, Any]:
         "stopbits": conn.stopbits,
         "timeout_ms": round(conn.timeout * 1000),
         "write_timeout_ms": round(conn.write_timeout * 1000),
-        "inter_char_delay_ms": conn.inter_char_delay_ms,
-        "chunk_size": conn.chunk_size,
-        "chunk_delay_ms": conn.chunk_delay_ms,
+        "inter_char_delay_ms": pacing.inter_char_delay_ms,
+        "chunk_size": pacing.chunk_size,
+        "chunk_delay_ms": pacing.chunk_delay_ms,
         "encoding": conn.encoding,
         "newline": repr(conn.newline),
     }
@@ -534,7 +534,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     timeout_ms = int(args.get("timeout_ms", 200))
     write_timeout_ms = int(args.get("write_timeout_ms", 200))
     try:
-        inter_char_delay_ms, chunk_size, chunk_delay_ms = _parse_write_pacing(args)
+        pacing = _parse_write_pacing(args)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
     exclusive = _coerce_bool(args["exclusive"]) if "exclusive" in args else None
@@ -578,9 +578,9 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     connection_id = state.generate_id()
     buf = SerialBuffer()
-    reader = create_reader(
-        ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, inter_char_delay_ms, chunk_size, chunk_delay_ms
-    )
+    writer = SerialWriter(ser, pacing)
+    reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, writer=writer)
+    writer.start()
     reader.start()
 
     conn = SerialConnection(
@@ -595,17 +595,14 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         encoding=encoding,
         newline=newline,
         ser=ser,
-        inter_char_delay_ms=inter_char_delay_ms,
-        chunk_size=chunk_size,
-        chunk_delay_ms=chunk_delay_ms,
+        writer=writer,
         buffer=buf,
         reader=reader,
     )
     try:
         state.add_connection(conn)
     except Exception:
-        reader.stop()
-        ser.close()
+        await asyncio.to_thread(stop_connections, [conn])
         raise
 
     result = _ok(
@@ -621,8 +618,10 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
 async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     connection_id = args["connection_id"]
-    info = state.close_connection(connection_id)
-    return _ok(message=f"Closed {info['port']}.", **info)
+    # Remove the connection on the loop, then join its threads off it.
+    conn = state.remove_connection(connection_id)
+    await asyncio.to_thread(stop_connections, [conn])
+    return _ok(message=f"Closed {conn.port}.", connection_id=connection_id, port=conn.port)
 
 
 async def handle_connection_status(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -669,10 +668,7 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     append_newline = _coerce_bool(args.get("append_newline", False))
     newline = args.get("newline", conn.newline)
     try:
-        inter_char_delay_ms, chunk_size, chunk_delay_ms = _parse_write_pacing(
-            args,
-            (conn.inter_char_delay_ms, conn.chunk_size, conn.chunk_delay_ms),
-        )
+        pacing = _parse_write_pacing(args, conn.writer.pacing)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
 
@@ -693,24 +689,20 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     if append_newline:
         payload += newline.encode(encoding, errors="replace")
 
-    # Use the reader's write_lock to prevent interleaving with PTY→serial
-    # forwarding in rw mirror mode.  Acquire via to_thread to avoid blocking
-    # the event loop if the mirror thread is mid-write.
-    lock = conn.reader.write_lock if conn.reader is not None else None
-
-    def _locked_write() -> int:
-        if lock is not None:
-            lock.acquire()
-        try:
-            n = write_serial_payload(conn.ser, payload, inter_char_delay_ms, chunk_size, chunk_delay_ms)
-            if not inter_char_delay_ms and not chunk_size:
-                conn.ser.flush()
-            return n
-        finally:
-            if lock is not None:
-                lock.release()
-
-    n_written = await asyncio.to_thread(_locked_write)
+    # The writer thread serializes this with mirror input, so payloads never interleave.
+    try:
+        job = conn.writer.submit(payload, pacing)
+    except WriterClosed as exc:
+        return _err("connection_closed", str(exc))
+    try:
+        n_written = await asyncio.wrap_future(job.future)
+    except asyncio.CancelledError:
+        job.cancel.set()
+        raise
+    except WriterClosed as exc:
+        return _err("connection_closed", str(exc))
+    except WriteAborted as exc:
+        return {**_err("write_aborted", str(exc)), "bytes_written": exc.bytes_written}
 
     conn.last_seen_ts = time.time()
     return _ok(
@@ -767,6 +759,8 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
         await asyncio.to_thread(conn.ser.reset_input_buffer)
         conn.buffer.clear()
     if what in ("output", "both"):
+        # Queued and running writes would otherwise refill the buffer being flushed.
+        conn.writer.discard_pending()
         await asyncio.to_thread(conn.ser.reset_output_buffer)
 
     conn.last_seen_ts = time.time()
