@@ -909,3 +909,23 @@ Open items for the user, not changed because each needs a design decision beyond
   cover it. A per-user state directory would avoid that.
 - `mkdir` sets mode `0700` only on the leaf directory it creates and never tightens an existing one. File contents
   stay private because files are `0600`.
+
+### Unit 5: Timestamped Text, Line, and Raw Formats
+
+Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `python-testing`.
+
+P1 results: 417 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean. A mutation check (never marking `continued`, never flushing an idle partial, never resetting the
+line-start flag) fails the matching tests.
+
+Reviews (default model, since the plan reserves Opus for other units). `code-reviewer`: partial versus merged lines
+depended on disk-thread lag, because silence was only judged after a write; `LinesWriter` now judges silence from the
+entries' own times before appending, with a test that writes a prompt and a reply three seconds apart with no tick
+between them. A failing final flush left the file open; `close` now closes in a `finally`. `clean-code-reviewer`:
+a `TextTimestamps` enum replaces the string literals, `_split_lines` and `_stamp` replace duplicated code,
+`PortLog._offset` replaces repeated clock arithmetic, `CONFIGURE_EVENT` is shared, and the older test fixtures clear
+the new environment variable.
+
+Deviations: the entry and format-writer code moved from `portlog.py` to a new `portlog_formats.py`, so both files
+stay under the size guideline. Accepted edge case: a `\r` split from its `\n` by 500 ms of silence stays at the end
+of the partial entry, so joining the pair gives `abc\r` rather than `abc`.

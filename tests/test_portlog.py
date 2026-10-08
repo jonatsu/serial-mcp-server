@@ -10,17 +10,15 @@ from itertools import count
 
 import pytest
 
-from serial_mcp_server import portlog
+from serial_mcp_server import portlog, portlog_formats
 from serial_mcp_server.portlog import (
-    FORMATS,
-    JsonlWriter,
     LogRequest,
     PortLog,
     PortLogSlot,
-    TextWriter,
     open_log_files,
     resolve_log_request,
 )
+from serial_mcp_server.portlog_formats import FORMATS, JsonlWriter, TextWriter, WriterOptions
 from tests.helpers import read_jsonl
 
 WAIT_S = 2.0
@@ -30,7 +28,7 @@ POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="needs POSIX file modes 
 
 @pytest.fixture(autouse=True)
 def clean_log_env(monkeypatch, tmp_path):
-    for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR):
+    for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR, portlog.ENV_TEXT_TIMESTAMPS):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
 
@@ -239,7 +237,7 @@ class TestFormats:
         ticks = iter(x / 10 for x in range(100))
         wall = iter(datetime(2026, 10, 8, 12, 0, s, tzinfo=UTC) for s in range(60))
         path = tmp_path / "t.jsonl"
-        writer = JsonlWriter(open(path, "wb"), "utf-8")  # noqa: SIM115 - closed by the log
+        writer = JsonlWriter(open(path, "wb"), WriterOptions("utf-8"))  # noqa: SIM115 - closed by the log
         log = PortLog(
             {"jsonl": writer},
             {"jsonl": path},
@@ -257,7 +255,7 @@ class TestFormats:
 
     def test_unknown_connection_encoding_falls_back_to_utf8(self, tmp_path):
         path = tmp_path / "x.jsonl"
-        writer = JsonlWriter(open(path, "wb"), "no-such-codec")  # noqa: SIM115
+        writer = JsonlWriter(open(path, "wb"), WriterOptions("no-such-codec"))  # noqa: SIM115
         log = PortLog({"jsonl": writer}, {"jsonl": path})
         log.rx("é".encode())
         log.close()
@@ -310,6 +308,12 @@ class GatedWriter:
     def flush(self) -> None:
         self._inner.flush()
 
+    def pending_deadline(self):
+        return self._inner.pending_deadline()
+
+    def tick(self, offset) -> None:
+        self._inner.tick(offset)
+
     def close(self) -> None:
         self._inner.close()
 
@@ -317,8 +321,8 @@ class GatedWriter:
 class TestOverflow:
     def make_stalled_log(self, tmp_path, queue_limit):
         paths = {"text": tmp_path / "o.txt", "jsonl": tmp_path / "o.jsonl"}
-        gate = GatedWriter(TextWriter(open(paths["text"], "wb"), "utf-8"))  # noqa: SIM115
-        jsonl = JsonlWriter(open(paths["jsonl"], "wb"), "utf-8")  # noqa: SIM115
+        gate = GatedWriter(TextWriter(open(paths["text"], "wb"), WriterOptions("utf-8")))  # noqa: SIM115
+        jsonl = JsonlWriter(open(paths["jsonl"], "wb"), WriterOptions("utf-8"))  # noqa: SIM115
         return PortLog({"text": gate, "jsonl": jsonl}, paths, queue_limit=queue_limit), gate, paths
 
     def test_a_stalled_disk_drops_entries_without_blocking_and_leaves_exact_markers(self, tmp_path):
@@ -376,12 +380,18 @@ class TestOverflow:
             def flush(self):
                 pass
 
+            def pending_deadline(self):
+                return None
+
+            def tick(self, offset):
+                pass
+
             def close(self):
                 pass
 
         path = tmp_path / "ok.txt"
         log = PortLog(
-            {"jsonl": Broken(), "text": TextWriter(open(path, "wb"), "utf-8")},  # noqa: SIM115
+            {"jsonl": Broken(), "text": TextWriter(open(path, "wb"), WriterOptions("utf-8"))},  # noqa: SIM115
             {"jsonl": tmp_path / "x", "text": path},
         )
         log.rx(b"one")
@@ -425,11 +435,11 @@ class TestEncodings:
         [("utf-8", True), ("latin-1", True), ("hex", False), ("nope", False), (5, False), (None, False)],
     )
     def test_only_text_codecs_are_accepted(self, name, valid):
-        assert portlog.is_text_encoding(name) is valid
+        assert portlog_formats.is_text_encoding(name) is valid
 
     def test_bytes_to_bytes_codec_falls_back_to_utf8_instead_of_dropping_the_log(self, tmp_path):
         path = tmp_path / "x.jsonl"
-        log = PortLog({"jsonl": JsonlWriter(open(path, "wb"), "hex")}, {"jsonl": path})  # noqa: SIM115
+        log = PortLog({"jsonl": JsonlWriter(open(path, "wb"), WriterOptions("hex"))}, {"jsonl": path})  # noqa: SIM115
         log.rx(b"ok")
         log.close()
 
@@ -437,7 +447,7 @@ class TestEncodings:
 
     def test_configure_event_switches_the_decoding_of_later_entries(self, tmp_path):
         path = tmp_path / "x.jsonl"
-        log = PortLog({"jsonl": JsonlWriter(open(path, "wb"), "utf-8")}, {"jsonl": path})  # noqa: SIM115
+        log = PortLog({"jsonl": JsonlWriter(open(path, "wb"), WriterOptions("utf-8"))}, {"jsonl": path})  # noqa: SIM115
         log.rx("é".encode("latin-1"))
         log.event("configure", encoding="latin-1")
         log.rx("é".encode("latin-1"))

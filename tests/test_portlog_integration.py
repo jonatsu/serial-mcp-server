@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from serial_mcp_server import portlog
+from serial_mcp_server import portlog, portlog_formats
 from serial_mcp_server.handlers_serial import (
     handle_close,
     handle_configure,
@@ -36,7 +36,7 @@ _IS_UNIX = sys.platform != "win32"
 @pytest.fixture(autouse=True)
 def log_env(monkeypatch, tmp_path):
     """No logging variables set, and the spec root inside tmp_path."""
-    for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR):
+    for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR, portlog.ENV_TEXT_TIMESTAMPS):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
     return tmp_path / "spec" / "logs"
@@ -312,7 +312,7 @@ class TestOpenSchemaAndFailures:
 
         assert {"log", "log_formats"} <= set(schema)
         assert set(schema["newline"]) == {"type", "default", "description"}
-        assert schema["log_formats"]["items"]["enum"] == list(portlog.FORMATS)
+        assert schema["log_formats"]["items"]["enum"] == list(portlog_formats.FORMATS)
 
     @pytest.mark.parametrize("encoding", ["no-such-codec", "hex", 5])
     async def test_unusable_encoding_is_rejected_before_the_port_opens(
@@ -367,3 +367,53 @@ class TestOpenSchemaAndFailures:
 
 def _log_threads() -> set[threading.Thread]:
     return {t for t in threading.enumerate() if t.name == "serial-portlog" and t.is_alive()}
+
+
+class TestOpenFormatsAndTimestamps:
+    async def test_all_four_formats_agree_on_the_received_bytes_and_line_boundaries(
+        self, serial_state, mock_serial, mock_reader, log_env
+    ):
+        result, make_reader = await open_port(
+            serial_state, mock_serial, mock_reader, log_formats=["text", "jsonl", "lines", "raw"]
+        )
+        slot = make_reader.call_args.kwargs["log_slot"]
+        for chunk in (b"boot\r\nlog", b"in: \xff\n", b"> "):
+            slot.rx(chunk)
+        await close_port(serial_state, result)
+
+        by_suffix = {p.name.split(".", 1)[1]: p for p in log_env.iterdir()}
+        assert sorted(by_suffix) == ["bin", "jsonl", "lines.jsonl", "txt"]
+        received = b"boot\r\nlogin: \xff\n> "
+        assert by_suffix["bin"].read_bytes() == by_suffix["txt"].read_bytes() == received
+        jsonl_rx = b"".join(
+            bytes.fromhex(e["hex"]) for e in read_jsonl(by_suffix["jsonl"]) if e.get("dir") == "rx"
+        )
+        assert jsonl_rx == received
+        assert [(e["text"], e.get("partial")) for e in read_jsonl(by_suffix["lines.jsonl"])] == [
+            ("boot", None),
+            ("login: �", None),
+            ("> ", True),
+        ]
+
+    async def test_timestamps_argument_prefixes_the_text_log(
+        self, serial_state, mock_serial, mock_reader, log_env
+    ):
+        result, make_reader = await open_port(
+            serial_state, mock_serial, mock_reader, log=True, log_text_timestamps="elapsed"
+        )
+        make_reader.call_args.kwargs["log_slot"].rx(b"hello\n")
+        await close_port(serial_state, result)
+
+        (path,) = log_env.iterdir()
+        assert path.read_text().startswith("[0.000000 0.000000] hello\n")
+
+    async def test_invalid_timestamp_mode_is_rejected_before_the_port_opens(self, serial_state, mock_serial):
+        with patch(
+            "serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial
+        ) as serial_cls:
+            result = await handle_open(
+                serial_state, {"port": "/dev/ttyUSB0", "log": True, "log_text_timestamps": "fast"}
+            )
+
+        assert result["error"]["code"] == "invalid_params"
+        serial_cls.assert_not_called()

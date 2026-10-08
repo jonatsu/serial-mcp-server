@@ -10,18 +10,29 @@ No MCP imports; the script engine reuses the file-opening helpers.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO, Protocol
+from typing import Any, BinaryIO
 
+from serial_mcp_server.portlog_formats import (
+    FORMATS,
+    KIND_EVENT,
+    KIND_OVERFLOW,
+    KIND_RX,
+    KIND_TX,
+    TEXT_TIMESTAMP_MODES,
+    Entry,
+    FormatWriter,
+    TextTimestamps,
+    WriterOptions,
+)
 from serial_mcp_server.specs import resolve_spec_root
 
 logger = logging.getLogger("serial_mcp_server")
@@ -29,137 +40,17 @@ logger = logging.getLogger("serial_mcp_server")
 ENV_LOG = "SERIAL_MCP_LOG"
 ENV_FORMATS = "SERIAL_MCP_LOG_FORMATS"
 ENV_DIR = "SERIAL_MCP_LOG_DIR"
+ENV_TEXT_TIMESTAMPS = "SERIAL_MCP_LOG_TEXT_TIMESTAMPS"
 _TRUE_VALUES = ("1", "true", "yes")
 
 DEFAULT_FORMATS = ("text",)
+DEFAULT_TEXT_TIMESTAMPS = TextTimestamps.OFF
 QUEUE_LIMIT_BYTES = 8 * 1024 * 1024
 CLOSE_JOIN_TIMEOUT_S = 5.0
 LOG_FILE_PREFIX = "serial-mcp-log"
 MAX_NAME_COLLISIONS = 1000
 FILE_MODE = 0o600
 DIR_MODE = 0o700
-
-KIND_RX = "rx"
-KIND_TX = "tx"
-KIND_EVENT = "event"
-KIND_OVERFLOW = "overflow"
-
-
-# ---------------------------------------------------------------------------
-# Entries and format writers
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Entry:
-    """One recorded item, stamped when it was queued."""
-
-    kind: str
-    wall: datetime
-    offset: float  # seconds since the log started, monotonic
-    data: bytes = b""
-    source: str = ""
-    name: str = ""
-    fields: dict[str, Any] = field(default_factory=dict)
-
-
-class FormatWriter(Protocol):
-    """Writes entries to one open file. Called only from the disk thread."""
-
-    def write(self, entry: Entry) -> None: ...
-
-    def flush(self) -> None: ...
-
-    def close(self) -> None: ...
-
-
-class _FileWriter:
-    """Shared file plumbing for format writers; subclasses implement ``write``."""
-
-    def __init__(self, fh: BinaryIO) -> None:
-        self._fh = fh
-
-    def flush(self) -> None:
-        self._fh.flush()
-
-    def close(self) -> None:
-        self._fh.close()
-
-
-class TextWriter(_FileWriter):
-    """Received bytes, unchanged, so lines split where the device sent newlines."""
-
-    def __init__(self, fh: BinaryIO, encoding: str) -> None:
-        super().__init__(fh)  # received bytes are written as they came, so the encoding is unused
-        self._at_line_start = True
-
-    def write(self, entry: Entry) -> None:
-        if entry.kind == KIND_RX and entry.data:
-            self._fh.write(entry.data)
-            self._at_line_start = entry.data.endswith(b"\n")
-        elif entry.kind == KIND_OVERFLOW:
-            lead = b"" if self._at_line_start else b"\n"
-            count = entry.fields["dropped_bytes"]
-            self._fh.write(lead + f"--- serial-mcp: {count} bytes not logged ---\n".encode("ascii"))
-            self._at_line_start = True
-
-
-class JsonlWriter(_FileWriter):
-    """One JSON object per chunk in either direction, plus control events."""
-
-    def __init__(self, fh: BinaryIO, encoding: str) -> None:
-        super().__init__(fh)
-        self._encoding = encoding if is_text_encoding(encoding) else "utf-8"
-
-    def write(self, entry: Entry) -> None:
-        record: dict[str, Any] = {"ts": _iso(entry.wall), "t": round(entry.offset, 6)}
-        if entry.kind in (KIND_RX, KIND_TX):
-            record["dir"] = entry.kind
-            if entry.kind == KIND_TX:
-                record["source"] = entry.source
-            record["len"] = len(entry.data)
-            record["hex"] = entry.data.hex()
-            record["text"] = entry.data.decode(self._encoding, errors="replace")
-        else:
-            self._follow_configure(entry)
-            record["event"] = "log_overflow" if entry.kind == KIND_OVERFLOW else entry.name
-            record.update(entry.fields)
-        self._fh.write(json.dumps(record, default=str).encode("utf-8") + b"\n")
-
-    def _follow_configure(self, entry: Entry) -> None:
-        """Decode later entries with the encoding a ``configure`` event switched to."""
-        encoding = entry.fields.get("encoding") if entry.name == "configure" else None
-        if encoding is not None and is_text_encoding(encoding):
-            self._encoding = encoding
-
-
-def is_text_encoding(name: object) -> bool:
-    """Return True when *name* is a codec that ``str.encode`` accepts, which excludes bytes-to-bytes codecs like hex."""
-    if not isinstance(name, str):
-        return False
-    try:
-        "".encode(name)
-        b"".decode(name)
-    except (LookupError, UnicodeError):
-        return False
-    return True
-
-
-@dataclass(frozen=True)
-class LogFormat:
-    extension: str
-    make_writer: Callable[[BinaryIO, str], FormatWriter]
-
-
-FORMATS: dict[str, LogFormat] = {
-    "text": LogFormat("txt", TextWriter),
-    "jsonl": LogFormat("jsonl", JsonlWriter),
-}
-
-
-def _iso(moment: datetime) -> str:
-    return moment.isoformat(timespec="microseconds").replace("+00:00", "Z")
-
 
 # ---------------------------------------------------------------------------
 # PortLog
@@ -208,7 +99,8 @@ class PortLog:
             OSError: The directory or files could not be created.
         """
         opened = open_log_files(request.directory, request.formats, now or datetime.now())
-        writers = {name: FORMATS[name].make_writer(fh, encoding) for name, (_, fh) in opened.items()}
+        options = WriterOptions(encoding, request.text_timestamps)
+        writers = {name: FORMATS[name].make_writer(fh, options) for name, (_, fh) in opened.items()}
         return cls(writers, {name: path for name, (path, _) in opened.items()})
 
     def rx(self, data: bytes) -> None:
@@ -235,13 +127,17 @@ class PortLog:
             if self._closed:
                 return
             if self._unreported_drops:
-                self._queue.append(self._overflow_entry(self._wall_clock(), self._monotonic() - self._start))
+                self._queue.append(self._overflow_entry(self._wall_clock(), self._offset()))
             self._closed = True
             self._cond.notify_all()
         self._thread.join(timeout=CLOSE_JOIN_TIMEOUT_S)
         if self._thread.is_alive():
             # The disk thread closes the files itself when it finishes, so nothing leaks.
             logger.warning("Port log disk thread did not finish within %.0f s.", CLOSE_JOIN_TIMEOUT_S)
+
+    def _offset(self) -> float:
+        """Seconds since the log started, on the monotonic clock."""
+        return self._monotonic() - self._start
 
     def _put(
         self,
@@ -252,7 +148,7 @@ class PortLog:
         name: str = "",
         fields: dict[str, Any] | None = None,
     ) -> None:
-        wall, offset = self._wall_clock(), self._monotonic() - self._start
+        wall, offset = self._wall_clock(), self._offset()
         entry = Entry(kind, wall, offset, data, source, name, fields or {})
         with self._cond:
             if self._closed:
@@ -282,18 +178,33 @@ class PortLog:
                 elif self._closed:
                     break
             if entry is None:
-                # Idle: make what has been written visible to readers of the files.
-                self._for_each_writer(lambda writer: writer.flush())
-                with self._cond:
-                    while not self._queue and not self._closed:
-                        self._cond.wait()
+                self._idle()
                 continue
             self._for_each_writer(lambda writer, item=entry: writer.write(item))
+            self._for_each_writer(lambda writer, offset=entry.offset: writer.tick(offset))
             if entry.kind != KIND_OVERFLOW:
                 with self._cond:
                     self._entries += 1
         self._for_each_writer(lambda writer: writer.flush())
         self._for_each_writer(lambda writer: writer.close(), drop_on_error=False)
+
+    def _idle(self) -> None:
+        """Flush, then wait for an entry, a close, or the time a writer needs to act."""
+        self._for_each_writer(lambda writer: writer.flush())  # make written data visible to file readers
+        deadline = self._next_deadline()
+        with self._cond:
+            if not self._queue and not self._closed:
+                timeout = None if deadline is None else max(0.0, deadline - (self._offset()))
+                self._cond.wait(timeout)
+        if deadline is not None:
+            now = self._offset()
+            self._for_each_writer(lambda writer: writer.tick(now))
+
+    def _next_deadline(self) -> float | None:
+        deadlines = [
+            d for d in (writer.pending_deadline() for writer in self._writers.values()) if d is not None
+        ]
+        return min(deadlines) if deadlines else None
 
     def _for_each_writer(self, action: Callable[[FormatWriter], None], *, drop_on_error: bool = True) -> None:
         for name, writer in list(self._writers.items()):
@@ -369,6 +280,7 @@ class PortLogSlot:
 class LogRequest:
     formats: tuple[str, ...]
     directory: Path
+    text_timestamps: TextTimestamps = DEFAULT_TEXT_TIMESTAMPS
 
 
 def parse_formats(value: Any, origin: str) -> tuple[str, ...]:
@@ -389,7 +301,29 @@ def parse_formats(value: Any, origin: str) -> tuple[str, ...]:
     return names
 
 
-def resolve_log_request(log: bool | None, formats: Any = None) -> LogRequest | None:
+def _parse_text_timestamps(value: Any) -> TextTimestamps:
+    """Validate the timestamp mode from an argument, else from the environment, else the default.
+
+    Raises:
+        ValueError: The mode is not one of ``TEXT_TIMESTAMP_MODES``.
+    """
+    if value is None:
+        return _text_timestamps(
+            os.environ.get(ENV_TEXT_TIMESTAMPS, "").strip() or DEFAULT_TEXT_TIMESTAMPS, ENV_TEXT_TIMESTAMPS
+        )
+    return _text_timestamps(value, "log_text_timestamps")
+
+
+def _text_timestamps(value: Any, origin: str) -> TextTimestamps:
+    mode = value.strip().lower() if isinstance(value, str) else value
+    if mode not in TEXT_TIMESTAMP_MODES:
+        raise ValueError(f"{origin} must be one of: {', '.join(TEXT_TIMESTAMP_MODES)}.")
+    return TextTimestamps(mode)
+
+
+def resolve_log_request(
+    log: bool | None, formats: Any = None, text_timestamps: Any = None
+) -> LogRequest | None:
     """Decide whether a connection logs, and in which formats and directory.
 
     An argument beats the environment: ``log=False`` disables logging, ``log=True`` or
@@ -397,7 +331,7 @@ def resolve_log_request(log: bool | None, formats: Any = None) -> LogRequest | N
     time, so a change to the environment applies to the next connection.
 
     Raises:
-        ValueError: A format list is invalid.
+        ValueError: A format list or the timestamp mode is invalid.
     """
     if log is None:
         log = formats is not None or os.environ.get(ENV_LOG, "").strip().lower() in _TRUE_VALUES
@@ -409,7 +343,7 @@ def resolve_log_request(log: bool | None, formats: Any = None) -> LogRequest | N
         names = parse_formats(os.environ.get(ENV_FORMATS, "").strip() or list(DEFAULT_FORMATS), ENV_FORMATS)
     env_dir = os.environ.get(ENV_DIR, "").strip()
     directory = Path(env_dir) if env_dir else resolve_spec_root() / "logs"
-    return LogRequest(names, directory)
+    return LogRequest(names, directory, _parse_text_timestamps(text_timestamps))
 
 
 def log_base_name(prefix: str, now: datetime, number: int) -> str:
