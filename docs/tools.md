@@ -118,6 +118,20 @@ Check whether a serial connection is still open and return its configuration.
 
 Returns `{ "ok": true, "is_open": true, "config": { ... }, "buffered_bytes": 0 }`. Includes `mirror` when active.
 
+### serial.configure
+
+Change write pacing, text encoding, or the newline of an open connection without reopening it. Reopening can toggle DTR and RTS and reset the device, so use this tool instead.
+
+```json
+{ "connection_id": "s1a2b3c4", "chunk_size": 16, "chunk_delay_ms": 20, "newline": "\r\n" }
+```
+
+Pass at least one of `inter_char_delay_ms`, `chunk_size`, `chunk_delay_ms`, `encoding`, and `newline`. The pacing arguments replace the whole pacing mode, as a per-write override on `serial.write` does, so `{"inter_char_delay_ms": 8}` also clears any chunk pacing and `{"inter_char_delay_ms": 0}` turns pacing off. The server validates every argument first; an invalid one returns `invalid_params` and leaves the connection unchanged.
+
+A change applies to writes submitted afterwards, including PTY mirror input. Writes already submitted keep their settings. A new `newline` becomes the default terminator for `serial.readline` and for `append_newline` on `serial.write`.
+
+Returns `{ "ok": true, "config": { ... } }` in the same shape as `serial.connection_status`.
+
 ### serial.read
 
 Read up to `nbytes` from a serial port. Returns immediately with whatever data is available within the timeout.

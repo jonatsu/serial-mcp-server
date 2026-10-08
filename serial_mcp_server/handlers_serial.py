@@ -118,6 +118,15 @@ def _duration_error(pacing: Pacing, size: int) -> dict[str, Any] | None:
     )
 
 
+def _is_text_encoding(name: str) -> bool:
+    """Return True when *name* is a codec that ``str.encode`` accepts, which excludes bytes-to-bytes codecs like hex."""
+    try:
+        "".encode(name)
+    except (LookupError, UnicodeError):
+        return False
+    return True
+
+
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
     """Return a dict describing the connection's serial configuration."""
     pacing = conn.writer.pacing
@@ -263,6 +272,44 @@ TOOLS: list[Tool] = [
             "type": "object",
             "properties": {
                 "connection_id": {"type": "string", "description": "The connection_id from serial.open."},
+            },
+            "required": ["connection_id"],
+        },
+    ),
+    # ---- 4b. configure ----
+    Tool(
+        name="serial.configure",
+        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
+        description=(
+            "Change write pacing, text encoding, or the newline of an open connection without reopening it. "
+            "Reopening can toggle DTR/RTS and reset the device, so prefer this tool. "
+            "Pacing arguments replace the whole pacing mode, as on serial.write. "
+            "A change applies to writes submitted afterwards; writes already submitted keep their settings."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "connection_id": {"type": "string"},
+                "inter_char_delay_ms": {
+                    "type": ["integer", "string"],
+                    "description": "Delay between transmitted characters in milliseconds (0 disables; max 1000).",
+                },
+                "chunk_size": {
+                    "type": ["integer", "string"],
+                    "description": "Bytes per chunk in chunk pacing mode; set with chunk_delay_ms (0 disables).",
+                },
+                "chunk_delay_ms": {
+                    "type": ["integer", "string"],
+                    "description": "Delay after each drained chunk in milliseconds (0 disables; max 1000).",
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "Text encoding for reads and writes, such as utf-8.",
+                },
+                "newline": {
+                    "type": "string",
+                    "description": "Default line terminator for serial.readline and append_newline, such as \\r\\n.",
+                },
             },
             "required": ["connection_id"],
         },
@@ -646,6 +693,31 @@ async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, An
     return _ok(message=f"Closed {conn.port}.", connection_id=connection_id, port=conn.port)
 
 
+async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+    conn = state.get_connection(args["connection_id"])
+    settings = ("encoding", "newline", *PACING_KEYS)
+    if not any(key in args for key in settings):
+        return _err("invalid_params", f"Pass at least one of: {', '.join(settings)}.")
+
+    # Validate everything before changing anything, so a bad argument leaves the connection as it was.
+    try:
+        pacing = _parse_write_pacing(args, conn.writer.pacing)
+    except ValueError as exc:
+        return _err("invalid_params", str(exc))
+    encoding = args.get("encoding", conn.encoding)
+    if not isinstance(encoding, str) or not _is_text_encoding(encoding):
+        return _err("invalid_params", f"Unknown text encoding {encoding!r}.")
+    newline = args.get("newline", conn.newline)
+    if not isinstance(newline, str) or not newline:
+        return _err("invalid_params", "newline must be a non-empty string.")
+
+    conn.writer.pacing = pacing
+    conn.encoding = encoding
+    conn.newline = newline
+    conn.last_seen_ts = time.time()
+    return _ok(message=f"Configured {conn.port}.", config=_conn_config(conn))
+
+
 async def handle_connection_status(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
     is_open = conn.ser.is_open
@@ -847,6 +919,7 @@ HANDLERS: dict[str, Any] = {
     "serial.open": handle_open,
     "serial.close": handle_close,
     "serial.connection_status": handle_connection_status,
+    "serial.configure": handle_configure,
     "serial.read": handle_read,
     "serial.write": handle_write,
     "serial.readline": handle_readline,

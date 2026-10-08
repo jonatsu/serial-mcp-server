@@ -860,3 +860,19 @@ logs a warning on each write, because the value is read per call.
 
 Deviations: none beyond the unit 1 pull-forward. Character pacing now runs as chunk pacing of 1 inside
 `write_serial_payload`; the tool schemas are unchanged.
+
+### Unit 3: `serial.configure` on a Live Connection
+
+Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `python-testing`.
+
+P1 results: 296 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean. The tool is annotated not read-only, not destructive, and not open-world.
+
+Reviews: `code-reviewer` (default model, since the plan reserves Opus for units 1, 2, 4, and 7): one required finding.
+The newline test passed without the feature, because the fixture's default terminator gave the same answer. Fixed
+with data that distinguishes the two terminators and confirmed by disabling the assignment, which now fails two
+tests. It also noted that writes already queued, not only running ones, keep the old pacing, so the tool text now
+says "already submitted". `clean-code-reviewer`: added a docstring to `_is_text_encoding`, which now also rejects
+codecs that raise `UnicodeError`, and removed a trailing blank line. Declined: merging the pacing property schemas
+shared by `serial.open`, `serial.write`, and `serial.configure`, because it rewrites existing tool schemas outside
+this unit. Noted, not changed: `serial.open` does not validate `encoding` or `newline`.

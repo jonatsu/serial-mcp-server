@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- `serial.configure` changes write pacing, encoding, and newline on an open connection without reopening it, which avoids a DTR or RTS toggle that can reset the device.
 - `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced write; longer writes are rejected with `invalid_params` before any byte is sent.
 
 ### Fixed

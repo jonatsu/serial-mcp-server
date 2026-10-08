@@ -14,6 +14,7 @@ from serial_mcp_server.handlers_serial import (
     TOOLS,
     _format_data,
     handle_close,
+    handle_configure,
     handle_connection_status,
     handle_flush,
     handle_list_ports,
@@ -38,7 +39,7 @@ class TestToolRegistration:
         assert tool_names == handler_names
 
     def test_tool_count(self):
-        assert len(TOOLS) == 13
+        assert len(TOOLS) == 14
 
 
 class TestListPorts:
@@ -753,3 +754,105 @@ class TestWriteDurationCap:
         result = await handle_write(state, {"connection_id": "s1", "data": "abc"})
 
         assert result["bytes_written"] == 3
+
+
+class TestConfigure:
+    async def test_chunk_pacing_changes_the_next_write_pattern(self, connected_entry):
+        state, conn = connected_entry
+        conn.ser.write.side_effect = len
+
+        result = await handle_configure(state, {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1})
+        with patch.object(threading.Event, "wait", return_value=False):
+            await handle_write(state, {"connection_id": "s1", "data": "ABCDE"})
+
+        assert result["config"]["chunk_size"] == 2
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"AB", b"CD", b"E"]
+
+    async def test_chunk_pacing_applies_to_the_next_mirror_forward(self, connected_entry):
+        state, conn = connected_entry
+        conn.ser.write.side_effect = len
+
+        await handle_configure(state, {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1})
+        with patch.object(threading.Event, "wait", return_value=False):
+            await asyncio.wrap_future(conn.writer.submit(b"ABC", source="mirror").future)
+
+        assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"AB", b"C"]
+
+    async def test_pacing_arguments_replace_the_whole_pacing_mode(self, connected_entry):
+        state, conn = connected_entry
+        conn.writer.pacing = Pacing(chunk_size=2, chunk_delay_ms=5)
+
+        result = await handle_configure(state, {"connection_id": "s1", "inter_char_delay_ms": 8})
+
+        assert conn.writer.pacing == Pacing(inter_char_delay_ms=8)
+        assert result["config"]["chunk_size"] == 0
+
+    async def test_zero_disables_pacing(self, connected_entry):
+        state, conn = connected_entry
+        conn.writer.pacing = Pacing(inter_char_delay_ms=8)
+
+        await handle_configure(state, {"connection_id": "s1", "inter_char_delay_ms": 0})
+
+        assert conn.writer.pacing == Pacing()
+
+    async def test_newline_changes_the_readline_default_terminator(self, connected_entry):
+        state, conn = connected_entry
+        conn.buffer.write(b"x\ny\r\nz")
+
+        await handle_configure(state, {"connection_id": "s1", "newline": "\r\n"})
+        result = await handle_readline(state, {"connection_id": "s1"})
+
+        # The fixture's default is "\n", which would stop after "x\n".
+        assert result["data"] == "x\ny\r\n"
+
+    async def test_connection_status_reports_the_new_values(self, connected_entry):
+        state, conn = connected_entry
+
+        await handle_configure(
+            state,
+            {
+                "connection_id": "s1",
+                "encoding": "latin-1",
+                "newline": "\r",
+                "chunk_size": 3,
+                "chunk_delay_ms": 7,
+            },
+        )
+        status = await handle_connection_status(state, {"connection_id": "s1"})
+
+        assert status["config"]["encoding"] == "latin-1"
+        assert status["config"]["newline"] == repr("\r")
+        assert (status["config"]["chunk_size"], status["config"]["chunk_delay_ms"]) == (3, 7)
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"chunk_size": 3},
+            {"inter_char_delay_ms": -1},
+            {"inter_char_delay_ms": 8, "chunk_size": 3, "chunk_delay_ms": 5},
+            {"encoding": "no-such-codec"},
+            {"encoding": "hex"},
+            {"newline": ""},
+            {"newline": 5},
+            {},
+        ],
+    )
+    async def test_invalid_arguments_leave_the_configuration_unchanged(self, connected_entry, bad):
+        state, conn = connected_entry
+        conn.writer.pacing = Pacing(inter_char_delay_ms=4)
+        before = (conn.writer.pacing, conn.encoding, conn.newline)
+
+        result = await handle_configure(state, {"connection_id": "s1", **bad})
+
+        assert result["error"]["code"] == "invalid_params"
+        assert (conn.writer.pacing, conn.encoding, conn.newline) == before
+
+    async def test_a_bad_argument_does_not_apply_the_valid_ones(self, connected_entry):
+        state, conn = connected_entry
+
+        result = await handle_configure(
+            state, {"connection_id": "s1", "newline": "\r", "encoding": "no-such-codec"}
+        )
+
+        assert not result["ok"]
+        assert conn.newline == "\n"
