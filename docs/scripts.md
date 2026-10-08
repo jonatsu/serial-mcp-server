@@ -70,6 +70,8 @@ Fail patterns search new output whenever the runner wakes. They also include the
 
 The matcher holds at most 1 MiB of unconsumed text. It drops older text beyond that limit. The result records `window_overflow` and the exact drop count.
 
+A pattern that can match the empty string, such as `@expect "x*"`, matches immediately at the cursor and consumes nothing. Anchor expects on output the echo cannot produce, or require at least one character.
+
 Devices often echo input. For example, `@expect ls` after the bare command `ls` can match the echo instead of the command's result. Anchor `@expect` on output that the echo cannot contain. Alternatively, enable a prompt so the runner consumes each command through its prompt.
 
 ## Errors

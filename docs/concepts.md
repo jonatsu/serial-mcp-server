@@ -228,6 +228,23 @@ The reader thread records each received chunk once, before it reaches the buffer
 
 ---
 
+## Script runner — repeatable device sessions
+
+A script runs on its own thread. It sends commands through the connection's writer and checks output delivered by the reader, so script waits do not stop serial receiving.
+
+```mermaid
+flowchart LR
+    source[Validated script] --> runner[Script runner thread]
+    runner -->|commands| writer[Writer thread]
+    writer --> port[Serial port]
+    port -->|received bytes| reader[Reader thread]
+    reader --> buffer[SerialBuffer]
+    reader --> matcher[Output matcher]
+    matcher -->|decoded output| runner
+```
+
+The output matcher feeds the runner's `@expect`, prompt, and failure-pattern checks. See [Serial Script Reference](scripts.md) for the language behavior.
+
 ## The agent's decision flow
 
 After opening a connection, the agent follows this flow:

@@ -316,16 +316,20 @@ An example:
 ```text
 # U-Boot smoke test
 @timeout 10s
-@prompt "=> "
+@prompt --off
 @fail_on "(?i)error|panic"
 
 version
 @expect "U-Boot 20\d\d"
+@expect "=> "
+@prompt "=> "
 printenv bootcmd
 setenv serverip {{SERVER_IP}}
 @mark tftp
+@prompt --off
 tftpboot ${loadaddr} {{IMAGE}}
 @expect "Bytes transferred" --timeout 60s
+@expect "=> "
 ```
 
 ### 8.2 Matching Model

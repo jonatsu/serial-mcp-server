@@ -170,11 +170,12 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 | `SERIAL_MCP_MIRROR` | `off` | PTY mirror mode: `off`, `ro` (read-only), or `rw` (read-write). macOS and Linux only. |
 | `SERIAL_MCP_MIRROR_LINK` | `/tmp/serial-mcp` | Base path for PTY symlinks. Connections get numbered: `/tmp/serial-mcp0`, `/tmp/serial-mcp1`, etc. |
 | `SERIAL_MCP_MAX_WRITE_SECONDS` | `60` | Cap on the estimated duration of one paced write (segments times delay). Longer writes are rejected with `invalid_params` before any byte is sent. |
+| `SERIAL_MCP_SCRIPT_MAX_SECONDS` | `3600` | Maximum duration of one script run. A run that exceeds it fails with `max_duration`. |
 | `SERIAL_MCP_FILES_DIR` | `.serial_mcp/files/` | The only directory `serial.send_file` reads from. Files must be regular and at most 1 MiB. |
 | `SERIAL_MCP_LOG` | disabled | Set to `1`, `true`, or `yes` to record every connection's bytes in a port log. `serial.open` can override it per connection with `log`. |
 | `SERIAL_MCP_LOG_FORMATS` | `text` | Comma-separated port log formats (`text`, `jsonl`, `lines`, `raw`) used when a connection does not choose its own. |
 | `SERIAL_MCP_LOG_TEXT_TIMESTAMPS` | `off` | Prefix each line of the `text` log with `[time delta]`: `off`, `elapsed`, or `system`. `serial.open` can override it with `log_text_timestamps`. |
-| `SERIAL_MCP_LOG_DIR` | `.serial_mcp/logs/` | Directory for port log files. Files are created with mode `0600`. |
+| `SERIAL_MCP_LOG_DIR` | `.serial_mcp/logs/` | Directory for port log and script result files. Files are created with mode `0600`. |
 | `SERIAL_MCP_LOG_LEVEL` | `WARNING` | Python log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Logs go to stderr. |
 | `SERIAL_MCP_TRACE` | enabled | JSONL tracing of every tool call. Set to `0`, `false`, or `no` to disable. |
 | `SERIAL_MCP_TRACE_PAYLOADS` | disabled | Include write `data` in traced args (stripped by default). |
