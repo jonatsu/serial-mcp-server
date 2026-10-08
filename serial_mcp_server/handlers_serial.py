@@ -21,7 +21,8 @@ from serial_mcp_server.helpers import (
     max_write_seconds,
 )
 from serial_mcp_server.mirror import SerialBuffer, create_reader
-from serial_mcp_server.portlog import FORMATS, PortLog, PortLogSlot, is_text_encoding, resolve_log_request
+from serial_mcp_server.portlog import PortLog, PortLogSlot, resolve_log_request
+from serial_mcp_server.portlog_formats import CONFIGURE_EVENT, FORMATS, TEXT_TIMESTAMP_MODES, is_text_encoding
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
 from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
 
@@ -249,10 +250,21 @@ TOOLS: list[Tool] = [
                     "type": "array",
                     "items": {"type": "string", "enum": list(FORMATS)},
                     "description": (
-                        "Log file formats (default text): text holds the received bytes unchanged; "
-                        "jsonl holds each chunk in both directions plus control events. "
+                        "Log file formats (default text). text: the received bytes unchanged. "
+                        "jsonl: each chunk in both directions plus control events. "
+                        "lines: one entry per line in each direction, with partial prompts flagged. "
+                        "raw: the received bytes only, byte-exact. "
                         "Passing this without log also enables logging. "
                         "The response lists the file paths; the server picks the directory and file names."
+                    ),
+                },
+                "log_text_timestamps": {
+                    "type": "string",
+                    "enum": list(TEXT_TIMESTAMP_MODES),
+                    "description": (
+                        "Prefix each line of the text log with [time delta] (default off): "
+                        "elapsed counts seconds since the first received byte, system uses UTC wall-clock time; "
+                        "delta is seconds since the previous line."
                     ),
                 },
             },
@@ -650,7 +662,9 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     try:
         log_request = resolve_log_request(
-            _coerce_bool(args["log"]) if "log" in args else None, args.get("log_formats")
+            _coerce_bool(args["log"]) if "log" in args else None,
+            args.get("log_formats"),
+            args.get("log_text_timestamps"),
         )
     except ValueError as exc:
         return _err("invalid_params", str(exc))
@@ -755,7 +769,7 @@ async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str
     conn.encoding = encoding
     conn.newline = newline
     conn.log_slot.event(
-        "configure",
+        CONFIGURE_EVENT,
         inter_char_delay_ms=pacing.inter_char_delay_ms,
         chunk_size=pacing.chunk_size,
         chunk_delay_ms=pacing.chunk_delay_ms,

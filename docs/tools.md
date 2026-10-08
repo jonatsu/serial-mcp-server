@@ -71,10 +71,16 @@ Only one pacing mode may be active. Both chunk settings default to `0`.
 
 Set `log` to `true` to record the bytes on the wire in a port log, and `log_formats` to choose the file formats. Passing `log_formats` alone also enables logging, and `log: false` disables it whatever the environment says. The formats are:
 
-| Format  | Extension | Content                                                                                   |
-| ------- | --------- | ----------------------------------------------------------------------------------------- |
-| `text`  | `txt`     | Received bytes written unchanged, so lines split where the device sent newlines. Default. |
-| `jsonl` | `jsonl`   | One JSON object per received or transmitted chunk, plus control events.                   |
+| Format  | Extension     | Content                                                                                   |
+| ------- | ------------- | ----------------------------------------------------------------------------------------- |
+| `text`  | `txt`         | Received bytes written unchanged, so lines split where the device sent newlines. Default. |
+| `jsonl` | `jsonl`       | One JSON object per received or transmitted chunk, plus control events.                   |
+| `lines` | `lines.jsonl` | One JSON object per newline-terminated line in each direction, stamped when the line's first byte arrived. The text omits the trailing `\r\n` or `\n`. |
+| `raw`   | `bin`         | Received bytes only, byte-exact, for replay and binary diffing. |
+
+A `lines` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567, "dir": "rx", "text": "U-Boot 2024.01"}`. A line with no newline after 500 ms of silence is written with `"partial": true`, so a prompt such as `=> ` still appears. Bytes that arrive later on the same line start a new entry with `"continued": true`, so joining a partial entry with its continuations restores the line. A `mark` event written by the log tools keeps its place between lines.
+
+Set `log_text_timestamps` to `elapsed` or `system` to prefix each line of the `text` log in the style of `grabserial`, a serial capture tool by Tim Bird: `[<time> <delta>] `, stamped when the line's first byte arrives. With `elapsed`, `<time>` is seconds since the first received byte; with `system` it is the UTC wall-clock time. `<delta>` is seconds since the previous line, and both numbers have six decimal places. The default is `off`, so the `text` file holds exactly the received bytes. Transmitted bytes never appear in the `text` file.
 
 The agent never chooses the directory or file names. Files go to `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`) and are named `serial-mcp-log-<DDMMYYYY>-<HHMM>[-<n>].<extension>` in local time; all formats of one log share the name. Files are created with mode `0600`, because a console log can capture passwords. If the log cannot be started, the port is closed and the call returns `log_failed`.
 A `jsonl` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567, "dir": "tx", "source": "mcp", "len": 3, "hex": "6c730a", "text": "ls\n"}`. The `source` is `mcp` or `mirror`. Control events (`open`, `close`, `dtr`, `rts`, `flush`, `configure`) have an `event` field instead of `dir`.
