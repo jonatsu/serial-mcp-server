@@ -22,7 +22,14 @@ from serial_mcp_server.helpers import (
 )
 from serial_mcp_server.mirror import SerialBuffer, create_reader
 from serial_mcp_server.portlog import PortLog, PortLogSlot, resolve_log_request
-from serial_mcp_server.portlog_formats import CONFIGURE_EVENT, FORMATS, TEXT_TIMESTAMP_MODES, is_text_encoding
+from serial_mcp_server.portlog_formats import (
+    BUFFER_DROP_EVENT,
+    CONFIGURE_EVENT,
+    LOG_FORMATS_SCHEMA,
+    LOG_TEXT_TIMESTAMPS_SCHEMA,
+    OPEN_EVENT,
+    is_text_encoding,
+)
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
 from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
 
@@ -120,7 +127,12 @@ def _duration_error(pacing: Pacing, size: int) -> dict[str, Any] | None:
     )
 
 
-def _conn_config(conn: SerialConnection) -> dict[str, Any]:
+def make_read_buffer(slot: PortLogSlot) -> SerialBuffer:
+    """A read buffer that records each trim of unread bytes as a ``buffer_drop`` port-log event."""
+    return SerialBuffer(on_drop=lambda count: slot.event(BUFFER_DROP_EVENT, dropped_bytes=count))
+
+
+def conn_config(conn: SerialConnection) -> dict[str, Any]:
     """Return a dict describing the connection's serial configuration."""
     pacing = conn.writer.pacing
     return {
@@ -160,6 +172,7 @@ TOOLS: list[Tool] = [
             "Open a serial port connection. Returns a connection_id for use with other serial tools. "
             "The port stays open across tool calls until serial.close is called or the server exits. "
             "Defaults are 115200 baud, 8N1, \\r\\n line terminator — the most common settings. "
+            "When the user asks to log or record the session, pass log=true; the response lists the log file paths. "
             "If you don't know the correct settings, check for a protocol spec with serial.spec.list "
             "or ask the user. Wrong baud rate is the most common cause of garbled data. "
             "After opening: 1) Use serial.spec.list to check for a matching protocol spec. "
@@ -242,31 +255,13 @@ TOOLS: list[Tool] = [
                 "log": {
                     "type": ["boolean", "string"],
                     "description": (
-                        "Record the bytes on the wire in a port log file. Set this to true when the user asks "
-                        "to log or record the session. Overrides SERIAL_MCP_LOG; false disables logging."
+                        "Set true when the user asks to log or record the session: the server writes the bytes "
+                        "on the wire to log files it names, and the response lists their paths. "
+                        "Set false to skip logging that SERIAL_MCP_LOG would enable."
                     ),
                 },
-                "log_formats": {
-                    "type": "array",
-                    "items": {"type": "string", "enum": list(FORMATS)},
-                    "description": (
-                        "Log file formats (default text). text: the received bytes unchanged. "
-                        "jsonl: each chunk in both directions plus control events. "
-                        "lines: one entry per line in each direction, with partial prompts flagged. "
-                        "raw: the received bytes only, byte-exact. "
-                        "Passing this without log also enables logging. "
-                        "The response lists the file paths; the server picks the directory and file names."
-                    ),
-                },
-                "log_text_timestamps": {
-                    "type": "string",
-                    "enum": list(TEXT_TIMESTAMP_MODES),
-                    "description": (
-                        "Prefix each line of the text log with [time delta] (default off): "
-                        "elapsed counts seconds since the first received byte, system uses UTC wall-clock time; "
-                        "delta is seconds since the previous line."
-                    ),
-                },
+                "log_formats": LOG_FORMATS_SCHEMA,
+                "log_text_timestamps": LOG_TEXT_TIMESTAMPS_SCHEMA,
             },
             "required": ["port"],
         },
@@ -288,7 +283,11 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.connection_status",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Check whether a serial connection is still open and return its configuration.",
+        description=(
+            "Check whether a connection is open and return its configuration, buffered_bytes, and log files "
+            "when logging. dropped_bytes counts received bytes discarded because the 1 MiB read buffer filled "
+            "before anything read them; above zero, earlier output is lost, so read more often."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -302,10 +301,10 @@ TOOLS: list[Tool] = [
         name="serial.configure",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         description=(
-            "Change write pacing, text encoding, or the newline of an open connection without reopening it. "
-            "Reopening can toggle DTR/RTS and reset the device, so prefer this tool. "
-            "Pacing arguments replace the whole pacing mode, as on serial.write. "
-            "A change applies to writes submitted afterwards; writes already submitted keep their settings."
+            "Reconfigure an open connection in place: write pacing, text encoding, or newline. "
+            "Use it instead of closing and reopening, which can toggle DTR/RTS and reset the device. "
+            "Pass pacing arguments as a complete set, as on serial.write; they replace the whole pacing mode. "
+            "A change applies to writes submitted afterwards."
         ),
         inputSchema={
             "type": "object",
@@ -373,8 +372,11 @@ TOOLS: list[Tool] = [
         name="serial.write",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Write data to a serial port. Returns the number of bytes accepted by the host serial layer; "
-            "use inter_char_delay_ms or chunk_size with chunk_delay_ms to pace a slow receiver."
+            "Write data to a serial port. Returns bytes_written, the bytes the host serial layer accepted. "
+            "Pace a slow receiver with inter_char_delay_ms, or chunk_size with chunk_delay_ms. "
+            "A paced write whose estimated time exceeds the server cap (SERIAL_MCP_MAX_WRITE_SECONDS, "
+            "default 60 s) is rejected before anything is sent; split the data across calls. "
+            "A write that stops early returns write_aborted with bytes_written."
         ),
         inputSchema={
             "type": "object",
@@ -493,7 +495,10 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.flush",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
-        description="Flush serial port buffers (discard pending input/output data).",
+        description=(
+            "Discard pending data in the input buffer, the output buffer, or both. "
+            "Flushing output also cancels writes still queued, which return write_aborted."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
@@ -697,7 +702,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
             except OSError as exc:
                 return _err("log_failed", f"Could not start the port log in {log_request.directory}: {exc}")
 
-        buf = SerialBuffer()
+        buf = make_read_buffer(slot)
         writer = SerialWriter(ser, pacing, slot)
         reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, writer=writer, log_slot=slot)
         conn = SerialConnection(
@@ -717,7 +722,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
             reader=reader,
         )
         # Record the open before the threads start, so the log begins with it, not with a boot banner.
-        slot.event("open", config=_conn_config(conn))
+        slot.event(OPEN_EVENT, config=conn_config(conn))
         writer.start()
         reader.start()
         state.add_connection(conn)
@@ -729,7 +734,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     result = _ok(
         message=f"Opened {port} at {baudrate} baud.",
         connection_id=conn.connection_id,
-        config=_conn_config(conn),
+        config=conn_config(conn),
     )
     if slot.log is not None:
         result["log"] = slot.log.status()
@@ -777,7 +782,7 @@ async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str
         newline=newline,
     )
     conn.last_seen_ts = time.time()
-    return _ok(message=f"Configured {conn.port}.", config=_conn_config(conn))
+    return _ok(message=f"Configured {conn.port}.", config=conn_config(conn))
 
 
 async def handle_connection_status(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -786,10 +791,11 @@ async def handle_connection_status(state: SerialState, args: dict[str, Any]) -> 
     result: dict[str, Any] = {
         "connection_id": conn.connection_id,
         "is_open": is_open,
-        "config": _conn_config(conn),
+        "config": conn_config(conn),
         "opened_at": conn.opened_at,
         "last_seen_ts": conn.last_seen_ts,
         "buffered_bytes": conn.buffer.available,
+        "dropped_bytes": conn.buffer.dropped_bytes,
     }
     if conn.log_slot.log is not None:
         result["log"] = conn.log_slot.log.status()

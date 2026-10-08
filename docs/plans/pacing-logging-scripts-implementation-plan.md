@@ -929,3 +929,26 @@ the new environment variable.
 Deviations: the entry and format-writer code moved from `portlog.py` to a new `portlog_formats.py`, so both files
 stay under the size guideline. Accepted edge case: a `\r` split from its `\n` by 500 ms of silence stays at the end
 of the partial entry, so joining the pair gives `abc\r` rather than `abc`.
+
+### Unit 6: Runtime Log Tools and Drop Visibility
+
+Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `python-testing`, and
+`writing-for-agents` for the exposed tool text (user instruction).
+
+P1 results: 447 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean.
+
+Reviews (default model). `code-reviewer`: closing a connection while `serial.log.start` was creating files left a
+live log attached to a closed connection (now detected after the await, with the log closed and its empty files
+removed, and `not_found` returned); the `open` event could follow early traffic (now queued before the log is
+attached); and no test exercised the drop wiring through `serial.open` (added, with tests for the concurrent-start
+and close-during-start races). `clean-code-reviewer`: docs rendering and numbering fixes, a dead test statement
+removed, event-name constants, `conn_config` made public, `make_read_buffer` extracted so tests exercise the real
+wiring, and the shared log schemas moved to `portlog_formats.py`. Declined: splitting `handlers_serial.py`, which
+is past the size guideline but was before this unit.
+
+Deviation: the user asked that the exposed tool and property descriptions follow every behavior change, written
+with `writing-for-agents`. This unit rewrote the descriptions of `serial.open`, `serial.write`, `serial.flush`,
+`serial.configure`, and `serial.connection_status` for units 1 to 6, shares the log schemas between
+`serial.open` and `serial.log.start`, adds tests for the key phrases, and records the rule in `CONTRIBUTING.md`.
+Units 7 to 11 follow it.

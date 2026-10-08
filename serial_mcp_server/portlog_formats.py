@@ -19,7 +19,10 @@ KIND_TX = "tx"
 KIND_EVENT = "event"
 KIND_OVERFLOW = "overflow"
 
+OPEN_EVENT = "open"
+CLOSE_EVENT = "close"
 MARK_EVENT = "mark"
+BUFFER_DROP_EVENT = "buffer_drop"
 CONFIGURE_EVENT = "configure"
 
 
@@ -327,4 +330,28 @@ FORMATS: dict[str, LogFormat] = {
     "jsonl": LogFormat("jsonl", JsonlWriter),
     "lines": LogFormat("lines.jsonl", LinesWriter),
     "raw": LogFormat("bin", RawWriter),
+}
+
+
+# Tool schemas shared by serial.open and serial.log.start, so the format knowledge has one source.
+LOG_FORMATS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "items": {"type": "string", "enum": list(FORMATS)},
+    "description": (
+        "Port log file formats; default text. "
+        "text: received bytes unchanged. "
+        "jsonl: every chunk in both directions plus control events. "
+        "lines: one entry per line, with idle prompts flagged partial. "
+        "raw: received bytes, byte-exact. "
+        "Passing this on serial.open also enables logging."
+    ),
+}
+LOG_TEXT_TIMESTAMPS_SCHEMA: dict[str, Any] = {
+    "type": "string",
+    "enum": list(TEXT_TIMESTAMP_MODES),
+    "description": (
+        "Prefix each line of the text log with [time delta]; default off. "
+        "elapsed: seconds since the first received byte. system: UTC wall-clock time. "
+        "delta: seconds since the previous line."
+    ),
 }

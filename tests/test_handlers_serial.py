@@ -856,3 +856,30 @@ class TestConfigure:
 
         assert not result["ok"]
         assert conn.newline == "\n"
+
+
+class TestExposedToolText:
+    """The text MCP clients show the agent must follow the behavior; see CONTRIBUTING.md."""
+
+    @staticmethod
+    def description(name: str) -> str:
+        return next(tool.description for tool in TOOLS if tool.name == name)
+
+    def test_open_tells_the_agent_when_to_log(self):
+        text = self.description("serial.open")
+        assert "asks to log or record" in text
+        assert "log=true" in text
+
+    def test_write_names_the_cap_and_the_early_stop_error(self):
+        text = self.description("serial.write")
+        assert "SERIAL_MCP_MAX_WRITE_SECONDS" in text
+        assert "write_aborted" in text
+
+    def test_flush_says_it_cancels_queued_writes(self):
+        assert "cancels writes still queued" in self.description("serial.flush")
+
+    def test_status_explains_dropped_bytes(self):
+        assert "dropped_bytes" in self.description("serial.connection_status")
+
+    def test_configure_points_away_from_reopening(self):
+        assert "instead of closing and reopening" in self.description("serial.configure")
