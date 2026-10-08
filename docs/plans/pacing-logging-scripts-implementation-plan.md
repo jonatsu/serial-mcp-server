@@ -179,11 +179,7 @@ existing Added and Fixed style. Architecture changes also update `docs/concepts.
 
 ### P4: Review and Commit Gate
 
-The implementer runs the P1 commands, reviews the diff, and records the observed results. A `code-reviewer`
-subagent then reviews the exact diff and test evidence before dependent work begins, with a `clean-code-reviewer`
-pass alongside it. Dispatch `code-reviewer` with `model: opus` for units 1, 2, and 4, which change thread
-concurrency, and for unit 7, which crosses a file-access trust boundary. The implementer fixes findings, and the
-reviewer rechecks only the changed findings and affected evidence. Blocking findings close before the commit.
+The implementer runs the P1 commands, reviews the diff, and records results. The default `code-reviewer` reviews the exact diff and test evidence before dependent work begins, alongside a `clean-code-reviewer` pass. The code review examines concurrency and file-access trust boundaries where relevant. The implementer fixes findings, and the reviewer rechecks only changed findings and affected evidence. Blocking findings close before the commit.
 
 Commit each unit as one Conventional Commit on its branch with an explicit pathspec. Pushing and merging need the
 user's authorization.
@@ -564,8 +560,7 @@ MCP tools (unit 11) and the command-line runner (unit 12) share it.
 
 The units add these practices to the shared preflight. Load `python-architecture` before creating the package and
 the console entry point. Name every `argparse` option with hyphen-joined words, as the Python rules require.
-Apply `security-review` to units 8 and 11, which parse untrusted script text and resolve agent-supplied paths.
-Dispatch `code-reviewer` with `model: opus` for units 9, 10, and 11, which add threads, waits, and cancellation.
+The user waived separate security-review passes for the script runner. The default code review still examines path handling, threads, waits, and cancellation.
 
 ## Unit 8: Script Parser
 
@@ -808,12 +803,11 @@ against a pseudo-terminal device. Start `examples/demo-device/pty_server.py`. St
   10's fake device); and
 - a server started without the new variables creates no log files outside script runs.
 
-A `code-reviewer` dispatched with `model: opus` reviews the combined diff for cross-unit correctness. Separately,
-dispatch a fresh reviewer whose brief names `conformance-review` and supplies this plan, its Design Basis and the
-[script runner design](script-runner-design.md) as the governing designs, and the base revision `bceb725` and the
-head revision. There is no separate spec, so the
-conformance review reports that as a coverage limit. Both reviews record their findings in the execution record,
-and both close before integration does. Merging and pushing require the user's authorization.
+The default `code-reviewer` reviews the combined diff for cross-unit correctness.
+
+A fresh reviewer runs `conformance-review` against this plan and the [script runner design](script-runner-design.md), using base `bceb725` and the integrated head. No separate spec exists, so conformance coverage is limited.
+
+Record both reviews and close both gates before integration. Merging and pushing still require the user's authorization.
 
 ## Execution Record
 
@@ -829,7 +823,7 @@ flagged 2 files (`CONTRIBUTING.md` and `docs/concepts.md` line 101; neither touc
 on five consecutive runs, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
 `bandit` clean.
 
-Reviews. `code-reviewer` (Opus): approve, no production defects; two timing-dependent tests (one fixed in the
+Reviews. `code-reviewer`: approve, no production defects; two timing-dependent tests (one fixed in the
 cleanup below, one now waits on an event) and one inaccurate sentence in `docs/tools.md` (fixed).
 `clean-code-reviewer`: fixed the unused `SerialState.close_connection` (callers use `remove_connection` plus
 `stop_connections`), a racy test, the `MirrorSession.join` docstring, the duplicated queue-drain block, the silent
@@ -851,7 +845,7 @@ overrides the per-unit branch line in P1. Guidance applied: `coding-standards`, 
 P1 results: 281 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
 `bandit` clean.
 
-Reviews. `code-reviewer` (Opus, medium effort): approve; one finding, that `SERIAL_MCP_MAX_WRITE_SECONDS=nan`
+Reviews. `code-reviewer`: approve; one finding, that `SERIAL_MCP_MAX_WRITE_SECONDS=nan`
 rejected every write. Fixed by treating non-finite values as invalid, so `nan` and `inf` fall back to 60, and by
 skipping the cap check for unpaced writes. `clean-code-reviewer`: moved the setting under the Configuration block
 in `helpers.py`, used `math.ceil`, and renamed `_write_segment`'s byte-count parameter. Accepted: an invalid cap
@@ -867,7 +861,7 @@ Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `
 P1 results: 296 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
 `bandit` clean. The tool is annotated not read-only, not destructive, and not open-world.
 
-Reviews: `code-reviewer` (default model, since the plan reserves Opus for units 1, 2, 4, and 7): one required finding.
+Reviews: `code-reviewer`: one required finding.
 The newline test passed without the feature, because the fixture's default terminator gave the same answer. Fixed
 with data that distinguishes the two terminators and confirmed by disabling the assignment, which now fails two
 tests. It also noted that writes already queued, not only running ones, keep the old pacing, so the tool text now
@@ -884,7 +878,7 @@ Guidance applied: `coding-standards`, `python-style`, `python-async-patterns`, `
 P1 results: 377 tests passed on three consecutive runs, `ruff check` clean, `ruff format --check` clean on
 `serial_mcp_server` and `tests`, `bandit` clean.
 
-Reviews. `code-reviewer` (Opus, medium effort): the `log` and `log_formats` schema entries were nested inside the
+Reviews. `code-reviewer`: the `log` and `log_formats` schema entries were nested inside the
 `newline` property, so clients never saw them (fixed, with a schema test); the `open` event could follow bytes a
 device sends at startup (now logged before the threads start); a failure creating the reader leaked the log and
 the port (all setup now sits in one try/finally); and the jsonl `text` field ignored a later `serial.configure`
@@ -917,7 +911,7 @@ P1 results: 417 tests passed, `ruff check` clean, `ruff format --check` clean on
 `bandit` clean. A mutation check (never marking `continued`, never flushing an idle partial, never resetting the
 line-start flag) fails the matching tests.
 
-Reviews (default model, since the plan reserves Opus for other units). `code-reviewer`: partial versus merged lines
+Reviews. `code-reviewer`: partial versus merged lines
 depended on disk-thread lag, because silence was only judged after a write; `LinesWriter` now judges silence from the
 entries' own times before appending, with a test that writes a prompt and a reply three seconds apart with no tick
 between them. A failing final flush left the file open; `close` now closes in a `finally`. `clean-code-reviewer`:
@@ -961,7 +955,7 @@ P1 results: 530 tests passed, `ruff check` clean, `ruff format --check` clean on
 `bandit` clean. A mutation check removing each protection (identity check, `/proc` path check, absolute-path
 refusal, containment, regular-file check, `O_NOFOLLOW`) fails at least one test each.
 
-Reviews. `code-reviewer` (Opus, medium effort): `serial.send_file` would always fail on Windows because
+Reviews. `code-reviewer`: `serial.send_file` would always fail on Windows because
 `os.O_NONBLOCK` does not exist there (flags now come from `getattr`, with `O_BINARY` so bytes arrive unchanged);
 any pacing argument skipped the transfer-time cap; a cancelled transfer logged `send_file_end` with zero bytes and
 before the writer's last `tx` entry; and the device-file test passed without the regular-file check. `security-auditor`:
@@ -1009,3 +1003,13 @@ Deviations from design: variables are substituted after argument splitting, so v
 `@send`, `@sendline`, `@sendhex`, `@newline`, and `@mark` take the rest of the line without quote processing.
 
 Bare lines preserve leading whitespace. Only column-zero `@` starts a directive. `@@` sends a line beginning with `@`. `\xHH` is a Unicode code point encoded with the connection's encoding.
+
+### Unit 9: Output Matcher
+
+Committed on `feat/pacing-logging-scripts` as `feat(script): add output matcher`. Guidance applied: `coding-standards`, `python-style`, `python-typing`, `python-testing`, `test-driven-development`, and `python-async-patterns`. Unit 9 is synchronous; the serial-read test offloads blocking mirror operations with `asyncio.to_thread`.
+
+P1 results: `uv run --extra test python -m pytest tests -q` passed with 580 tests. `ruff check .` passed. The targeted format check passed with 46 files. Bandit exited successfully and printed manager warnings about comment words. The focused matcher and reader suite passed 19 tests, and the mirror device-loss test passed. Threaded smokes confirmed the matcher and receive buffer both got `received`, and the mirrored matcher closed after repeated errors.
+
+The reader subscription test failed before implementation because `ReaderThread` lacked `subscribe`; it passed afterward. The failed-subscriber test asserts one call and original-error identity. The default reviewer found that `MirrorSession._run` did not close subscribers after repeated serial errors; the mirror loop now closes them at its error threshold. The pipe-backed regression failed before that fix and passed after it. The code and clean-code re-reviews approved the slice.
+
+The user authorized the default code reviewer for Units 9–11 and final integration. The user waived a dedicated security review.
