@@ -16,6 +16,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from serial_mcp_server import (
+    handlers_file,
     handlers_introspection,
     handlers_log,
     handlers_plugin,
@@ -73,6 +74,7 @@ def build_server() -> tuple[Server, SerialState]:
     tools: list[Tool] = (
         handlers_serial.TOOLS
         + handlers_introspection.TOOLS
+        + handlers_file.TOOLS
         + handlers_log.TOOLS
         + handlers_spec.TOOLS
         + handlers_trace.TOOLS
@@ -81,6 +83,7 @@ def build_server() -> tuple[Server, SerialState]:
     handlers: dict[str, Any] = {
         **handlers_serial.HANDLERS,
         **handlers_introspection.HANDLERS,
+        **handlers_file.HANDLERS,
         **handlers_log.HANDLERS,
         **handlers_spec.HANDLERS,
         **handlers_trace.HANDLERS,

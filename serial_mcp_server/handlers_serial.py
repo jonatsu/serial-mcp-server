@@ -6,6 +6,8 @@ import asyncio
 import base64
 import logging
 import time
+from collections.abc import Callable
+from concurrent.futures import Future
 from typing import Any
 
 import serial as pyserial
@@ -63,6 +65,7 @@ BYTESIZE_MAP = {
 # Maximum read size to prevent accidental huge allocations.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
 MAX_WRITE_DELAY_MS = 1000
+BITS_PER_BYTE_ON_WIRE = 10  # start bit, 8 data bits, stop bit
 PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
 
 
@@ -95,7 +98,7 @@ def _parse_pacing_number(value: Any, name: str, maximum: int | None = None) -> i
     return number
 
 
-def _parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pacing:
+def parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pacing:
     """Return the pacing for one write, or *default* when *args* set none."""
     if not any(key in args for key in PACING_KEYS):
         return default
@@ -112,19 +115,78 @@ def _parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pa
     return Pacing(inter_char_delay_ms, chunk_size, chunk_delay_ms)
 
 
-def _duration_error(pacing: Pacing, size: int) -> dict[str, Any] | None:
-    """Return an error when pacing *size* bytes would exceed the server-wide cap."""
+def paced_transfer_seconds(pacing: Pacing, size: int, baudrate: int) -> float:
+    """Estimated time of a paced transfer: the larger of the pauses between segments and the time on the wire.
+
+    The larger of the two, because large chunks make the pauses negligible while the line stays busy.
+    Zero when unpaced, because the cap limits pacing, not the speed of the line.
+    """
     if not pacing.is_paced:
+        return 0.0
+    return max(pacing.estimated_seconds(size), wire_seconds(size, baudrate))
+
+
+def duration_error(estimate_seconds: float) -> dict[str, Any] | None:
+    """Return an error when an estimated transfer time exceeds the server-wide cap."""
+    if estimate_seconds <= 0:
         return None
-    estimate = pacing.estimated_seconds(size)
     cap = max_write_seconds()
-    if estimate <= cap:
+    if estimate_seconds <= cap:
         return None
     return _err(
         "invalid_params",
-        f"Estimated write time {estimate:.1f} s exceeds the {cap:g} s cap "
+        f"Estimated write time {estimate_seconds:.1f} s exceeds the {cap:g} s cap "
         "(SERIAL_MCP_MAX_WRITE_SECONDS). Send less data per call or reduce the pacing delay.",
     )
+
+
+def wire_seconds(size: int, baudrate: int) -> float:
+    """Time *size* bytes take on the wire at *baudrate*, with ten bits per byte."""
+    return size * BITS_PER_BYTE_ON_WIRE / baudrate if baudrate > 0 else 0.0
+
+
+def _bytes_written_by(future: Future[int]) -> int:
+    if future.cancelled():
+        return 0
+    error = future.exception()
+    if isinstance(error, WriteAborted):
+        return error.bytes_written
+    return 0 if error is not None else future.result()
+
+
+async def run_write_job(
+    conn: SerialConnection,
+    payload: bytes,
+    pacing: Pacing,
+    on_done: Callable[[int], None] | None = None,
+) -> tuple[int, dict[str, Any] | None]:
+    """Queue *payload* on the connection's writer and wait for it.
+
+    *on_done* is called exactly once with the bytes written, after the writer has stopped
+    touching the port, so anything it logs follows the write's own port-log entries. It runs
+    on the writer's thread, or on the caller's when the write never started.
+
+    Returns:
+        The bytes written and an error response, which is None on success. A cancelled request
+        stops the write between segments and re-raises.
+    """
+    try:
+        job = conn.writer.submit(payload, pacing)
+    except WriterClosed as exc:
+        if on_done is not None:
+            on_done(0)
+        return 0, _err("connection_closed", str(exc))
+    if on_done is not None:
+        job.future.add_done_callback(lambda future: on_done(_bytes_written_by(future)))
+    try:
+        return await asyncio.wrap_future(job.future), None
+    except asyncio.CancelledError:
+        job.cancel.set()
+        raise
+    except WriterClosed as exc:
+        return 0, _err("connection_closed", str(exc))
+    except WriteAborted as exc:
+        return exc.bytes_written, {**_err("write_aborted", str(exc)), "bytes_written": exc.bytes_written}
 
 
 def make_read_buffer(slot: PortLogSlot) -> SerialBuffer:
@@ -638,7 +700,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     timeout_ms = int(args.get("timeout_ms", 200))
     write_timeout_ms = int(args.get("write_timeout_ms", 200))
     try:
-        pacing = _parse_write_pacing(args)
+        pacing = parse_write_pacing(args)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
     exclusive = _coerce_bool(args["exclusive"]) if "exclusive" in args else None
@@ -760,7 +822,7 @@ async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str
 
     # Validate everything before changing anything, so a bad argument leaves the connection as it was.
     try:
-        pacing = _parse_write_pacing(args, conn.writer.pacing)
+        pacing = parse_write_pacing(args, conn.writer.pacing)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
     encoding = args.get("encoding", conn.encoding)
@@ -832,7 +894,7 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     append_newline = _coerce_bool(args.get("append_newline", False))
     newline = args.get("newline", conn.newline)
     try:
-        pacing = _parse_write_pacing(args, conn.writer.pacing)
+        pacing = parse_write_pacing(args, conn.writer.pacing)
     except ValueError as exc:
         return _err("invalid_params", str(exc))
 
@@ -853,25 +915,14 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     if append_newline:
         payload += newline.encode(encoding, errors="replace")
 
-    too_long = _duration_error(pacing, len(payload))
+    too_long = duration_error(paced_transfer_seconds(pacing, len(payload), conn.baudrate))
     if too_long is not None:
         return too_long
 
     # The writer thread serializes this with mirror input, so payloads never interleave.
-    try:
-        job = conn.writer.submit(payload, pacing)
-    except WriterClosed as exc:
-        return _err("connection_closed", str(exc))
-    try:
-        n_written = await asyncio.wrap_future(job.future)
-    except asyncio.CancelledError:
-        job.cancel.set()
-        raise
-    except WriterClosed as exc:
-        return _err("connection_closed", str(exc))
-    except WriteAborted as exc:
-        return {**_err("write_aborted", str(exc)), "bytes_written": exc.bytes_written}
-
+    n_written, error = await run_write_job(conn, payload, pacing)
+    if error is not None:
+        return error
     conn.last_seen_ts = time.time()
     return _ok(
         message=f"Wrote {n_written} byte(s) to {conn.port}.",
