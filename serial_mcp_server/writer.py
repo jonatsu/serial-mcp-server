@@ -11,11 +11,14 @@ import logging
 import math
 import threading
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import Future, InvalidStateError
 from dataclasses import dataclass, field
 from typing import Any
 
 import serial as pyserial
+
+from serial_mcp_server.portlog import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -95,7 +98,11 @@ def _write_segment(ser: Any, segment: bytes, bytes_before: int) -> int:
 
 
 def write_serial_payload(
-    ser: Any, payload: bytes, pacing: Pacing, cancel: threading.Event | None = None
+    ser: Any,
+    payload: bytes,
+    pacing: Pacing,
+    cancel: threading.Event | None = None,
+    on_sent: Callable[[bytes, int], None] | None = None,
 ) -> int:
     """Write bytes to a serial port, pausing between drained segments when paced.
 
@@ -107,7 +114,10 @@ def write_serial_payload(
             was fully sent. ``bytes_written`` counts completed segments.
     """
     if not pacing.is_paced:
-        return _write_segment(ser, payload, bytes_before=0)
+        n = _write_segment(ser, payload, bytes_before=0)
+        if on_sent is not None:
+            on_sent(payload, n)
+        return n
 
     cancel = cancel or threading.Event()
     size, delay_s = pacing.segment_size, pacing.segment_delay_ms / 1000.0
@@ -117,6 +127,8 @@ def write_serial_payload(
             raise WriteAborted("Write cancelled.", n_written)
         segment = payload[offset : offset + size]
         n = _write_segment(ser, segment, n_written)
+        if on_sent is not None:
+            on_sent(segment, n)
         n_written += n
         ser.flush()
         if n != len(segment):
@@ -137,13 +149,14 @@ def _fail(job: WriteJob, exc: BaseException) -> None:
 class SerialWriter:
     """Runs write jobs for one serial port, one at a time, in submission order.
 
-    The writer owns the connection's default pacing. Changing ``pacing``
+    The writer owns the connection's default pacing and taps the bytes the port accepts into the port log. Changing ``pacing``
     affects jobs submitted afterwards.
     """
 
-    def __init__(self, ser: Any, pacing: Pacing = NO_PACING) -> None:
+    def __init__(self, ser: Any, pacing: Pacing = NO_PACING, log_slot: PortLogSlot | None = None) -> None:
         self.ser = ser
         self.pacing = pacing
+        self.log_slot = log_slot if log_slot is not None else PortLogSlot()
         self._cond = threading.Condition()
         self._queue: deque[WriteJob] = deque()
         self._current: WriteJob | None = None
@@ -244,7 +257,13 @@ class SerialWriter:
         if not job.future.set_running_or_notify_cancel():
             return
         try:
-            n = write_serial_payload(self.ser, job.payload, job.pacing, job.cancel)
+            n = write_serial_payload(
+                self.ser,
+                job.payload,
+                job.pacing,
+                job.cancel,
+                lambda segment, accepted: self.log_slot.tx(segment, job.source, accepted),
+            )
             if not job.pacing.is_paced:
                 self.ser.flush()
         except BaseException as exc:  # hand every failure to the waiting caller

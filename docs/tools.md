@@ -69,6 +69,19 @@ This connection setting applies to `serial.write` and writes forwarded through a
 Alternatively, set both `chunk_size` and `chunk_delay_ms` to positive values to pause after each chunk drains.
 Only one pacing mode may be active. Both chunk settings default to `0`.
 
+Set `log` to `true` to record the bytes on the wire in a port log, and `log_formats` to choose the file formats. Passing `log_formats` alone also enables logging, and `log: false` disables it whatever the environment says. The formats are:
+
+| Format  | Extension | Content                                                                                   |
+| ------- | --------- | ----------------------------------------------------------------------------------------- |
+| `text`  | `txt`     | Received bytes written unchanged, so lines split where the device sent newlines. Default. |
+| `jsonl` | `jsonl`   | One JSON object per received or transmitted chunk, plus control events.                   |
+
+The agent never chooses the directory or file names. Files go to `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`) and are named `serial-mcp-log-<DDMMYYYY>-<HHMM>[-<n>].<extension>` in local time; all formats of one log share the name. Files are created with mode `0600`, because a console log can capture passwords. If the log cannot be started, the port is closed and the call returns `log_failed`.
+A `jsonl` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567, "dir": "tx", "source": "mcp", "len": 3, "hex": "6c730a", "text": "ls\n"}`. The `source` is `mcp` or `mirror`. Control events (`open`, `close`, `dtr`, `rts`, `flush`, `configure`) have an `event` field instead of `dir`.
+If the disk falls more than 8 MiB behind, the log drops entries rather than block the port and records a `log_overflow` event (or, in `text`, a `--- serial-mcp: <n> bytes not logged ---` line) with the exact byte count.
+When logging, the response and `serial.connection_status` include `log`, with the `formats` and the `files` paths.
+A port log holds everything on the wire, including passwords typed into a console and any terminal control sequences the device sends. Treat the files as sensitive, and view them with a pager that does not interpret escape sequences. `serial.open` also rejects an `encoding` that is not a text codec, such as `hex`.
+
 Returns:
 
 ```json

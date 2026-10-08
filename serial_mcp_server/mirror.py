@@ -17,6 +17,7 @@ import time
 from concurrent.futures import Future
 from typing import Any
 
+from serial_mcp_server.portlog import PortLogSlot
 from serial_mcp_server.writer import SOURCE_MIRROR, SerialWriter, WriterClosed
 
 logger = logging.getLogger("serial_mcp_server")
@@ -123,9 +124,10 @@ class SerialBuffer:
 class ReaderThread:
     """Background thread that continuously reads from a serial port into a buffer."""
 
-    def __init__(self, ser: Any, buffer: SerialBuffer) -> None:
+    def __init__(self, ser: Any, buffer: SerialBuffer, log_slot: PortLogSlot | None = None) -> None:
         self.ser = ser
         self.buffer = buffer
+        self.log_slot = log_slot if log_slot is not None else PortLogSlot()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -179,9 +181,14 @@ class ReaderThread:
                     break
                 time.sleep(0.1)
 
-    def _on_data(self, data: bytes) -> None:
-        """Called when data arrives from the serial port. Override to tee."""
+    def _deliver(self, data: bytes) -> None:
+        """Record received bytes in the port log, then the buffer. Every reader calls this once per chunk."""
+        self.log_slot.rx(data)
         self.buffer.write(data)
+
+    def _on_data(self, data: bytes) -> None:
+        """Called when data arrives from the serial port. Override to tee; call ``_deliver`` once."""
+        self._deliver(data)
 
     def mirror_info(self) -> dict[str, Any] | None:
         """Return mirror metadata, or None if this is a plain reader."""
@@ -206,9 +213,10 @@ class MirrorSession(ReaderThread):
         buffer: SerialBuffer,
         mode: str,
         writer: SerialWriter,
+        log_slot: PortLogSlot | None = None,
         link_path: str | None = None,
     ) -> None:
-        super().__init__(ser, buffer)
+        super().__init__(ser, buffer, log_slot)
         self.writer = writer
         self.mode = mode  # "ro" or "rw"
         self.link_path = link_path
@@ -318,7 +326,7 @@ class MirrorSession(ReaderThread):
 
     def _on_data(self, data: bytes) -> None:
         """Write to both the buffer and the PTY master."""
-        self.buffer.write(data)
+        self._deliver(data)
         try:
             os.write(self._master_fd, data)
         except (OSError, BlockingIOError):
@@ -371,6 +379,7 @@ def create_reader(
     mirror_link_base: str | None,
     *,
     writer: SerialWriter,
+    log_slot: PortLogSlot | None = None,
 ) -> ReaderThread:
     """Create the appropriate reader for a serial connection.
 
@@ -378,7 +387,7 @@ def create_reader(
     forwards PTY input through *writer*.
     """
     if mirror_mode == "off" or not _IS_UNIX:
-        return ReaderThread(ser, buffer)
+        return ReaderThread(ser, buffer, log_slot)
 
     link_path: str | None = None
     mirror_index: int | None = None
@@ -386,6 +395,8 @@ def create_reader(
         mirror_index = _acquire_mirror_index()
         link_path = f"{mirror_link_base}{mirror_index}"
 
-    session = MirrorSession(ser, buffer, mode=mirror_mode, writer=writer, link_path=link_path)
+    session = MirrorSession(
+        ser, buffer, mode=mirror_mode, writer=writer, link_path=link_path, log_slot=log_slot
+    )
     session._mirror_index = mirror_index
     return session

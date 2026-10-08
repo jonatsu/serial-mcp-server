@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import select
 import sys
 import threading
 import time
@@ -349,7 +350,9 @@ class _PipePort:
         return self._rx_read
 
     def read(self, n: int) -> bytes:
-        return os.read(self._rx_read, n)
+        # Like a port with a read timeout, so a plain ReaderThread can notice a stop request.
+        ready, _, _ = select.select([self._rx_read], [], [], 0.05)
+        return os.read(self._rx_read, n) if ready else b""
 
     def write(self, data: bytes) -> int:
         self.writes.append(data)

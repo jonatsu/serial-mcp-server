@@ -21,6 +21,7 @@ from serial_mcp_server.helpers import (
     max_write_seconds,
 )
 from serial_mcp_server.mirror import SerialBuffer, create_reader
+from serial_mcp_server.portlog import FORMATS, PortLog, PortLogSlot, is_text_encoding, resolve_log_request
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
 from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
 
@@ -116,15 +117,6 @@ def _duration_error(pacing: Pacing, size: int) -> dict[str, Any] | None:
         f"Estimated write time {estimate:.1f} s exceeds the {cap:g} s cap "
         "(SERIAL_MCP_MAX_WRITE_SECONDS). Send less data per call or reduce the pacing delay.",
     )
-
-
-def _is_text_encoding(name: str) -> bool:
-    """Return True when *name* is a codec that ``str.encode`` accepts, which excludes bytes-to-bytes codecs like hex."""
-    try:
-        "".encode(name)
-    except (LookupError, UnicodeError):
-        return False
-    return True
 
 
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
@@ -245,6 +237,23 @@ TOOLS: list[Tool] = [
                     "type": "string",
                     "default": "\\r\\n",
                     "description": "Default line terminator for readline and append_newline (default \\r\\n).",
+                },
+                "log": {
+                    "type": ["boolean", "string"],
+                    "description": (
+                        "Record the bytes on the wire in a port log file. Set this to true when the user asks "
+                        "to log or record the session. Overrides SERIAL_MCP_LOG; false disables logging."
+                    ),
+                },
+                "log_formats": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": list(FORMATS)},
+                    "description": (
+                        "Log file formats (default text): text holds the received bytes unchanged; "
+                        "jsonl holds each chunk in both directions plus control events. "
+                        "Passing this without log also enables logging. "
+                        "The response lists the file paths; the server picks the directory and file names."
+                    ),
                 },
             },
             "required": ["port"],
@@ -594,6 +603,15 @@ async def handle_list_ports(state: SerialState, args: dict[str, Any]) -> dict[st
     )
 
 
+def _abandon_open(ser: pyserial.Serial, slot: PortLogSlot, conn: SerialConnection | None) -> None:
+    """Release what ``handle_open`` acquired when the connection was never registered."""
+    if conn is not None:
+        stop_connections([conn])  # joins the threads, closes the log and the port
+        return
+    slot.close_log()
+    ser.close()
+
+
 async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     port = args["port"]
     baudrate = int(args.get("baudrate", 115200))
@@ -611,6 +629,8 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     newline = args.get("newline", "\r\n")
 
     # Validate parameters
+    if not is_text_encoding(encoding):
+        return _err("invalid_params", f"Unknown text encoding {encoding!r}.")
     if parity not in PARITY_MAP:
         return _err("invalid_params", f"Invalid parity '{parity}'. Must be one of: N, E, O, M, S.")
     if stopbits not in STOPBITS_MAP:
@@ -627,6 +647,13 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
                 "already_open",
                 f"Port {port} is already open as connection {conn.connection_id}.",
             )
+
+    try:
+        log_request = resolve_log_request(
+            _coerce_bool(args["log"]) if "log" in args else None, args.get("log_formats")
+        )
+    except ValueError as exc:
+        return _err("invalid_params", str(exc))
 
     timeout_s = timeout_ms / 1000.0
     write_timeout_s = write_timeout_ms / 1000.0
@@ -645,40 +672,53 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     ser = await asyncio.to_thread(pyserial.Serial, **kwargs)
 
-    connection_id = state.generate_id()
-    buf = SerialBuffer()
-    writer = SerialWriter(ser, pacing)
-    reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, writer=writer)
-    writer.start()
-    reader.start()
-
-    conn = SerialConnection(
-        connection_id=connection_id,
-        port=port,
-        baudrate=baudrate,
-        bytesize=bytesize,
-        parity=parity,
-        stopbits=stopbits,
-        timeout=timeout_s,
-        write_timeout=write_timeout_s,
-        encoding=encoding,
-        newline=newline,
-        ser=ser,
-        writer=writer,
-        buffer=buf,
-        reader=reader,
-    )
+    slot = PortLogSlot()
+    conn: SerialConnection | None = None
+    registered = False
     try:
+        if log_request is not None:
+            # Fail the open rather than run a session the caller asked to record without its log.
+            try:
+                slot.set(await asyncio.to_thread(PortLog.start, log_request, encoding))
+            except OSError as exc:
+                return _err("log_failed", f"Could not start the port log in {log_request.directory}: {exc}")
+
+        buf = SerialBuffer()
+        writer = SerialWriter(ser, pacing, slot)
+        reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, writer=writer, log_slot=slot)
+        conn = SerialConnection(
+            connection_id=state.generate_id(),
+            port=port,
+            baudrate=baudrate,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+            timeout=timeout_s,
+            write_timeout=write_timeout_s,
+            encoding=encoding,
+            newline=newline,
+            ser=ser,
+            writer=writer,
+            buffer=buf,
+            reader=reader,
+        )
+        # Record the open before the threads start, so the log begins with it, not with a boot banner.
+        slot.event("open", config=_conn_config(conn))
+        writer.start()
+        reader.start()
         state.add_connection(conn)
-    except Exception:
-        await asyncio.to_thread(stop_connections, [conn])
-        raise
+        registered = True
+    finally:
+        if not registered:
+            await asyncio.to_thread(_abandon_open, ser, slot, conn)
 
     result = _ok(
         message=f"Opened {port} at {baudrate} baud.",
-        connection_id=connection_id,
+        connection_id=conn.connection_id,
         config=_conn_config(conn),
     )
+    if slot.log is not None:
+        result["log"] = slot.log.status()
     mirror = reader.mirror_info()
     if mirror is not None:
         result["mirror"] = mirror
@@ -705,7 +745,7 @@ async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str
     except ValueError as exc:
         return _err("invalid_params", str(exc))
     encoding = args.get("encoding", conn.encoding)
-    if not isinstance(encoding, str) or not _is_text_encoding(encoding):
+    if not isinstance(encoding, str) or not is_text_encoding(encoding):
         return _err("invalid_params", f"Unknown text encoding {encoding!r}.")
     newline = args.get("newline", conn.newline)
     if not isinstance(newline, str) or not newline:
@@ -714,6 +754,14 @@ async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str
     conn.writer.pacing = pacing
     conn.encoding = encoding
     conn.newline = newline
+    conn.log_slot.event(
+        "configure",
+        inter_char_delay_ms=pacing.inter_char_delay_ms,
+        chunk_size=pacing.chunk_size,
+        chunk_delay_ms=pacing.chunk_delay_ms,
+        encoding=encoding,
+        newline=newline,
+    )
     conn.last_seen_ts = time.time()
     return _ok(message=f"Configured {conn.port}.", config=_conn_config(conn))
 
@@ -729,6 +777,8 @@ async def handle_connection_status(state: SerialState, args: dict[str, Any]) -> 
         "last_seen_ts": conn.last_seen_ts,
         "buffered_bytes": conn.buffer.available,
     }
+    if conn.log_slot.log is not None:
+        result["log"] = conn.log_slot.log.status()
     if conn.reader is not None:
         mirror = conn.reader.mirror_info()
         if mirror is not None:
@@ -861,6 +911,8 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
         conn.writer.discard_pending()
         await asyncio.to_thread(conn.ser.reset_output_buffer)
 
+    conn.log_slot.event("flush", what=what)
+
     conn.last_seen_ts = time.time()
     return _ok(message=f"Flushed {what} buffer(s) on {conn.port}.")
 
@@ -869,6 +921,7 @@ async def handle_set_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, 
     conn = state.get_connection(args["connection_id"])
     value = _coerce_bool(args["value"])
     conn.ser.dtr = value
+    conn.log_slot.event("dtr", value=value)
     conn.last_seen_ts = time.time()
     return _ok(
         message=f"DTR {'high' if value else 'low'} on {conn.port}.",
@@ -880,6 +933,7 @@ async def handle_set_rts(state: SerialState, args: dict[str, Any]) -> dict[str, 
     conn = state.get_connection(args["connection_id"])
     value = _coerce_bool(args["value"])
     conn.ser.rts = value
+    conn.log_slot.event("rts", value=value)
     conn.last_seen_ts = time.time()
     return _ok(
         message=f"RTS {'high' if value else 'low'} on {conn.port}.",
@@ -894,8 +948,10 @@ async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str
     conn = state.get_connection(args["connection_id"])
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.dtr = False
+    conn.log_slot.event("dtr", value=False)
     await asyncio.sleep(duration_ms / 1000.0)
     conn.ser.dtr = True
+    conn.log_slot.event("dtr", value=True)
     conn.last_seen_ts = time.time()
     return _ok(message=f"Pulsed DTR low for {duration_ms}ms on {conn.port}.", duration_ms=duration_ms)
 
@@ -904,8 +960,10 @@ async def handle_pulse_rts(state: SerialState, args: dict[str, Any]) -> dict[str
     conn = state.get_connection(args["connection_id"])
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.rts = False
+    conn.log_slot.event("rts", value=False)
     await asyncio.sleep(duration_ms / 1000.0)
     conn.ser.rts = True
+    conn.log_slot.event("rts", value=True)
     conn.last_seen_ts = time.time()
     return _ok(message=f"Pulsed RTS low for {duration_ms}ms on {conn.port}.", duration_ms=duration_ms)
 

@@ -214,6 +214,20 @@ PTY mirroring requires macOS or Linux. On Windows, the server logs a warning and
 
 ---
 
+## Port log — recording the wire
+
+The port log is a per-connection recording of the bytes the port sends and receives. It is separate from the tool-call trace, which records what the agent asked for, and from the server's stderr output. It is off by default. An operator turns it on for every connection with `SERIAL_MCP_LOG=1`, or the agent turns it on for one connection with `log` on `serial.open`.
+
+```
+serial port → reader thread ─┬→ SerialBuffer
+                             ├→ rx tap ─┐
+writer thread → serial port ─┴→ tx tap ─┴→ queue → disk thread → log files
+```
+
+The reader thread records each received chunk once, before it reaches the buffer, whether or not anything reads. The writer thread records each segment after the port accepts it, so a paced write appears with its real timing. A single disk thread writes the files, so a slow disk never blocks receiving or sending. If the queue holds 8 MiB, new entries are dropped and counted, and the next entry is preceded by a marker with the count. A log is therefore complete unless it says otherwise.
+
+---
+
 ## The agent's decision flow
 
 After opening a connection, the agent follows this flow:
