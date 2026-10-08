@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+### Added
+- `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced write; longer writes are rejected with `invalid_params` before any byte is sent.
+
 ### Fixed
 - Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to overflow.
 - Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
 - `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also discards writes still queued.
-- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early, and cancelling the request stops a paced write between segments.
+- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway, and cancelling the request stops a paced write between segments.
 
 ## 0.1.3
 

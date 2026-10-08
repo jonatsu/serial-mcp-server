@@ -12,7 +12,14 @@ import serial as pyserial
 import serial.tools.list_ports
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import MIRROR_PTY, MIRROR_PTY_LINK, _coerce_bool, _err, _ok
+from serial_mcp_server.helpers import (
+    MIRROR_PTY,
+    MIRROR_PTY_LINK,
+    _coerce_bool,
+    _err,
+    _ok,
+    max_write_seconds,
+)
 from serial_mcp_server.mirror import SerialBuffer, create_reader
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
 from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted, WriterClosed
@@ -94,6 +101,21 @@ def _parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pa
     if inter_char_delay_ms and chunk_size:
         raise ValueError("inter_char_delay_ms cannot be combined with chunk pacing.")
     return Pacing(inter_char_delay_ms, chunk_size, chunk_delay_ms)
+
+
+def _duration_error(pacing: Pacing, size: int) -> dict[str, Any] | None:
+    """Return an error when pacing *size* bytes would exceed the server-wide cap."""
+    if not pacing.is_paced:
+        return None
+    estimate = pacing.estimated_seconds(size)
+    cap = max_write_seconds()
+    if estimate <= cap:
+        return None
+    return _err(
+        "invalid_params",
+        f"Estimated write time {estimate:.1f} s exceeds the {cap:g} s cap "
+        "(SERIAL_MCP_MAX_WRITE_SECONDS). Send less data per call or reduce the pacing delay.",
+    )
 
 
 def _conn_config(conn: SerialConnection) -> dict[str, Any]:
@@ -688,6 +710,10 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
 
     if append_newline:
         payload += newline.encode(encoding, errors="replace")
+
+    too_long = _duration_error(pacing, len(payload))
+    if too_long is not None:
+        return too_long
 
     # The writer thread serializes this with mirror input, so payloads never interleave.
     try:

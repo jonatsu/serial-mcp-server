@@ -825,7 +825,7 @@ Branch `fix/serial-writer-thread`, based on `docs/pacing-logging-plan`. Guidance
 `python-style`, `python-async-patterns`, `python-testing`.
 
 P1 results. Baseline at `bceb725`: 243 tests passed, `ruff check` and `bandit` clean, and `ruff format --check`
-flagged 2 files (`CONTRIBUTING.md` and one other; neither touched by this plan). After the unit: 264 tests passed
+flagged 2 files (`CONTRIBUTING.md` and `docs/concepts.md` line 101; neither touched by this plan). After the unit: 264 tests passed
 on five consecutive runs, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
 `bandit` clean.
 
@@ -842,3 +842,21 @@ timeout-exception mapping, and chunk-size-1 refactor remain in unit 2. The old p
 `tests/test_writer.py` in this unit, because `write_serial_payload` moved. `handle_close` removes the connection on
 the event loop and joins threads in `asyncio.to_thread`, instead of running `close_connection` in the thread.
 results, reviewer findings with their disposition, and any authorized deviation from this plan.
+
+### Unit 2: Bounded, Cancellable Paced Writes
+
+Committed on `feat/pacing-logging-scripts`; the user directed that all units share this one branch, which
+overrides the per-unit branch line in P1. Guidance applied: `coding-standards`, `python-style`,
+`python-async-patterns`, `python-testing`.
+
+P1 results: 281 tests passed, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,
+`bandit` clean.
+
+Reviews. `code-reviewer` (Opus, medium effort): approve; one finding, that `SERIAL_MCP_MAX_WRITE_SECONDS=nan`
+rejected every write. Fixed by treating non-finite values as invalid, so `nan` and `inf` fall back to 60, and by
+skipping the cap check for unpaced writes. `clean-code-reviewer`: moved the setting under the Configuration block
+in `helpers.py`, used `math.ceil`, and renamed `_write_segment`'s byte-count parameter. Accepted: an invalid cap
+logs a warning on each write, because the value is read per call.
+
+Deviations: none beyond the unit 1 pull-forward. Character pacing now runs as chunk pacing of 1 inside
+`write_serial_payload`; the tool schemas are unchanged.

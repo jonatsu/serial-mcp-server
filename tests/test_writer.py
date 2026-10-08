@@ -6,6 +6,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+import serial as pyserial
 
 from serial_mcp_server.writer import (
     NO_PACING,
@@ -295,3 +296,49 @@ class TestSerialWriter:
         job = writer.submit(b"x")
         job.future.exception(WAIT_S)
         assert not job.future.cancel()
+
+
+class TestPacingEstimate:
+    @pytest.mark.parametrize(
+        ("pacing", "size", "seconds"),
+        [
+            (NO_PACING, 1000, 0.0),
+            (Pacing(inter_char_delay_ms=8), 7500, 60.0),
+            (Pacing(chunk_size=4, chunk_delay_ms=10), 10, 0.03),
+            (Pacing(chunk_size=4, chunk_delay_ms=10), 0, 0.0),
+        ],
+    )
+    def test_estimate_is_segments_times_delay(self, pacing, size, seconds):
+        assert pacing.estimated_seconds(size) == pytest.approx(seconds)
+
+    def test_character_pacing_is_chunk_pacing_of_one(self):
+        pacing = Pacing(inter_char_delay_ms=8)
+        assert (pacing.segment_size, pacing.segment_delay_ms) == (1, 8)
+
+
+class TestWriteTimeout:
+    def _port_timing_out_on_third_segment(self):
+        ser = MagicMock()
+        ser.write.side_effect = [2, 2, pyserial.SerialTimeoutException("write timeout")]
+        return ser
+
+    def test_timeout_mid_job_reports_completed_segments_and_keeps_the_cause(self):
+        with pytest.raises(WriteAborted) as excinfo:
+            write_serial_payload(
+                self._port_timing_out_on_third_segment(),
+                b"ABCDEFGH",
+                Pacing(chunk_size=2, chunk_delay_ms=1),
+                RecordingEvent([]),
+            )
+
+        assert excinfo.value.bytes_written == 4
+        assert isinstance(excinfo.value.__cause__, pyserial.SerialTimeoutException)
+
+    def test_timeout_on_an_unpaced_write_reports_zero_bytes(self):
+        ser = MagicMock()
+        ser.write.side_effect = pyserial.SerialTimeoutException("write timeout")
+
+        with pytest.raises(WriteAborted) as excinfo:
+            write_serial_payload(ser, b"ABC", NO_PACING)
+
+        assert excinfo.value.bytes_written == 0
