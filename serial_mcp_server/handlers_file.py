@@ -9,21 +9,20 @@ from typing import Any
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.handlers_serial import (
-    MAX_READ_BYTES,
     duration_error,
     parse_write_pacing,
     run_write_job,
     wire_seconds,
 )
 from serial_mcp_server.helpers import _err, _ok
-from serial_mcp_server.paths import files_dir, read_confined_file
+from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, files_dir, read_confined_file
 from serial_mcp_server.state import SerialState
 from serial_mcp_server.writer import Pacing
 
 SEND_FILE_START_EVENT = "send_file_start"
 SEND_FILE_END_EVENT = "send_file_end"
 
-MAX_SEND_FILE_BYTES = MAX_READ_BYTES  # 1 MiB; the whole file is held in memory
+MAX_SEND_FILE_BYTES = MAX_CONFINED_FILE_BYTES
 
 # Without pacing, a file still goes out in segments so cancel and bytes_written work as for paced writes.
 UNPACED_SEGMENT_BYTES = 4096
