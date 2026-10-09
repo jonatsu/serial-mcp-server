@@ -70,9 +70,11 @@ PASS_SCRIPT = r"""# Demo device: version and ping, with explicit expects and no 
 """
 WRONG_SCRIPT = PASS_SCRIPT.replace(r"DemoDevice v1\.0\.0", r"DemoDevice v9\.9\.9")
 WRONG_LINE = 5
-CATASTROPHIC_PATTERN = "(a|aa)+$"
+# The pattern must never match: a pattern that can match, such as (a|aa)+$, matches the a's of a partial read
+# before the b arrives, and the run passes instead of reaching the limit.
+CATASTROPHIC_PATTERN = "(a|aa)+c"
 CATASTROPHIC_SCRIPT = (
-    "# The demo device echoes forty a's, and (a|aa)+$ backtracks without end on them.\n"
+    "# The demo device echoes forty a's, and (a|aa)+c backtracks without end on them.\n"
     "@prompt --off\n"
     "@timeout 60s\n"
     f"@sendline echo {'a' * 40}b\n"
