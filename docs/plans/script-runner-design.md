@@ -453,6 +453,9 @@ The numeric limits in this document (1 MiB window, 256 KiB inline source, 2 KiB 
    `SERIAL_MCP_MAX_WRITE_SECONDS`. A long paced `@send_file` can therefore outlast the run's maximum duration. Text
    that the connection's encoding cannot encode is found when its step runs, because `parse` takes no encoding.
    Accepted and stated in `docs/scripts.md`.
+6. The server never deletes port logs or script result files, and a log never rotates, so a long-lived deployment
+   fills its log directory. Operators clean it today (`docs/tools.md`). A log rotation feature, with size caps per
+   file and per directory and pruning of old files, should be defined in the future.
 
 ## 12. Glossary
 
