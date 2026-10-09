@@ -14,7 +14,7 @@ from mcp.types import Tool
 from serial_mcp_server.mcp.responses import _err as err
 from serial_mcp_server.mcp.responses import _ok as ok
 from serial_mcp_server.mcp.state import SerialState
-from serial_mcp_server.mcp.tools.serial import handle_read, handle_read_until, handle_readline, handle_write
+from serial_mcp_server.mcp.tools.io import handle_read, handle_read_until, handle_readline, handle_write
 
 __all__ = [
     "SerialState",

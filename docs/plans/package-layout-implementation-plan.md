@@ -588,4 +588,25 @@ Review: an independent `code-reviewer` approved, with three optional notes. A st
 contract test was said to miss a renamed module; the rename check above shows it does not. `mcp/writes.py` has no
 direct tests of its `WriterClosed`, `WriteAborted`, and cancel branches, as before the move; left as a follow-up.
 
+### Unit 8: Serial Tools by Concern
+
+Split on 9 October 2026. `mcp/tools/connection.py` holds port listing, open, close, configure, and connection
+status, with the parity, stop-bit, and byte-size maps and `_release_when_worker_ends`; `mcp/tools/io.py` holds read,
+readline, read_until, write, flush, `_format_data`, and `parse_write_pacing`; `mcp/tools/lines.py` holds the DTR and
+RTS tools. `connection.py` imports `PACING_KEYS` and `parse_write_pacing` from `io.py`, never the reverse.
+`mcp/server.py` concatenates connection, io, and lines where the serial module stood, and `plugin_api.py` and
+`mcp/tools/file.py` import from `io.py`. The old module's unused `logger` was dropped. The tests split the same way;
+each module's tests now pin its tool names in registration order instead of one count of 14.
+
+Deviation: the old files were removed and the pieces created, not moved with `git mv`. Git records no renames, and
+no piece of `serial.py` reaches the 50 percent similarity at which it reports one, so `git mv` would change nothing
+in history.
+
+P1 results: 785 tests passed (781 plus the per-module registration tests); `just check` clean with six contracts
+kept. Servers started from a worktree at `945a77b` and from this tree returned identical `tools/list` JSON: 38 tools,
+in the same order. A line-by-line comparison of the old and new test files differs only in the registration tests,
+file headers, imports, and the formatter's wrapping of two patch targets.
+
+Review: an independent `code-reviewer` approved with no findings.
+
 No other unit has started.
