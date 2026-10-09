@@ -41,9 +41,6 @@ class Pacing:
 NO_PACING = Pacing()
 
 
-NO_PACING = Pacing()
-
-
 def wire_seconds(size: int, baudrate: int) -> float:
     """Time *size* bytes take on the wire at *baudrate*, with ten bits per byte."""
     return size * BITS_PER_BYTE_ON_WIRE / baudrate if baudrate > 0 else 0.0
