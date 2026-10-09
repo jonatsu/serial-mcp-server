@@ -76,6 +76,10 @@ class Pacing:
 
 NO_PACING = Pacing()
 
+# Without pacing, a file still goes out in segments so cancel and bytes_written
+# work as they do for paced writes.
+UNPACED_SEGMENT_BYTES = 4096
+
 
 @dataclass(eq=False)
 class WriteJob:

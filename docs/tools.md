@@ -341,6 +341,77 @@ The `jsonl` format records `{"event": "mark", "label": "step 2: boot"}` and the 
 
 ---
 
+## Scripts
+
+These tools run, inspect, and cancel validated scripts. The [script reference](scripts.md) explains directives and output matching.
+
+### serial.script.run
+
+Run a script on an open connection. The parser checks the whole script before the runner can send anything.
+
+```json
+{
+  "connection_id": "s1a2b3c4",
+  "path": "boot-smoke.script",
+  "vars": {"SERVER_IP": "192.0.2.1"},
+  "log": true,
+  "log_formats": ["text", "jsonl"],
+  "wait_ms": 1000
+}
+```
+
+Pass exactly one of `path` or `source`. Paths must identify regular files strictly inside `SERIAL_MCP_SCRIPTS_DIR`, which defaults to `.serial_mcp/scripts/`.
+Inline `source` is limited to 256 KiB. `vars` maps variable names to string values.
+The parser reports every error with its source line. It sends no data if parsing fails.
+
+`log` defaults to `true`. If no port log is active, the run starts one using `log_formats`.
+Without `log_formats`, it uses `SERIAL_MCP_LOG_FORMATS`, then `text`.
+An active log stays open when the script ends. Pass `log: false` to avoid starting a new log.
+`wait_ms` accepts an integer or numeric string from 0 to 60000. Its default is 0, which returns immediately.
+
+The response includes `run_id` and `state`. If the run finishes within `wait_ms`, the response includes the full result.
+Parse failures return `invalid_params` and an `errors` array. Each entry includes the source line, text, and message.
+
+`script_running` blocks `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, `serial.set_dtr`, `serial.set_rts`, `serial.pulse_dtr`, and `serial.pulse_rts`.
+`serial.log.start` and `serial.log.stop` also return `script_running` while a run owns the connection.
+Reads, connection status, log marks, and log status remain available. The server rejects another run on the claimed connection.
+
+### serial.script.status
+
+Inspect a run by `run_id`, or inspect the latest run on a `connection_id`.
+
+```json
+{ "run_id": "<run id>" }
+```
+
+Status includes the state, current source line and text, completed step count, and elapsed seconds.
+After completion, it also includes the full result, failure details, output tail, result path, and port log paths.
+The server retains 20 finished results.
+
+### serial.script.cancel
+
+Request cancellation of an active run.
+
+```json
+{ "run_id": "<run id>" }
+```
+
+The handler waits up to five seconds for the runner to stop. If it remains active, the response includes `cancel_requested: true`.
+The connection stays claimed until the runner returns.
+
+### serial.script.list
+
+List regular files in `SERIAL_MCP_SCRIPTS_DIR`, including each file's byte size and first comment line.
+If the directory does not exist, the tool returns an empty list.
+
+### serial.script.template
+
+Return the directive reference and a script skeleton.
+The template warns that `@expect` immediately after a command may match the device's echo.
+Anchor the pattern on output the echo cannot contain, or use `@prompt` to consume output through a prompt.
+
+---
+
 ## Introspection
 
 ### serial.connections.list

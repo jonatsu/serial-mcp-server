@@ -21,6 +21,7 @@ from serial_mcp_server.helpers import (
     _err,
     _ok,
     max_write_seconds,
+    script_running_error,
 )
 from serial_mcp_server.mirror import SerialBuffer, create_reader
 from serial_mcp_server.portlog import PortLog, PortLogSlot, resolve_log_request
@@ -32,7 +33,12 @@ from serial_mcp_server.portlog_formats import (
     OPEN_EVENT,
     is_text_encoding,
 )
-from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
+from serial_mcp_server.state import (
+    SCRIPT_CANCEL_WAIT_SECONDS,
+    SerialConnection,
+    SerialState,
+    stop_connections,
+)
 from serial_mcp_server.writer import (
     MAX_PACING_DELAY_MS,
     NO_PACING,
@@ -815,6 +821,11 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
 async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     connection_id = args["connection_id"]
+    state.get_connection(connection_id)  # raises not_found before any script run is touched
+    run = state.script_jobs.active_for_connection(connection_id)
+    if run is not None:
+        run.runner.cancel()
+        await asyncio.to_thread(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS)
     # Remove the connection on the loop, then join its threads off it.
     conn = state.remove_connection(connection_id)
     await asyncio.to_thread(stop_connections, [conn])
@@ -823,6 +834,9 @@ async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, An
 
 async def handle_configure(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     settings = ("encoding", "newline", *PACING_KEYS)
     if not any(key in args for key in settings):
         return _err("invalid_params", f"Pass at least one of: {', '.join(settings)}.")
@@ -895,6 +909,9 @@ async def handle_read(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
 async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     data_str = args["data"]
     fmt = args.get("as", "text")
     encoding = args.get("encoding", conn.encoding)
@@ -979,6 +996,9 @@ async def handle_read_until(state: SerialState, args: dict[str, Any]) -> dict[st
 
 async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     what = args.get("what", "both")
 
     if what in ("input", "both"):
@@ -997,6 +1017,9 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
 
 async def handle_set_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     value = _coerce_bool(args["value"])
     conn.ser.dtr = value
     conn.log_slot.event("dtr", value=value)
@@ -1009,6 +1032,9 @@ async def handle_set_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, 
 
 async def handle_set_rts(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     value = _coerce_bool(args["value"])
     conn.ser.rts = value
     conn.log_slot.event("rts", value=value)
@@ -1024,6 +1050,9 @@ _MAX_PULSE_MS = 10_000
 
 async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.dtr = False
     conn.log_slot.event("dtr", value=False)
@@ -1036,6 +1065,9 @@ async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str
 
 async def handle_pulse_rts(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.rts = False
     conn.log_slot.event("rts", value=False)

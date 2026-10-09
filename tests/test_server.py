@@ -40,6 +40,11 @@ EXPECTED_TOOL_HINTS = {
     "serial.plugin.reload": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
     "serial.plugin.template": {"readOnlyHint": True, "openWorldHint": False},
     "serial.plugin.load": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
+    "serial.script.run": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": True},
+    "serial.script.status": {"readOnlyHint": True, "openWorldHint": False},
+    "serial.script.cancel": {"readOnlyHint": False, "destructiveHint": True, "openWorldHint": False},
+    "serial.script.list": {"readOnlyHint": True, "openWorldHint": False},
+    "serial.script.template": {"readOnlyHint": True, "openWorldHint": False},
 }
 
 # ---------------------------------------------------------------------------

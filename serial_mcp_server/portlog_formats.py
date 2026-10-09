@@ -24,6 +24,8 @@ CLOSE_EVENT = "close"
 MARK_EVENT = "mark"
 BUFFER_DROP_EVENT = "buffer_drop"
 CONFIGURE_EVENT = "configure"
+SEND_FILE_START_EVENT = "send_file_start"
+SEND_FILE_END_EVENT = "send_file_end"
 
 
 class TextTimestamps(StrEnum):

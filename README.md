@@ -171,6 +171,7 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 | `SERIAL_MCP_MIRROR_LINK` | `/tmp/serial-mcp` | Base path for PTY symlinks. Connections get numbered: `/tmp/serial-mcp0`, `/tmp/serial-mcp1`, etc. |
 | `SERIAL_MCP_MAX_WRITE_SECONDS` | `60` | Cap on the estimated duration of one paced write (segments times delay). Longer writes are rejected with `invalid_params` before any byte is sent. |
 | `SERIAL_MCP_SCRIPT_MAX_SECONDS` | `3600` | Maximum duration of one script run. A run that exceeds it fails with `max_duration`. |
+| `SERIAL_MCP_SCRIPTS_DIR` | `.serial_mcp/scripts/` | Directory for script files used by `serial.script.run` and `serial.script.list`. |
 | `SERIAL_MCP_FILES_DIR` | `.serial_mcp/files/` | The only directory `serial.send_file` reads from. Files must be regular and at most 1 MiB. |
 | `SERIAL_MCP_LOG` | disabled | Set to `1`, `true`, or `yes` to record every connection's bytes in a port log. `serial.open` can override it per connection with `log`. |
 | `SERIAL_MCP_LOG_FORMATS` | `text` | Comma-separated port log formats (`text`, `jsonl`, `lines`, `raw`) used when a connection does not choose its own. |
@@ -191,9 +192,12 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 | **Serial Core** | `serial.list_ports`, `serial.open`, `serial.close`, `serial.connection_status`, `serial.configure`, `serial.read`, `serial.write`, `serial.readline`, `serial.read_until`, `serial.flush`, `serial.send_file`, `serial.set_dtr`, `serial.set_rts`, `serial.pulse_dtr`, `serial.pulse_rts` |
 | **Introspection** | `serial.connections.list` |
 | **Port Log** | `serial.log.start`, `serial.log.stop`, `serial.log.status`, `serial.log.mark` |
+| **Scripts** | `serial.script.run`, `serial.script.status`, `serial.script.cancel`, `serial.script.list`, `serial.script.template` |
 | **Protocol Specs** | `serial.spec.template`, `serial.spec.register`, `serial.spec.list`, `serial.spec.attach`, `serial.spec.get`, `serial.spec.read`, `serial.spec.search` |
 | **Tracing** | `serial.trace.status`, `serial.trace.tail` |
 | **Plugins** | `serial.plugin.template`, `serial.plugin.list`, `serial.plugin.reload`, `serial.plugin.load` |
+
+See the [serial script reference](docs/scripts.md) for script syntax and examples.
 
 ---
 
