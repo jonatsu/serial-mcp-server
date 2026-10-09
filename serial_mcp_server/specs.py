@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -18,7 +17,6 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-SPEC_DIR_NAME = ".serial_mcp"
 INDEX_FILE = "index.json"
 SPECS_SUBDIR = "specs"
 
@@ -30,46 +28,6 @@ _FRONTMATTER_RE = re.compile(
     r"\A---\s*\n(.*?\n)---\s*\n",
     re.DOTALL,
 )
-
-
-# ---------------------------------------------------------------------------
-# Directory resolution
-# ---------------------------------------------------------------------------
-
-
-def resolve_spec_root() -> Path:
-    """Find the `.serial_mcp/` directory.
-
-    Resolution order:
-    1. ``SERIAL_MCP_SPEC_ROOT`` env var (if set)
-    2. Walk up from CWD looking for existing ``.serial_mcp/``
-    3. Walk up from CWD looking for ``.git/`` (place ``.serial_mcp/`` next to it)
-    4. Fall back to CWD
-    """
-    env = os.environ.get("SERIAL_MCP_SPEC_ROOT")
-    if env:
-        return Path(env)
-
-    cwd = Path.cwd()
-
-    # Walk up looking for existing .serial_mcp/
-    for parent in [cwd, *cwd.parents]:
-        candidate = parent / SPEC_DIR_NAME
-        if candidate.is_dir():
-            return candidate
-        # Stop at filesystem root
-        if parent == parent.parent:
-            break
-
-    # Walk up looking for .git/
-    for parent in [cwd, *cwd.parents]:
-        if (parent / ".git").is_dir():
-            return parent / SPEC_DIR_NAME
-        if parent == parent.parent:
-            break
-
-    # Fall back to CWD
-    return cwd / SPEC_DIR_NAME
 
 
 def _ensure_spec_dir(spec_root: Path) -> None:
@@ -167,14 +125,12 @@ def compute_spec_id(path: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _project_root() -> Path:
+def _project_root(spec_root: Path) -> Path:
     """Return the project root (parent of ``.serial_mcp/``)."""
-    spec_root = resolve_spec_root()
-    # spec_root is .serial_mcp/, project root is its parent
     return spec_root.resolve().parent
 
 
-def register_spec(path: str | Path) -> dict[str, Any]:
+def register_spec(spec_root: Path, path: str | Path) -> dict[str, Any]:
     """Register a spec file in the index.
 
     Validates front-matter, computes spec_id, and updates the index.
@@ -185,7 +141,7 @@ def register_spec(path: str | Path) -> dict[str, Any]:
     """
     file_path = Path(path).resolve()
 
-    project = _project_root()
+    project = _project_root(spec_root)
     if project not in file_path.parents and file_path != project:
         raise ValueError(f"Spec path must be inside the project directory ({project}) — got {path}")
 
@@ -200,7 +156,6 @@ def register_spec(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"Invalid spec front-matter: {'; '.join(errors)}")
 
     spec_id = compute_spec_id(file_path)
-    spec_root = resolve_spec_root()
     _ensure_spec_dir(spec_root)
 
     index = _load_index(spec_root)
@@ -216,20 +171,18 @@ def register_spec(path: str | Path) -> dict[str, Any]:
     return entry
 
 
-def list_specs() -> list[dict[str, Any]]:
+def list_specs(spec_root: Path) -> list[dict[str, Any]]:
     """Return all indexed specs with their metadata."""
-    spec_root = resolve_spec_root()
     index = _load_index(spec_root)
     return list(index.values())
 
 
-def read_spec(spec_id: str) -> dict[str, Any]:
+def read_spec(spec_root: Path, spec_id: str) -> dict[str, Any]:
     """Read full spec content + path + metadata.
 
     Raises ``KeyError`` if the spec_id is not in the index.
     Raises ``FileNotFoundError`` if the file no longer exists.
     """
-    spec_root = resolve_spec_root()
     index = _load_index(spec_root)
 
     if spec_id not in index:
@@ -238,7 +191,7 @@ def read_spec(spec_id: str) -> dict[str, Any]:
     entry = index[spec_id]
     file_path = Path(entry["path"]).resolve()
 
-    project = _project_root()
+    project = _project_root(spec_root)
     if project not in file_path.parents and file_path != project:
         raise ValueError(f"Spec path in index points outside the project directory: {file_path}")
 
@@ -257,13 +210,13 @@ def read_spec(spec_id: str) -> dict[str, Any]:
     }
 
 
-def search_spec(spec_id: str, query: str, k: int = 10) -> list[dict[str, Any]]:
+def search_spec(spec_root: Path, spec_id: str, query: str, k: int = 10) -> list[dict[str, Any]]:
     """Search a spec's content line-by-line for query terms.
 
     Returns up to *k* snippets with line numbers and context.
     Scoring: count of query terms found per line (case-insensitive).
     """
-    spec_data = read_spec(spec_id)
+    spec_data = read_spec(spec_root, spec_id)
     content = spec_data["content"]
     lines = content.splitlines()
 
@@ -303,9 +256,8 @@ def search_spec(spec_id: str, query: str, k: int = 10) -> list[dict[str, Any]]:
     return results
 
 
-def suggest_spec_path(device_name: str | None = None) -> Path:
+def suggest_spec_path(spec_root: Path, device_name: str | None = None) -> Path:
     """Return a suggested file path for a new spec inside .serial_mcp/specs/."""
-    spec_root = resolve_spec_root()
     slug = "my-device"
     if device_name:
         slug = re.sub(r"[^a-z0-9]+", "-", device_name.lower()).strip("-")

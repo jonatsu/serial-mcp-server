@@ -113,7 +113,7 @@ async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str
     if conn.log_slot.log is not None:
         return _already_logging(conn)
     try:
-        request = build_log_request(args.get("log_formats"), args.get("log_text_timestamps"))
+        request = build_log_request(state.settings, args.get("log_formats"), args.get("log_text_timestamps"))
     except ValueError as exc:
         return _err("invalid_params", str(exc))
 

@@ -15,7 +15,7 @@ from serial_mcp_server.handlers_serial import (
     wire_seconds,
 )
 from serial_mcp_server.helpers import _err, _ok, script_running_error
-from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, files_dir, read_confined_file
+from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, read_confined_file
 from serial_mcp_server.portlog_formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.state import SerialState
 from serial_mcp_server.writer import UNPACED_SEGMENT_BYTES, Pacing
@@ -69,7 +69,7 @@ async def handle_send_file(state: SerialState, args: dict[str, Any]) -> dict[str
     if blocked is not None:
         return blocked
     requested = args["path"]
-    root = files_dir()
+    root = state.settings.files_dir
     try:
         pacing = parse_write_pacing(args, conn.writer.pacing)
         resolved, payload = await asyncio.to_thread(read_confined_file, root, requested, MAX_SEND_FILE_BYTES)
@@ -78,7 +78,9 @@ async def handle_send_file(state: SerialState, args: dict[str, Any]) -> dict[str
     except OSError as exc:
         return _err("file_unreadable", f"Could not read {requested!r}: {exc.strerror or exc}")
 
-    too_long = duration_error(_estimated_seconds(pacing, len(payload), conn.baudrate))
+    too_long = duration_error(
+        _estimated_seconds(pacing, len(payload), conn.baudrate), state.settings.max_write_seconds
+    )
     if too_long is not None:
         return too_long
     if not pacing.is_paced:

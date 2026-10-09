@@ -75,18 +75,18 @@ class TestResultFormat:
 
 
 class TestBuildServer:
-    def test_build_server_returns_server_and_state(self):
+    def test_build_server_returns_server_and_state(self, settings):
         from serial_mcp_server.server import build_server
 
-        server, state = build_server()
+        server, state = build_server(settings)
         assert server is not None
         assert state is not None
         assert hasattr(state, "connections")
 
-    async def test_client_visible_tools_have_expected_annotations(self):
+    async def test_client_visible_tools_have_expected_annotations(self, settings):
         from serial_mcp_server.server import build_server
 
-        server, _state = build_server()
+        server, _state = build_server(settings)
         result = await server.request_handlers[ListToolsRequest](None)
         tools = {tool.name: tool for tool in result.root.tools}
 
@@ -96,10 +96,10 @@ class TestBuildServer:
             actual = tools[name].annotations.model_dump(exclude_none=True)
             assert actual.items() >= expected.items()
 
-    async def test_tool_annotations_are_serialized_for_mcp_clients(self):
+    async def test_tool_annotations_are_serialized_for_mcp_clients(self, settings):
         from serial_mcp_server.server import build_server
 
-        server, _state = build_server()
+        server, _state = build_server(settings)
         result = await server.request_handlers[ListToolsRequest](None)
         tools = {tool.name: tool for tool in result.root.tools}
 

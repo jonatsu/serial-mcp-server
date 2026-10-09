@@ -15,18 +15,17 @@ from serial_mcp_server import paths
 from serial_mcp_server.handlers_file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
 from serial_mcp_server.portlog import LogRequest, PortLog
 from serial_mcp_server.writer import Pacing
-from tests.helpers import read_jsonl, writer_goes_idle
+from tests.helpers import read_jsonl, reconfigure, writer_goes_idle
 
 SID = {"connection_id": "s1"}
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX symlinks and FIFOs")
 
 
 @pytest.fixture()
-def files(tmp_path, monkeypatch):
+def files(tmp_path, serial_state):
     directory = tmp_path / "files"
     directory.mkdir()
-    monkeypatch.setenv(paths.ENV_FILES_DIR, str(directory))
-    monkeypatch.delenv("SERIAL_MCP_MAX_WRITE_SECONDS", raising=False)
+    reconfigure(serial_state, files_dir=directory)
     return directory
 
 
@@ -104,14 +103,10 @@ class TestSending:
 
         assert (result["ok"], result["bytes_written"]) == (True, 0)
 
-    async def test_the_default_directory_is_files_under_the_spec_root(
-        self, connected_entry, tmp_path, monkeypatch
-    ):
-        monkeypatch.delenv(paths.ENV_FILES_DIR, raising=False)
-        monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
-        (tmp_path / "spec" / "files").mkdir(parents=True)
-        (tmp_path / "spec" / "files" / "hello").write_bytes(b"hi")
+    async def test_the_default_directory_is_files_under_the_spec_root(self, connected_entry):
         state, conn = connected_entry
+        (state.settings.data_root / "files").mkdir(parents=True)
+        (state.settings.data_root / "files" / "hello").write_bytes(b"hi")
         conn.ser.write.side_effect = len
 
         result = await handle_send_file(state, {**SID, "path": "hello"})
@@ -180,7 +175,7 @@ class TestRefusals:
 
     async def test_a_paced_file_over_the_duration_cap_is_refused(self, connected_entry, files, monkeypatch):
         state, conn = connected_entry
-        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "1")
+        reconfigure(state, max_write_seconds=1.0)
         (files / "slow").write_bytes(b"x" * 200)
 
         result = await handle_send_file(state, {**SID, "path": "slow", "inter_char_delay_ms": 8})

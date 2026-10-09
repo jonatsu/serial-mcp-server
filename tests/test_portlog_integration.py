@@ -11,7 +11,8 @@ from unittest.mock import patch
 
 import pytest
 
-from serial_mcp_server import portlog, portlog_formats
+from serial_mcp_server import config, portlog_formats
+from serial_mcp_server.config import Settings
 from serial_mcp_server.handlers_serial import (
     handle_close,
     handle_configure,
@@ -24,22 +25,25 @@ from serial_mcp_server.handlers_serial import (
     handle_write,
 )
 from serial_mcp_server.mirror import MirrorSession, ReaderThread, SerialBuffer
-from serial_mcp_server.portlog import LogRequest, PortLog
+from serial_mcp_server.portlog import LogRequest, PortLog, PortLogSlot
 from serial_mcp_server.writer import Pacing, SerialWriter
-from tests.helpers import read_jsonl
+from tests.helpers import read_jsonl, reconfigure
 from tests.test_mirror import _PipePort
 
 WAIT_S = 2.0
 _IS_UNIX = sys.platform != "win32"
 
 
-@pytest.fixture(autouse=True)
-def log_env(monkeypatch, tmp_path):
-    """No logging variables set, and the spec root inside tmp_path."""
-    for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR, portlog.ENV_TEXT_TIMESTAMPS):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
-    return tmp_path / "spec" / "logs"
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    """Default settings with the data root at tmp_path/spec; serial_state uses them."""
+    return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path / "spec")})
+
+
+@pytest.fixture
+def log_env(settings: Settings):
+    """The log directory under the test's data root; no logging variables are set."""
+    return settings.log_dir
 
 
 async def open_port(state, mock_serial, mock_reader, **args):
@@ -71,7 +75,7 @@ class TestOpenSettings:
     async def test_environment_enables_one_text_file_identical_to_the_received_bytes(
         self, serial_state, mock_serial, mock_reader, log_env, monkeypatch
     ):
-        monkeypatch.setenv(portlog.ENV_LOG, "1")
+        reconfigure(serial_state, log_enabled=True)
         result, make_reader = await open_port(serial_state, mock_serial, mock_reader)
         slot = make_reader.call_args.kwargs["log_slot"]
         for chunk in (b"boot\r\n", b"\xff\xfe raw", b"> "):
@@ -99,7 +103,7 @@ class TestOpenSettings:
         self, serial_state, mock_serial, mock_reader, log_env, monkeypatch, env, args, expected
     ):
         if env:
-            monkeypatch.setenv(portlog.ENV_LOG, env)
+            reconfigure(serial_state, log_enabled=True)
         result, _ = await open_port(serial_state, mock_serial, mock_reader, **args)
         await close_port(serial_state, result)
 
@@ -123,7 +127,7 @@ class TestOpenSettings:
     ):
         blocker = tmp_path / "not-a-directory"
         blocker.write_text("x")
-        monkeypatch.setenv(portlog.ENV_DIR, str(blocker / "logs"))
+        reconfigure(serial_state, log_dir=blocker / "logs")
 
         result, make_reader = await open_port(serial_state, mock_serial, mock_reader, log=True)
 
@@ -243,7 +247,7 @@ class TestTransmitTap:
 class TestReceiveTap:
     def start(self, port, tmp_path, make_reader):
         """Start a log, writer, and reader on *port*; ``make_reader(buf, slot, writer)`` builds the reader."""
-        slot = portlog.PortLogSlot()
+        slot = PortLogSlot()
         log = PortLog.start(LogRequest(("jsonl",), tmp_path / "logs"), "utf-8")
         slot.set(log)
         buf = SerialBuffer()

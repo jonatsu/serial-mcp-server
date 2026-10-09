@@ -221,13 +221,13 @@ outside `config.py` and fails on a match.
 | `SERIAL_MCP_LOG`                 | `log_enabled`            | boolean; off                                      |
 | `SERIAL_MCP_LOG_FORMATS`         | `log_formats`            | list of `text`, `jsonl`, `lines`, `raw`; `text`   |
 | `SERIAL_MCP_LOG_TEXT_TIMESTAMPS` | `log_text_timestamps`    | `off`, `elapsed`, or `system`; `off`              |
-| `SERIAL_MCP_LOG_LEVEL`           | `log_level`              | `DEBUG`, `INFO`, `WARNING`, or `ERROR`; `WARNING` |
+| `SERIAL_MCP_LOG_LEVEL`           | `log_level`              | `DEBUG` to `CRITICAL`; `WARNING`                 |
 | `SERIAL_MCP_MAX_CONNECTIONS`     | `max_connections`        | positive integer; 10                              |
 | `SERIAL_MCP_MAX_WRITE_SECONDS`   | `max_write_seconds`      | positive number; 60                               |
 | `SERIAL_MCP_SCRIPT_MAX_SECONDS`  | `script_max_seconds`     | positive number; 3600                             |
 | `SERIAL_MCP_MIRROR`              | `mirror`                 | `off`, `ro`, or `rw`; `off`                       |
 | `SERIAL_MCP_MIRROR_LINK`         | `mirror_link`            | path; `/tmp/serial-mcp` when the mirror is on     |
-| `SERIAL_MCP_PLUGINS`             | `plugin_policy`          | empty for none, `*` or `all`, or a list of names; empty |
+| `SERIAL_MCP_PLUGINS`             | `plugins`                | empty for none, `*` or `all`, or a list of names; empty |
 | `SERIAL_MCP_TOOL_SEPARATOR`      | `tool_separator`         | string; `.`                                       |
 | `SERIAL_MCP_TRACE`               | `trace_enabled`          | boolean; on                                       |
 | `SERIAL_MCP_TRACE_PAYLOADS`      | `trace_payloads`         | boolean; off                                      |
@@ -245,11 +245,12 @@ These rules change observable behavior, and the CHANGELOG lists each change (dec
   such as tests saw the old behavior.
 - `SERIAL_MCP_TRACE=off` now disables tracing; today it leaves tracing on, because only `0`, `false`, and `no` count
   as off.
-- An invalid `SERIAL_MCP_MIRROR` stops the start instead of logging a warning and running with no mirror. An invalid
+- An invalid `SERIAL_MCP_MIRROR` or `SERIAL_MCP_MAX_WRITE_SECONDS` stops the start instead of logging a warning and
+  using the default. An invalid
   `SERIAL_MCP_LOG_LEVEL` stops the start instead of silently using `WARNING`. An invalid
   `SERIAL_MCP_MAX_CONNECTIONS` or `SERIAL_MCP_TRACE_MAX_BYTES` stops the start with a message instead of a traceback.
-- An invalid `SERIAL_MCP_MAX_WRITE_SECONDS`, `SERIAL_MCP_SCRIPT_MAX_SECONDS`, or log variable stops the start instead
-  of failing each call that uses it with `invalid_params`.
+- An invalid `SERIAL_MCP_SCRIPT_MAX_SECONDS` or log variable stops the start instead of failing each call that uses
+  it with `invalid_params`.
 - `serial_mcp_script` loads the same settings, so it also stops on an invalid variable that only the server uses,
   such as `SERIAL_MCP_MIRROR`.
 

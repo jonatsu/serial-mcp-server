@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import threading
 import time
@@ -17,6 +16,7 @@ from typing import BinaryIO, Literal, NoReturn
 
 import regex
 
+from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS
 from serial_mcp_server.portlog import (
     DIR_MODE,
     FILE_MODE,
@@ -31,11 +31,9 @@ from serial_mcp_server.script.session import PortSession
 from serial_mcp_server.writer import Pacing, WriteAborted, WriterClosed
 
 PATTERN_TIMEOUT_SECONDS = 2.0
-_DEFAULT_MAX_SECONDS = 3600.0
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 _MAX_OUTPUT_TAIL_CHARS = 2048
 _FAIL_PATTERN_OVERLAP_CHARS = 256
-_MAX_SECONDS_ENV = "SERIAL_MCP_SCRIPT_MAX_SECONDS"
 _RESULT_PREFIX = "serial-mcp-script"
 _RESULT_SCHEMA_VERSION = 1
 
@@ -243,12 +241,14 @@ class ScriptRunner:
         session: PortSession,
         metadata: RunMetadata,
         pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
+        *,
+        max_seconds: float = DEFAULT_SCRIPT_MAX_SECONDS,
     ) -> None:
         self._script: Script = script
         self._session: PortSession = session
         self._metadata: RunMetadata = metadata
         self._pattern_timeout_seconds: float = pattern_timeout_seconds
-        self._max_seconds: float = self._read_max_seconds()
+        self._max_seconds: float = max_seconds
         self._matcher: OutputMatcher = OutputMatcher(session.encoding)
         self._stop_event: threading.Event = threading.Event()
         self._done: threading.Event = threading.Event()
@@ -266,19 +266,6 @@ class ScriptRunner:
         self._run_deadline: float = 0.0
         self._fail_patterns: list[_ActiveFailPattern] = []
         self._fail_overlap_length: int = 0
-
-    @staticmethod
-    def _read_max_seconds() -> float:
-        raw = os.environ.get(_MAX_SECONDS_ENV, "").strip()
-        if not raw:  # unset or blank means the default, as for SERIAL_MCP_MAX_WRITE_SECONDS
-            return _DEFAULT_MAX_SECONDS
-        try:
-            seconds = float(raw)
-        except ValueError as exc:
-            raise ValueError(f"{_MAX_SECONDS_ENV} must be a finite positive number of seconds.") from exc
-        if not math.isfinite(seconds) or seconds <= 0:
-            raise ValueError(f"{_MAX_SECONDS_ENV} must be a finite positive number of seconds.")
-        return seconds
 
     @property
     def done(self) -> threading.Event:

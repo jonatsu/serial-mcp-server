@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import serial as pyserial
 
+from serial_mcp_server import config
+from serial_mcp_server.config import ConfigError
 from serial_mcp_server.handlers_serial import (
     HANDLERS,
     TOOLS,
@@ -31,7 +33,7 @@ from serial_mcp_server.handlers_serial import (
 from serial_mcp_server.port_stack import open_port_stack
 from serial_mcp_server.state import SerialState, stop_connections
 from serial_mcp_server.writer import Pacing, SerialWriter
-from tests.helpers import writer_goes_idle
+from tests.helpers import reconfigure, writer_goes_idle
 
 
 class TestToolRegistration:
@@ -509,9 +511,10 @@ class TestControlLines:
 
 
 class TestOpenResourceCleanup:
-    async def test_open_cleans_up_on_add_connection_failure(self):
+    async def test_open_cleans_up_on_add_connection_failure(self, settings):
         """If add_connection raises (max connections), serial port and reader are closed."""
-        state = SerialState(max_connections=0)
+        # Zero is not a valid configured value; the copy skips validation to force the failure.
+        state = SerialState(settings.model_copy(update={"max_connections": 0}))
         mock_ser = MagicMock()
         mock_ser.is_open = True
         mock_reader = MagicMock()
@@ -779,9 +782,9 @@ class TestWriterIntegration:
 
 
 class TestWriteDurationCap:
-    async def test_write_over_the_cap_is_rejected_before_any_byte_is_sent(self, connected_entry, monkeypatch):
+    async def test_write_over_the_cap_is_rejected_before_any_byte_is_sent(self, connected_entry):
         state, conn = connected_entry
-        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "1")
+        reconfigure(state, max_write_seconds=1.0)
 
         result = await handle_write(
             state, {"connection_id": "s1", "data": "A" * 200, "inter_char_delay_ms": 8}
@@ -792,9 +795,9 @@ class TestWriteDurationCap:
         assert "1 s cap" in result["error"]["message"]
         conn.ser.write.assert_not_called()
 
-    async def test_write_at_the_cap_is_accepted(self, connected_entry, monkeypatch):
+    async def test_write_at_the_cap_is_accepted(self, connected_entry):
         state, conn = connected_entry
-        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "0.016")
+        reconfigure(state, max_write_seconds=0.016)
         conn.ser.write.side_effect = len
 
         with patch.object(threading.Event, "wait", return_value=False):
@@ -804,9 +807,8 @@ class TestWriteDurationCap:
 
         assert result["bytes_written"] == 2
 
-    async def test_default_cap_allows_7500_characters_at_8_ms(self, connected_entry, monkeypatch):
+    async def test_default_cap_allows_7500_characters_at_8_ms(self, connected_entry):
         state, conn = connected_entry
-        monkeypatch.delenv("SERIAL_MCP_MAX_WRITE_SECONDS", raising=False)
         conn.ser.write.side_effect = len
 
         with patch.object(threading.Event, "wait", return_value=False):
@@ -817,9 +819,12 @@ class TestWriteDurationCap:
         assert result["bytes_written"] == 7500
 
     @pytest.mark.parametrize("raw", ["abc", "0", "-5", "nan", "inf"])
-    async def test_invalid_cap_falls_back_to_the_default(self, connected_entry, monkeypatch, raw):
+    async def test_an_invalid_cap_stops_the_start(self, raw):
+        with pytest.raises(ConfigError, match="SERIAL_MCP_MAX_WRITE_SECONDS"):
+            config.load({"SERIAL_MCP_MAX_WRITE_SECONDS": raw})
+
+    async def test_over_the_default_cap_is_rejected(self, connected_entry):
         state, conn = connected_entry
-        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", raw)
 
         result = await handle_write(
             state, {"connection_id": "s1", "data": "A" * 7501, "inter_char_delay_ms": 8}
@@ -841,9 +846,9 @@ class TestWriteDurationCap:
         assert result["error"]["code"] == "write_aborted"
         assert result["bytes_written"] == 4
 
-    async def test_unpaced_write_ignores_a_bad_cap(self, connected_entry, monkeypatch):
+    async def test_unpaced_write_ignores_the_cap(self, connected_entry):
         state, conn = connected_entry
-        monkeypatch.setenv("SERIAL_MCP_MAX_WRITE_SECONDS", "nan")
+        reconfigure(state, max_write_seconds=0.001)
         conn.ser.write.return_value = 3
 
         result = await handle_write(state, {"connection_id": "s1", "data": "abc"})

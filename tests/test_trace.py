@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from serial_mcp_server.trace import TraceBuffer, sanitize_args
+from serial_mcp_server import config
+from serial_mcp_server.trace import TraceBuffer, get_trace_buffer, init_trace, sanitize_args
 
 # ---------------------------------------------------------------------------
 # TraceBuffer basics
@@ -92,43 +93,35 @@ class TestTraceBuffer:
 
 
 class TestSanitizeArgs:
-    def test_strips_payloads_when_disabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", False)
+    def test_strips_payloads_when_disabled(self):
         args = {"connection_id": "c1", "data": "hello world", "as": "text"}
         result = sanitize_args(args)
         assert "data" not in result
         assert result["connection_id"] == "c1"
         assert result["as"] == "text"
 
-    def test_passes_through_non_payload_args(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", False)
+    def test_passes_through_non_payload_args(self):
         args = {"connection_id": "c1", "timeout_ms": 500}
         result = sanitize_args(args)
         assert result == args
 
-    def test_truncates_when_payloads_enabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", True)
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_MAX_BYTES", 10)
+    def test_truncates_when_payloads_enabled(self):
         args = {"data": "A" * 20}
-        result = sanitize_args(args)
+        result = sanitize_args(args, payloads=True, max_bytes=10)
         assert result["data"] == "A" * 10 + "\u2026"
 
-    def test_no_truncation_when_under_limit(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", True)
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_MAX_BYTES", 100)
+    def test_no_truncation_when_under_limit(self):
         args = {"data": "0102"}
-        result = sanitize_args(args)
+        result = sanitize_args(args, payloads=True, max_bytes=100)
         assert result["data"] == "0102"
 
-    def test_deep_copy(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", False)
+    def test_deep_copy(self):
         args = {"connection_id": "c1", "nested": {"a": 1}}
         result = sanitize_args(args)
         result["nested"]["a"] = 999
         assert args["nested"]["a"] == 1  # Original not mutated
 
-    def test_script_source_and_variables_are_stripped_by_default(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", False)
+    def test_script_source_and_variables_are_stripped_by_default(self):
         args = {
             "connection_id": "s1",
             "source": "@sendline login admin\nhunter2\n",
@@ -140,12 +133,11 @@ class TestSanitizeArgs:
 
         assert result == {"connection_id": "s1", "path": "uboot.serial"}
 
-    def test_script_source_and_variables_are_kept_and_truncated_when_payloads_are_enabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", True)
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_MAX_BYTES", 20)
-
-        short = sanitize_args({"source": "@sleep 1s", "vars": {"A": "b"}})
-        long = sanitize_args({"source": "x" * 40, "vars": {"PASSWORD": "p" * 40}})
+    def test_script_source_and_variables_are_kept_and_truncated_when_payloads_are_enabled(self):
+        short = sanitize_args({"source": "@sleep 1s", "vars": {"A": "b"}}, payloads=True, max_bytes=20)
+        long = sanitize_args(
+            {"source": "x" * 40, "vars": {"PASSWORD": "p" * 40}}, payloads=True, max_bytes=20
+        )
 
         assert short == {"source": "@sleep 1s", "vars": {"A": "b"}}
         assert long["source"] == "x" * 20 + "\u2026"
@@ -159,29 +151,44 @@ class TestSanitizeArgs:
 
 
 class TestInitTrace:
-    def test_returns_none_when_disabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_ENABLED", False)
+    @pytest.fixture(autouse=True)
+    def no_buffer_left_behind(self, monkeypatch):
         monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
-        from serial_mcp_server.trace import init_trace
+        yield
+        buf = get_trace_buffer()
+        if buf is not None:
+            buf.close()
 
-        result = init_trace()
-        assert result is None
+    def test_returns_none_when_disabled(self, tmp_path: Path):
+        settings = config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path), "SERIAL_MCP_TRACE": "off"})
 
-    def test_creates_buffer_when_enabled(self, monkeypatch, tmp_path: Path):
-        monkeypatch.setattr("serial_mcp_server.trace.TRACE_ENABLED", True)
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
+        assert init_trace(settings) is None
+
+    def test_disabling_replaces_an_earlier_buffer(self, tmp_path: Path):
+        init_trace(config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path)}))
+
+        init_trace(config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path), "SERIAL_MCP_TRACE": "0"}))
+
+        assert get_trace_buffer() is None
+
+    def test_creates_buffer_when_enabled(self, tmp_path: Path):
         spec_root = tmp_path / ".serial_mcp"
-        monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(spec_root))
-        from serial_mcp_server.trace import get_trace_buffer, init_trace
+        settings = config.load(
+            {
+                "SERIAL_MCP_SPEC_ROOT": str(spec_root),
+                "SERIAL_MCP_TRACE_PAYLOADS": "yes",
+                "SERIAL_MCP_TRACE_MAX_BYTES": "7",
+            }
+        )
 
-        buf = init_trace()
+        buf = init_trace(settings)
+
         assert buf is not None
         assert buf is get_trace_buffer()
-        trace_file = spec_root / "traces" / "trace.jsonl"
-        assert trace_file.parent.is_dir()
-        buf.close()
-        # Reset global
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
+        assert (spec_root / "traces").is_dir()
+        assert buf.status()["payloads_logged"] is True
+        assert buf.status()["max_payload_bytes"] == 7
+        assert buf.sanitize({"data": "x" * 10}) == {"data": "x" * 7 + "\u2026"}
 
 
 # ---------------------------------------------------------------------------

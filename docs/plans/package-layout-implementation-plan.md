@@ -479,4 +479,24 @@ in the layers; unit 11 decides `abandon_on_cancel` per call site; and unit 7 get
 `tools/list` method. Rejected: the critic's belief that AnyIO's pytest plugin has no auto mode; the installed AnyIO
 4.15.1 plugin reads `anyio_mode = "auto"`.
 
-No unit has started.
+### Unit 1: One Settings Model
+
+Implemented on 9 October 2026. Guidance applied: `coding-standards`, `python-style`, `python-error-handling`.
+`config.py` holds the `Settings` model; the field for `SERIAL_MCP_PLUGINS` is named `plugins` rather than
+`plugin_policy`, and the design table follows. `load` builds the model with `Settings.model_validate`, and
+`load({})` gives the defaults, which `SerialState` uses when no settings are passed. A `settings` fixture in
+`tests/conftest.py` roots every test's data directory in `tmp_path`; before, `build_server` tests wrote traces into
+the repository's own `.serial_mcp/`.
+
+P1 results: 746 tests passed (704 at the base; the configuration tests added 41 and the moved environment tests
+regrouped); `just check` clean; Bandit no issues; `just integration` exited 0 with every scenario passing (88 s);
+`SERIAL_MCP_MIRROR=bogus SERIAL_MCP_LOG_LEVEL=loud python -m serial_mcp_server` exited 2 and named both variables.
+
+Review: an independent `code-reviewer` approved with three optional findings, all fixed. `SERIAL_MCP_LOG_LEVEL`
+accepts `CRITICAL`, as it did before; on Windows only a valid mirror mode is turned off with a warning, so an
+invalid one still stops the start; and a variable with several problems gets one line in the message. The reviewer
+also showed that the environment-isolation test could not fail; it now also sets the unprefixed name an
+environment source would read, and a mutation that re-enables that source fails it. Not handled: a working
+directory deleted before start raises `FileNotFoundError` from the data-root walk, as it did before.
+
+No other unit has started.

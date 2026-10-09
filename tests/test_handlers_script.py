@@ -41,26 +41,21 @@ from serial_mcp_server.handlers_serial import (
     handle_write,
 )
 from serial_mcp_server.mirror import SerialBuffer
-from serial_mcp_server.portlog import ENV_DIR, ENV_FORMATS, ENV_LOG, ENV_TEXT_TIMESTAMPS
 from serial_mcp_server.script.directives import DIRECTIVES
 from serial_mcp_server.script.runner import ScriptRunner
 from serial_mcp_server.writer import SerialWriter
+from tests.helpers import reconfigure
 
 SID = {"connection_id": "s1"}
 
 
 @pytest.fixture
-def script_env(monkeypatch, tmp_path):
+def script_env(serial_state, tmp_path):
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     files = tmp_path / "files"
     files.mkdir()
-    monkeypatch.setenv("SERIAL_MCP_SCRIPTS_DIR", str(scripts))
-    monkeypatch.setenv("SERIAL_MCP_FILES_DIR", str(files))
-    monkeypatch.setenv(ENV_DIR, str(tmp_path / "logs"))
-    monkeypatch.delenv(ENV_LOG, raising=False)
-    monkeypatch.delenv(ENV_FORMATS, raising=False)
-    monkeypatch.delenv(ENV_TEXT_TIMESTAMPS, raising=False)
+    reconfigure(serial_state, scripts_dir=scripts, files_dir=files, log_dir=tmp_path / "logs")
     return scripts
 
 
@@ -257,7 +252,7 @@ class TestRun:
     ):
         state, conn = connected_entry
         conn.ser.write.side_effect = len
-        files = Path(os.environ["SERIAL_MCP_FILES_DIR"])
+        files = state.settings.files_dir
         (files / "boot.txt").write_bytes(b"boot\x00")
 
         result = await handle_script_run(
@@ -520,10 +515,11 @@ class TestScriptDirectory:
             {"name": "boot.script", "size": len(content.encode()), "description": "boot smoke test"}
         ]
 
-    async def test_scripts_directory_environment_is_read_when_tool_is_called(
+    async def test_scripts_directory_comes_from_settings_not_a_later_environment_change(
         self, connected_entry, script_env, monkeypatch, tmp_path
     ):
         state, _conn = connected_entry
+        (script_env / "boot.script").write_text("# boot\n", encoding="utf-8")
         other = tmp_path / "other-scripts"
         other.mkdir()
         (other / "other.script").write_text("# other\n", encoding="utf-8")
@@ -531,7 +527,7 @@ class TestScriptDirectory:
 
         result = await handle_script_list(state, {})
 
-        assert [script["name"] for script in result["scripts"]] == ["other.script"]
+        assert [script["name"] for script in result["scripts"]] == ["boot.script"]
 
     async def test_template_includes_directive_reference_skeleton_and_echo_warning(self, serial_state):
         result = await handle_script_template(serial_state, {})

@@ -7,7 +7,6 @@ input, 130 interrupted. Everything here is synchronous, and nothing imports ``mc
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import os
 import sys
 import time
@@ -17,10 +16,11 @@ from pathlib import Path
 
 import serial as pyserial
 
+from serial_mcp_server import config
+from serial_mcp_server.config import ConfigError, Settings
 from serial_mcp_server.connection_session import ConnectionSession
-from serial_mcp_server.paths import files_dir
 from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
-from serial_mcp_server.portlog import LogRequest, build_log_request, log_directory
+from serial_mcp_server.portlog import LogRequest, build_log_request
 from serial_mcp_server.script import Script, ScriptSyntaxError, parse
 from serial_mcp_server.script.runner import RunMetadata, RunResult, RunState, ScriptRunner
 from serial_mcp_server.state import SCRIPT_CANCEL_WAIT_SECONDS, SerialConnection, stop_connections
@@ -200,13 +200,22 @@ def _run(runner: ScriptRunner) -> int:
     return _EXIT_BY_STATE.get(result.state, EXIT_ERROR)
 
 
-def _log_request(formats: list[str] | None, directory: Path) -> LogRequest:
+def _load_settings(files_dir: Path | None, log_dir: Path | None) -> Settings:
+    """Load the configuration, then let ``--files-dir`` and ``--log-dir`` override their settings."""
     try:
-        request = build_log_request(formats, formats_origin="--log-format")
+        settings = config.load()
+    except ConfigError as exc:
+        raise _CliError(str(exc)) from exc
+    overrides = {name: value for name, value in (("files_dir", files_dir), ("log_dir", log_dir)) if value}
+    return settings.model_copy(update=overrides)
+
+
+def _log_request(settings: Settings, formats: list[str] | None) -> LogRequest:
+    # The port log and the default result file share settings.log_dir, so --log-dir moves both.
+    try:
+        return build_log_request(settings, formats, formats_origin="--log-format")
     except ValueError as exc:
         raise _CliError(str(exc)) from exc
-    # The port log and the default result file share one directory, so --log-dir moves both.
-    return dataclasses.replace(request, directory=directory)
 
 
 def _open_stack(ser: pyserial.Serial, log_request: LogRequest | None) -> SerialConnection:
@@ -248,33 +257,32 @@ def _make_runner(
     script_name: str,
     result_directory: Path,
     result_path: Path | None,
+    max_seconds: float,
 ) -> ScriptRunner:
-    try:
-        return ScriptRunner(
-            script,
-            ConnectionSession(conn, files_root),
-            metadata=RunMetadata(
-                script_name=script_name,
-                connection_config=conn_config(conn),
-                result_directory=result_directory,
-                log_paths=conn.log_slot.file_paths,
-                result_path=result_path,
-            ),
-        )
-    except ValueError as exc:  # for example an unusable SERIAL_MCP_SCRIPT_MAX_SECONDS
-        raise _CliError(str(exc)) from exc
+    return ScriptRunner(
+        script,
+        ConnectionSession(conn, files_root),
+        metadata=RunMetadata(
+            script_name=script_name,
+            connection_config=conn_config(conn),
+            result_directory=result_directory,
+            log_paths=conn.log_slot.file_paths,
+            result_path=result_path,
+        ),
+        max_seconds=max_seconds,
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
-        files_root = args.files_dir or files_dir()
-        log_dir = args.log_dir or log_directory()
+        settings = _load_settings(args.files_dir, args.log_dir)
+        files_root = settings.files_dir
         script = _load_script(args.script, dict(args.var), files_root)
         # lexists, so a dangling symlink counts as existing: the runner would refuse to create through it.
         if args.result is not None and os.path.lexists(args.result):
             raise _CliError(f"result file {args.result} already exists; choose another path or remove it.")
-        log_request = None if args.no_log else _log_request(args.log_format, log_dir)
+        log_request = None if args.no_log else _log_request(settings, args.log_format)
 
         conn = _open_stack(_open_serial(args.port, args.baud), log_request)
         try:
@@ -283,8 +291,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 conn,
                 files_root,
                 script_name=args.script.name,
-                result_directory=log_dir,
+                result_directory=settings.log_dir,
                 result_path=args.result,
+                max_seconds=settings.script_max_seconds,
             )
             return _run(runner)
         finally:

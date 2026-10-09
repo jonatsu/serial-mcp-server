@@ -12,15 +12,12 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-# ---------------------------------------------------------------------------
-# Configuration (read at import time, same pattern as helpers.py)
-# ---------------------------------------------------------------------------
+if TYPE_CHECKING:
+    from serial_mcp_server.config import Settings
 
-TRACE_ENABLED = os.environ.get("SERIAL_MCP_TRACE", "1").lower() not in ("0", "false", "no")
-TRACE_PAYLOADS = os.environ.get("SERIAL_MCP_TRACE_PAYLOADS", "").lower() in ("1", "true", "yes")
-TRACE_MAX_BYTES = int(os.environ.get("SERIAL_MCP_TRACE_MAX_BYTES", "16384"))
+DEFAULT_MAX_PAYLOAD_BYTES = 16384
 
 # ---------------------------------------------------------------------------
 # Sanitize args
@@ -30,24 +27,26 @@ TRACE_MAX_BYTES = int(os.environ.get("SERIAL_MCP_TRACE_MAX_BYTES", "16384"))
 _PAYLOAD_KEYS = {"data", "source", "vars"}
 
 
-def sanitize_args(args: dict[str, Any]) -> dict[str, Any]:
-    """Return a copy of *args* with payload values stripped or truncated."""
+def sanitize_args(
+    args: dict[str, Any], *, payloads: bool = False, max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
+) -> dict[str, Any]:
+    """Return a copy of *args* with payload values stripped, or cut to *max_bytes* when *payloads* is set."""
     out = copy.deepcopy(args)
     for key in _PAYLOAD_KEYS:
         if key not in out:
             continue
-        if not TRACE_PAYLOADS:
+        if not payloads:
             del out[key]
         else:
-            out[key] = _truncated(out[key])
+            out[key] = _truncated(out[key], max_bytes)
     return out
 
 
-def _truncated(value: Any) -> Any:
-    """A string, or the JSON form of any other value, cut to ``TRACE_MAX_BYTES``; short values stay as they are."""
+def _truncated(value: Any, max_bytes: int) -> Any:
+    """A string, or the JSON form of any other value, cut to *max_bytes*; short values stay as they are."""
     text = value if isinstance(value, str) else json.dumps(value, default=str)
-    if len(text) > TRACE_MAX_BYTES:
-        return text[:TRACE_MAX_BYTES] + "\u2026"
+    if len(text) > max_bytes:
+        return text[:max_bytes] + "\u2026"
     return value
 
 
@@ -59,7 +58,16 @@ def _truncated(value: Any) -> Any:
 class TraceBuffer:
     """Ring buffer of trace events with optional JSONL file sink."""
 
-    def __init__(self, max_items: int = 2000, file_path: str | None = None) -> None:
+    def __init__(
+        self,
+        max_items: int = 2000,
+        file_path: str | None = None,
+        *,
+        payloads: bool = False,
+        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+    ) -> None:
+        self._payloads = payloads
+        self._max_payload_bytes = max_payload_bytes
         self._deque: collections.deque[dict[str, Any]] = collections.deque(maxlen=max_items)
         self._file_path = file_path
         self._fh = None
@@ -84,6 +92,10 @@ class TraceBuffer:
             self._fh.write(json.dumps(event, default=str) + "\n")
             self._fh.flush()
 
+    def sanitize(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Return *args* as this buffer records them: payloads stripped or cut, per its settings."""
+        return sanitize_args(args, payloads=self._payloads, max_bytes=self._max_payload_bytes)
+
     def tail(self, n: int = 50) -> list[dict[str, Any]]:
         items = list(self._deque)
         return items[-n:]
@@ -93,8 +105,8 @@ class TraceBuffer:
             "enabled": True,
             "event_count": len(self._deque),
             "file_path": self._file_path,
-            "payloads_logged": TRACE_PAYLOADS,
-            "max_payload_bytes": TRACE_MAX_BYTES,
+            "payloads_logged": self._payloads,
+            "max_payload_bytes": self._max_payload_bytes,
         }
 
     def close(self) -> None:
@@ -117,13 +129,16 @@ def get_trace_buffer() -> TraceBuffer | None:
     return _buffer
 
 
-def init_trace() -> TraceBuffer | None:
-    """Called once at startup. Returns buffer if tracing enabled, else None."""
+def init_trace(settings: Settings) -> TraceBuffer | None:
+    """Called once at startup. Replaces the buffer: a new one if tracing is enabled, else ``None``."""
     global _buffer
-    if not TRACE_ENABLED:
-        return None
-    from serial_mcp_server.specs import resolve_spec_root
-
-    path = str(resolve_spec_root() / "traces" / "trace.jsonl")
-    _buffer = TraceBuffer(file_path=path)
+    if _buffer is not None:
+        _buffer.close()
+    _buffer = None
+    if settings.trace_enabled:
+        _buffer = TraceBuffer(
+            file_path=str(settings.data_root / "traces" / "trace.jsonl"),
+            payloads=settings.trace_payloads,
+            max_payload_bytes=settings.trace_max_bytes,
+        )
     return _buffer

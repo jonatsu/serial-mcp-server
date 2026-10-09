@@ -11,10 +11,6 @@ import os
 import stat
 from pathlib import Path, PurePath, PureWindowsPath
 
-from serial_mcp_server.specs import resolve_spec_root
-
-ENV_FILES_DIR = "SERIAL_MCP_FILES_DIR"
-FILES_DIR_NAME = "files"
 READ_CHUNK_BYTES = 64 * 1024
 MAX_CONFINED_FILE_BYTES = 1_048_576  # 1 MiB; a confined file is held in memory whole
 
@@ -31,15 +27,6 @@ _OPEN_FLAGS = (
 
 class PathRefused(ValueError):
     """The requested path is outside the directory, missing, not a regular file, or too large."""
-
-
-def files_dir() -> Path:
-    """The directory agent-named files may be read from: ``SERIAL_MCP_FILES_DIR``, else ``<spec root>/files``.
-
-    Read on each call, so a change to the environment applies to the next request.
-    """
-    configured = os.environ.get(ENV_FILES_DIR, "").strip()
-    return Path(configured) if configured else resolve_spec_root() / FILES_DIR_NAME
 
 
 def resolve_confined_file(root: Path, relative: str, max_bytes: int) -> Path:

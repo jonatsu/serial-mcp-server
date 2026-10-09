@@ -9,7 +9,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from serial_mcp_server import portlog
+from serial_mcp_server import config
+from serial_mcp_server.config import ConfigError, Settings
 from serial_mcp_server.portlog import LogRequest, PortLog, resolve_log_request
 from serial_mcp_server.portlog_formats import (
     KIND_EVENT,
@@ -337,30 +338,27 @@ class TestThroughPortLog:
 
 
 class TestTimestampSetting:
-    @pytest.fixture(autouse=True)
-    def clean_env(self, monkeypatch, tmp_path):
-        for name in (portlog.ENV_LOG, portlog.ENV_FORMATS, portlog.ENV_DIR, portlog.ENV_TEXT_TIMESTAMPS):
-            monkeypatch.delenv(name, raising=False)
-        monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path))
+    @staticmethod
+    def configured(tmp_path, **environ: str) -> Settings:
+        return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path), **environ})
 
-    def test_defaults_to_off(self):
-        assert resolve_log_request(True).text_timestamps == "off"
+    def test_defaults_to_off(self, tmp_path):
+        assert resolve_log_request(self.configured(tmp_path), True).text_timestamps == "off"
 
-    def test_environment_sets_the_default(self, monkeypatch):
-        monkeypatch.setenv(portlog.ENV_TEXT_TIMESTAMPS, "system")
-        assert resolve_log_request(True).text_timestamps == "system"
+    def test_environment_sets_the_default(self, tmp_path):
+        settings = self.configured(tmp_path, SERIAL_MCP_LOG_TEXT_TIMESTAMPS="system")
+        assert resolve_log_request(settings, True).text_timestamps == "system"
 
-    def test_argument_overrides_the_environment(self, monkeypatch):
-        monkeypatch.setenv(portlog.ENV_TEXT_TIMESTAMPS, "system")
-        assert resolve_log_request(True, None, "elapsed").text_timestamps == "elapsed"
-        assert resolve_log_request(True, None, "off").text_timestamps == "off"
+    def test_argument_overrides_the_environment(self, tmp_path):
+        settings = self.configured(tmp_path, SERIAL_MCP_LOG_TEXT_TIMESTAMPS="system")
+        assert resolve_log_request(settings, True, None, "elapsed").text_timestamps == "elapsed"
+        assert resolve_log_request(settings, True, None, "off").text_timestamps == "off"
 
     @pytest.mark.parametrize("bad", ["fast", "", 3, True])
-    def test_invalid_argument_names_the_argument(self, bad):
+    def test_invalid_argument_names_the_argument(self, tmp_path, bad):
         with pytest.raises(ValueError, match="log_text_timestamps"):
-            resolve_log_request(True, None, bad)
+            resolve_log_request(self.configured(tmp_path), True, None, bad)
 
-    def test_invalid_environment_value_names_the_variable(self, monkeypatch):
-        monkeypatch.setenv(portlog.ENV_TEXT_TIMESTAMPS, "fast")
-        with pytest.raises(ValueError, match=portlog.ENV_TEXT_TIMESTAMPS):
-            resolve_log_request(True)
+    def test_invalid_environment_value_names_the_variable(self, tmp_path):
+        with pytest.raises(ConfigError, match="SERIAL_MCP_LOG_TEXT_TIMESTAMPS"):
+            self.configured(tmp_path, SERIAL_MCP_LOG_TEXT_TIMESTAMPS="fast")

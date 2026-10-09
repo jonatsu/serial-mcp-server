@@ -40,9 +40,13 @@ Every handler has the same signature:
 async def handle_something(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
 ```
 
-- `state` — shared serial state (connections)
+- `state` — shared serial state (connections), and `state.settings`, the server's configuration
 - `args` — parsed tool arguments from the MCP client
 - Returns `_ok(key=value)` on success or `_err(code, message)` on failure
+
+## Configuration
+
+`serial_mcp_server/config.py` is the only module that reads the environment. `config.load()` reads every `SERIAL_MCP_*` variable once at start into a frozen `Settings`, and an invalid value stops the start with a message that names every invalid variable. Handlers read `state.settings`; other code takes the values it needs as parameters. To add a variable, add a field to `Settings` with its default and validation, document it in the README's variable table, and pass the value to the code that uses it. A test fails if any other module reads `os.environ`. In tests, build settings with `config.load({...})`, or change one value of a test's state with `tests.helpers.reconfigure`, instead of setting environment variables.
 
 The dispatcher in `server.py` catches common exceptions (KeyError, SerialException, TimeoutError, etc.) and converts them to error responses automatically.
 

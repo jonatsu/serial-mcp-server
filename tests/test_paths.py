@@ -9,7 +9,7 @@ import sys
 import pytest
 
 from serial_mcp_server import paths
-from serial_mcp_server.paths import PathRefused, files_dir, read_confined_file, resolve_confined_file
+from serial_mcp_server.paths import PathRefused, read_confined_file, resolve_confined_file
 
 LIMIT = 1024
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX symlinks and FIFOs")
@@ -261,21 +261,7 @@ class TestRecheckOnTheOpenHandle:
         assert read_confined_file(root, "ok.txt", LIMIT)[1] == b"hello\n"
 
 
-class TestFilesDir:
-    def test_environment_variable_wins(self, monkeypatch, tmp_path):
-        monkeypatch.setenv(paths.ENV_FILES_DIR, str(tmp_path / "custom"))
-        assert files_dir() == tmp_path / "custom"
-
-    def test_defaults_to_files_under_the_spec_root(self, monkeypatch, tmp_path):
-        monkeypatch.delenv(paths.ENV_FILES_DIR, raising=False)
-        monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
-        assert files_dir() == tmp_path / "spec" / "files"
-
-    def test_a_blank_variable_falls_back_to_the_default(self, monkeypatch, tmp_path):
-        monkeypatch.setenv(paths.ENV_FILES_DIR, "   ")
-        monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
-        assert files_dir() == tmp_path / "spec" / "files"
-
+class TestImports:
     def test_module_imports_no_mcp(self):
         import subprocess
 

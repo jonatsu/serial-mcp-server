@@ -135,17 +135,17 @@ TOOLS: list[Tool] = [
 # ---------------------------------------------------------------------------
 
 
-async def handle_spec_template(_state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_spec_template(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     device_name: str | None = args.get("device_name")
     template = specs.get_template(device_name)
-    suggested_path = specs.suggest_spec_path(device_name)
+    suggested_path = specs.suggest_spec_path(state.settings.data_root, device_name)
     return _ok(template=template, suggested_path=str(suggested_path))
 
 
-async def handle_spec_register(_state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_spec_register(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     path = args["path"]
     try:
-        entry = specs.register_spec(path)
+        entry = specs.register_spec(state.settings.data_root, path)
     except FileNotFoundError as exc:
         return _err("not_found", str(exc))
     except ValueError as exc:
@@ -153,8 +153,8 @@ async def handle_spec_register(_state: SerialState, args: dict[str, Any]) -> dic
     return _ok(**entry)
 
 
-async def handle_spec_list(_state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
-    entries = specs.list_specs()
+async def handle_spec_list(state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
+    entries = specs.list_specs(state.settings.data_root)
     return _ok(specs=entries, count=len(entries))
 
 
@@ -163,7 +163,7 @@ async def handle_spec_attach(state: SerialState, args: dict[str, Any]) -> dict[s
     spec_id = args["spec_id"]
     entry = state.get_connection(cid)
     try:
-        spec_data = specs.read_spec(spec_id)
+        spec_data = specs.read_spec(state.settings.data_root, spec_id)
     except KeyError as exc:
         return _err("not_found", str(exc))
     except FileNotFoundError as exc:
@@ -187,10 +187,10 @@ async def handle_spec_get(state: SerialState, args: dict[str, Any]) -> dict[str,
     return _ok(spec=entry.spec)
 
 
-async def handle_spec_read(_state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_spec_read(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     spec_id = args["spec_id"]
     try:
-        data = specs.read_spec(spec_id)
+        data = specs.read_spec(state.settings.data_root, spec_id)
     except KeyError as exc:
         return _err("not_found", str(exc))
     except FileNotFoundError as exc:
@@ -198,12 +198,12 @@ async def handle_spec_read(_state: SerialState, args: dict[str, Any]) -> dict[st
     return _ok(**data)
 
 
-async def handle_spec_search(_state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+async def handle_spec_search(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     spec_id = args["spec_id"]
     query = args["query"]
     k = int(args.get("k", 10))
     try:
-        results = specs.search_spec(spec_id, query, k=k)
+        results = specs.search_spec(state.settings.data_root, spec_id, query, k=k)
     except KeyError as exc:
         return _err("not_found", str(exc))
     except FileNotFoundError as exc:
