@@ -176,7 +176,7 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 | `SERIAL_MCP_LOG` | disabled | Set to `1`, `true`, or `yes` to record every connection's bytes in a port log. `serial.open` can override it per connection with `log`. |
 | `SERIAL_MCP_LOG_FORMATS` | `text` | Comma-separated port log formats (`text`, `jsonl`, `lines`, `raw`) used when a connection does not choose its own. |
 | `SERIAL_MCP_LOG_TEXT_TIMESTAMPS` | `off` | Prefix each line of the `text` log with `[time delta]`: `off`, `elapsed`, or `system`. `serial.open` can override it with `log_text_timestamps`. |
-| `SERIAL_MCP_LOG_DIR` | `.serial_mcp/logs/` | Directory for port log and script result files. Files are created with mode `0600`. The server never deletes them, and every `serial.script.run` adds a result file and, when the connection has no active log, a port log. Point this at a directory you clean. |
+| `SERIAL_MCP_LOG_DIR` | `.serial_mcp/logs/` | Directory for port log and script result files. Files are created with mode `0600`. The server never deletes them, and every `serial.script.run` adds a result file and, when the connection has no active log, a port log. Point this at a directory you clean. There is no log rotation yet; defining one is future work. |
 | `SERIAL_MCP_LOG_LEVEL` | `WARNING` | Python log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Logs go to stderr. |
 | `SERIAL_MCP_TRACE` | enabled | JSONL tracing of every tool call. Set to `0`, `false`, or `no` to disable. |
 | `SERIAL_MCP_TRACE_PAYLOADS` | disabled | Include write `data`, and the `source` and `vars` of `serial.script.run`, in traced args (stripped by default). |
