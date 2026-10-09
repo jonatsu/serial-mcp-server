@@ -46,7 +46,7 @@ device plugins already cover logic that needs them.
 
 | Constraint                                                                                 | Source                                  | Implication                                                                  |
 | ------------------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------------------------------------------------------- |
-| Python 3.11 or later; `pyserial`; `mcp>=1.30.0,<2` with the low-level `Server` API          | `pyproject.toml`, `server.py`           | No new runtime dependencies; the runner uses the standard library only.     |
+| Python 3.11 or later; `pyserial`; `mcp>=1.30.0,<2` with the low-level `Server` API          | `pyproject.toml`, `server.py`           | One new runtime dependency, `regex`, for pattern search timeouts (D10).     |
 | Configuration through `SERIAL_MCP_*` environment variables                                  | `helpers.py`, plan Design Basis         | Script limits and directories are environment variables.                     |
 | Tool names `serial.<category>.<action>`; handlers return `_ok`/`_err`                      | `CONTRIBUTING.md`                       | Tools are `serial.script.*` in a new `handlers_script.py`.                   |
 | All tests run without hardware                                                              | `CONTRIBUTING.md`, `tests/conftest.py`  | The engine runs against an interface that a fake port can implement.        |
