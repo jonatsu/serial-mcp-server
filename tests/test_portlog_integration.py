@@ -24,11 +24,14 @@ from serial_mcp_server.handlers_serial import (
     handle_set_rts,
     handle_write,
 )
-from serial_mcp_server.mirror import MirrorSession, ReaderThread, SerialBuffer
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.mirror import MirrorSession
+from serial_mcp_server.port.pacing import Pacing
+from serial_mcp_server.port.reader import ReaderThread
+from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.portlog import LogRequest, PortLog, PortLogSlot
-from serial_mcp_server.writer import Pacing, SerialWriter
 from tests.helpers import read_jsonl, reconfigure
-from tests.test_mirror import _PipePort
+from tests.port.test_mirror import _PipePort
 
 WAIT_S = 2.0
 _IS_UNIX = sys.platform != "win32"
@@ -50,7 +53,7 @@ async def open_port(state, mock_serial, mock_reader, **args):
     """Run handle_open with the serial layer faked; return (result, create_reader mock)."""
     with (
         patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-        patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
+        patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
     ):
         result = await handle_open(state, {"port": "/dev/ttyUSB0", **args})
     return result, make_reader
@@ -341,7 +344,7 @@ class TestOpenSchemaAndFailures:
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
             patch(
-                "serial_mcp_server.port_stack.create_reader",
+                "serial_mcp_server.port.stack.create_reader",
                 side_effect=lambda *a, log_slot, **k: slots.append(log_slot) or mock_reader,
             ),
         ):
@@ -357,7 +360,7 @@ class TestOpenSchemaAndFailures:
         before = _log_threads()
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.port_stack.create_reader", side_effect=OSError("no ptys")),
+            patch("serial_mcp_server.port.stack.create_reader", side_effect=OSError("no ptys")),
             pytest.raises(OSError, match="no ptys"),
         ):
             await handle_open(serial_state, {"port": "/dev/ttyUSB0", "log": True})

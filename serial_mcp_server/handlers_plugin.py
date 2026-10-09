@@ -31,12 +31,7 @@ from serial_mcp_server.state import SerialState
 # Import core handlers to interact with the device.
 # IMPORTANT: always use these instead of conn.ser directly — a reader thread owns the
 # serial port for reads, and a writer thread queues and paces every write.
-from serial_mcp_server.handlers_serial import (
-    handle_write,      # send data to the device
-    handle_read,       # read raw bytes
-    handle_readline,   # read one line (up to newline)
-    handle_read_until, # read until a delimiter string
-)
+from serial_mcp_server.handlers_serial import # read one line (up to newline)     handle_read_until, # read raw bytes     handle_readline, # read until a delimiter string, # send data to the device     handle_read, handle_write
 
 # Optional metadata — helps the agent match this plugin to a device.
 # All fields are optional. Use what makes sense for your device.

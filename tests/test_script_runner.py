@@ -18,6 +18,8 @@ import serial as pyserial
 
 from serial_mcp_server import config
 from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, ConfigError
+from serial_mcp_server.port.pacing import NO_PACING, Pacing
+from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.script import Script, parse
 from serial_mcp_server.script import runner as script_runner
 from serial_mcp_server.script.matcher import OutputMatcher
@@ -29,7 +31,6 @@ from serial_mcp_server.script.runner import (
     RunStatus,
     ScriptRunner,
 )
-from serial_mcp_server.writer import NO_PACING, Pacing, WriteAborted, WriterClosed
 
 EXAMPLE_SCRIPT = r"""# U-Boot smoke test
 @timeout 10s

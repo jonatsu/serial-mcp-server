@@ -1,4 +1,4 @@
-"""Tests for serial_mcp_server.writer — pacing, ordering, cancellation, and shutdown."""
+"""Tests for serial_mcp_server.port.writer — pacing, ordering, cancellation, and shutdown."""
 
 from __future__ import annotations
 
@@ -8,14 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 import serial as pyserial
 
-from serial_mcp_server.writer import (
-    NO_PACING,
-    Pacing,
-    SerialWriter,
-    WriteAborted,
-    WriterClosed,
-    write_serial_payload,
-)
+from serial_mcp_server.port.pacing import NO_PACING, Pacing
+from serial_mcp_server.port.writer import SerialWriter, WriteAborted, WriterClosed, write_serial_payload
 
 WAIT_S = 2.0
 
@@ -296,24 +290,6 @@ class TestSerialWriter:
         job = writer.submit(b"x")
         job.future.exception(WAIT_S)
         assert not job.future.cancel()
-
-
-class TestPacingEstimate:
-    @pytest.mark.parametrize(
-        ("pacing", "size", "seconds"),
-        [
-            (NO_PACING, 1000, 0.0),
-            (Pacing(inter_char_delay_ms=8), 7500, 60.0),
-            (Pacing(chunk_size=4, chunk_delay_ms=10), 10, 0.03),
-            (Pacing(chunk_size=4, chunk_delay_ms=10), 0, 0.0),
-        ],
-    )
-    def test_estimate_is_segments_times_delay(self, pacing, size, seconds):
-        assert pacing.estimated_seconds(size) == pytest.approx(seconds)
-
-    def test_character_pacing_is_chunk_pacing_of_one(self):
-        pacing = Pacing(inter_char_delay_ms=8)
-        assert (pacing.segment_size, pacing.segment_delay_ms) == (1, 8)
 
 
 class TestWriteTimeout:

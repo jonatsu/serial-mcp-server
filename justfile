@@ -15,8 +15,12 @@ format *paths='.':
 format-check *paths='.':
     {{ ruff }} format --check "$@"
 
-# Run the repository's lint and formatting checks.
-check: lint format-check
+# Check that imports follow the package layers (contracts in pyproject.toml).
+lint-imports:
+    uv run --with import-linter lint-imports
+
+# Run the repository's lint, formatting, and import-layer checks.
+check: lint format-check lint-imports
 
 # Run the slow end-to-end harness against the demo device (about 90 s).
 integration:

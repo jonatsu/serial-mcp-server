@@ -506,4 +506,19 @@ took `open_exclusive`, `log_base_name`, `FILE_MODE`, `DIR_MODE`, and `MAX_NAME_C
 imports them. Self-review: the diff changes only imports, patch targets, and moved code; 746 tests passed, the same
 as unit 1; `just check` clean.
 
+### Unit 3: The `port/` Package
+
+Moved on 9 October 2026. `mirror.py`, `writer.py`, and `port_stack.py` moved into `port/` with `git mv`;
+`buffer.py`, `reader.py`, `pacing.py`, and `connection.py` were carved out of them and out of `state.py` and
+`handlers_serial.py`. Deviation: `create_reader` lives in `port/mirror.py`, not `port/reader.py`, because it builds a
+`MirrorSession`, a subclass of `ReaderThread`, and `reader.py` importing the mirror would be a cycle; the design's
+section 5.3 follows. Tests moved to `tests/port/`: `test_mirror.py` split into `test_buffer.py`, `test_reader.py`,
+and `test_mirror.py`; the pacing estimate tests into `test_pacing.py`; the `SerialConnection` test into
+`test_connection.py`. `import-linter` runs in `just check` and in the CI lint job, with a forbidden contract that
+keeps `port` from importing the script engine, `state`, `server`, `helpers`, `script_cli`, and every handler module.
+
+Self-review: the diff changes only imports, patch targets, and moved code. 746 tests passed, the same as unit 2;
+`just check` clean, including the contract. A temporary import of `serial_mcp_server.state` in `port/writer.py`
+broke the contract and named the import, and removing it restored it.
+
 No other unit has started.

@@ -20,7 +20,15 @@ from serial_mcp_server.helpers import (
     _ok,
     script_running_error,
 )
-from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
+from serial_mcp_server.port.connection import SerialConnection, stop_connections
+from serial_mcp_server.port.pacing import (
+    MAX_PACING_DELAY_MS,
+    NO_PACING,
+    Pacing,
+    paced_transfer_seconds,
+)
+from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
+from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.portlog import resolve_log_request
 from serial_mcp_server.portlog_formats import (
     CONFIGURE_EVENT,
@@ -28,19 +36,7 @@ from serial_mcp_server.portlog_formats import (
     LOG_TEXT_TIMESTAMPS_SCHEMA,
     is_text_encoding,
 )
-from serial_mcp_server.state import (
-    SCRIPT_CANCEL_WAIT_SECONDS,
-    SerialConnection,
-    SerialState,
-    stop_connections,
-)
-from serial_mcp_server.writer import (
-    MAX_PACING_DELAY_MS,
-    NO_PACING,
-    Pacing,
-    WriteAborted,
-    WriterClosed,
-)
+from serial_mcp_server.state import SCRIPT_CANCEL_WAIT_SECONDS, SerialState
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -72,7 +68,6 @@ BYTESIZE_MAP = {
 # Maximum read size to prevent accidental huge allocations.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
 MAX_WRITE_DELAY_MS = MAX_PACING_DELAY_MS
-BITS_PER_BYTE_ON_WIRE = 10  # start bit, 8 data bits, stop bit
 PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
 
 
@@ -122,17 +117,6 @@ def parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pac
     return Pacing(inter_char_delay_ms, chunk_size, chunk_delay_ms)
 
 
-def paced_transfer_seconds(pacing: Pacing, size: int, baudrate: int) -> float:
-    """Estimated time of a paced transfer: the larger of the pauses between segments and the time on the wire.
-
-    The larger of the two, because large chunks make the pauses negligible while the line stays busy.
-    Zero when unpaced, because the cap limits pacing, not the speed of the line.
-    """
-    if not pacing.is_paced:
-        return 0.0
-    return max(pacing.estimated_seconds(size), wire_seconds(size, baudrate))
-
-
 def duration_error(estimate_seconds: float, cap: float) -> dict[str, Any] | None:
     """Return an error when an estimated transfer time exceeds the server-wide *cap*, in seconds."""
     if estimate_seconds <= 0:
@@ -144,11 +128,6 @@ def duration_error(estimate_seconds: float, cap: float) -> dict[str, Any] | None
         f"Estimated write time {estimate_seconds:.1f} s exceeds the {cap:g} s cap "
         "(SERIAL_MCP_MAX_WRITE_SECONDS). Send less data per call or reduce the pacing delay.",
     )
-
-
-def wire_seconds(size: int, baudrate: int) -> float:
-    """Time *size* bytes take on the wire at *baudrate*, with ten bits per byte."""
-    return size * BITS_PER_BYTE_ON_WIRE / baudrate if baudrate > 0 else 0.0
 
 
 def _bytes_written_by(future: Future[int]) -> int:

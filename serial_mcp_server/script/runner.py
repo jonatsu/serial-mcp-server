@@ -17,6 +17,8 @@ from typing import BinaryIO, Literal, NoReturn
 import regex
 
 from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS
+from serial_mcp_server.port.pacing import Pacing
+from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.private_files import (
     DIR_MODE,
     FILE_MODE,
@@ -28,7 +30,6 @@ from serial_mcp_server.script.directives import LINE_NAMES
 from serial_mcp_server.script.matcher import OutputMatcher
 from serial_mcp_server.script.model import Script, Step, StepKind
 from serial_mcp_server.script.session import PortSession
-from serial_mcp_server.writer import Pacing, WriteAborted, WriterClosed
 
 PATTERN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_TIMEOUT_SECONDS = 10.0

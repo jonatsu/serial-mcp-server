@@ -13,7 +13,9 @@ from collections.abc import Callable
 import pytest
 
 from serial_mcp_server.handlers_serial import handle_read
-from serial_mcp_server.mirror import MirrorSession, ReaderThread, SerialBuffer
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.mirror import MirrorSession
+from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.script.matcher import OutputMatcher
 
 

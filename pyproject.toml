@@ -52,6 +52,31 @@ source = ["serial_mcp_server"]
 show_missing = true
 skip_covered = false
 
+[tool.importlinter]
+root_package = "serial_mcp_server"
+
+# Layers of docs/plans/package-layout-design.md section 5.2. Each package refactor unit extends these
+# contracts; the final unit replaces them with one layers contract.
+[[tool.importlinter.contracts]]
+name = "port/ imports nothing from the script engine or the MCP server"
+type = "forbidden"
+source_modules = ["serial_mcp_server.port"]
+forbidden_modules = [
+    "serial_mcp_server.script",
+    "serial_mcp_server.state",
+    "serial_mcp_server.server",
+    "serial_mcp_server.helpers",
+    "serial_mcp_server.script_cli",
+    "serial_mcp_server.handlers_file",
+    "serial_mcp_server.handlers_introspection",
+    "serial_mcp_server.handlers_log",
+    "serial_mcp_server.handlers_plugin",
+    "serial_mcp_server.handlers_script",
+    "serial_mcp_server.handlers_serial",
+    "serial_mcp_server.handlers_spec",
+    "serial_mcp_server.handlers_trace",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 110

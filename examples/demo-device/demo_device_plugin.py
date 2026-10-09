@@ -4,10 +4,7 @@ import json
 
 from mcp.types import Tool
 
-from serial_mcp_server.handlers_serial import (
-    handle_read_until,
-    handle_write,
-)
+from serial_mcp_server.handlers_serial import handle_read_until, handle_write
 from serial_mcp_server.helpers import _ok
 from serial_mcp_server.state import SerialState
 

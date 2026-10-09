@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from serial_mcp_server.writer import Pacing
+from serial_mcp_server.port.pacing import Pacing
 
 
 class StepKind(StrEnum):

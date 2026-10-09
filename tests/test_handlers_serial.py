@@ -30,9 +30,11 @@ from serial_mcp_server.handlers_serial import (
     handle_set_rts,
     handle_write,
 )
-from serial_mcp_server.port_stack import open_port_stack
-from serial_mcp_server.state import SerialState, stop_connections
-from serial_mcp_server.writer import Pacing, SerialWriter
+from serial_mcp_server.port.connection import stop_connections
+from serial_mcp_server.port.pacing import Pacing
+from serial_mcp_server.port.stack import open_port_stack
+from serial_mcp_server.port.writer import SerialWriter
+from serial_mcp_server.state import SerialState
 from tests.helpers import reconfigure, writer_goes_idle
 
 
@@ -89,7 +91,7 @@ class TestOpen:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result["ok"]
@@ -109,7 +111,7 @@ class TestOpen:
         }
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result["ok"]
@@ -131,7 +133,7 @@ class TestOpen:
     async def test_open_with_character_pacing(self, serial_state, mock_serial, mock_reader):
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
                 serial_state,
@@ -145,7 +147,7 @@ class TestOpen:
     async def test_open_with_chunk_pacing(self, serial_state, mock_serial, mock_reader):
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
                 serial_state,
@@ -199,7 +201,7 @@ class TestOpen:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result1 = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result1["ok"]
@@ -521,7 +523,7 @@ class TestOpenResourceCleanup:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
             pytest.raises(RuntimeError),
         ):
             await handle_open(state, {"port": "/dev/ttyUSB0"})
@@ -549,7 +551,7 @@ class TestOpenResourceCleanup:
 
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
             patch("serial_mcp_server.handlers_serial.open_port_stack", side_effect=blocked_open),
             patch("serial_mcp_server.handlers_serial.stop_connections", side_effect=recording_stop),
         ):

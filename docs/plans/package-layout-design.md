@@ -95,7 +95,7 @@ serial_mcp_server/
 │   ├── stack.py         # open_port_stack, conn_config
 │   ├── buffer.py        # SerialBuffer
 │   ├── reader.py        # ReaderThread and its subscriber fan-out
-│   ├── mirror.py        # MirrorSession: the PTY mirror only
+│   ├── mirror.py        # MirrorSession, and create_reader, which picks it or a plain reader
 │   ├── pacing.py        # Pacing, NO_PACING, wire-time estimates
 │   └── writer.py        # SerialWriter and write jobs
 ├── portlog/             # recording of the bytes on the wire
@@ -168,7 +168,7 @@ enforces this order, and `just check` and CI run it, so a violating import fails
 | rest of `specs.py`             | `specs/frontmatter.py` and `specs/store.py`.                                                             |
 | `paths.py`                     | `confined_files.py`; `files_dir()` becomes `Settings.files_dir`.                                         |
 | `state.py`                     | `SerialConnection`, `stop_connections` to `port/connection.py`; `SerialState`, `ScriptJobs`, `ScriptRun` to `mcp/state.py`. |
-| `mirror.py`                    | `SerialBuffer` to `port/buffer.py`; `ReaderThread`, `_ReaderSubscriber`, `create_reader` to `port/reader.py`; `MirrorSession` and its index helpers to `port/mirror.py`. |
+| `mirror.py`                    | `SerialBuffer` to `port/buffer.py`; `ReaderThread` and `_ReaderSubscriber` to `port/reader.py`; `MirrorSession`, its index helpers, and `create_reader` to `port/mirror.py`, because `create_reader` builds the subclass and `reader.py` must not import it. |
 | `port_stack.py`                | `port/stack.py`.                                                                                          |
 | `writer.py`                    | `Pacing`, `NO_PACING`, `MAX_PACING_DELAY_MS` to `port/pacing.py`; the rest to `port/writer.py`.          |
 | `portlog.py`                   | `PortLog`, `PortLogSlot` to `portlog/log.py`; `LogRequest` and its builders to `portlog/request.py`; `open_exclusive`, `log_base_name`, file modes to `private_files.py`. |
