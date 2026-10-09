@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 import os
-import re
 import threading
 import time
 from _thread import LockType
@@ -15,6 +14,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import BinaryIO, Literal, NoReturn
+
+import regex
 
 from serial_mcp_server.portlog import (
     DIR_MODE,
@@ -29,6 +30,7 @@ from serial_mcp_server.script.model import Script, Step, StepKind
 from serial_mcp_server.script.session import PortSession
 from serial_mcp_server.writer import Pacing, WriteAborted, WriterClosed
 
+PATTERN_TIMEOUT_SECONDS = 2.0
 _DEFAULT_MAX_SECONDS = 3600.0
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 _MAX_OUTPUT_TAIL_CHARS = 2048
@@ -163,6 +165,22 @@ class RunResult:
         }
 
 
+@dataclass(frozen=True)
+class _ScriptPattern:
+    """A compiled script pattern and the script line that defined it.
+
+    Messages name the line and never the pattern: ``@expect``, ``@prompt``, and ``@fail_on`` patterns hold
+    expanded variable values, and a result must not repeat those.
+    """
+
+    compiled: regex.Pattern[str]
+    line: int
+
+
+def _script_pattern(step: Step) -> _ScriptPattern:
+    return _ScriptPattern(regex.compile(step.payload), step.line)
+
+
 @dataclass
 class _RunSettings:
     """Mutable settings scoped to one script run."""
@@ -170,7 +188,7 @@ class _RunSettings:
     pacing: Pacing | None = None
     newline: str = ""
     timeout: float = _DEFAULT_TIMEOUT_SECONDS
-    prompt: re.Pattern[str] | None = None
+    prompt: _ScriptPattern | None = None
 
 
 @dataclass
@@ -187,7 +205,7 @@ class _RunExecution:
 
 @dataclass
 class _ActiveFailPattern:
-    pattern: re.Pattern[str]
+    pattern: _ScriptPattern
     skip_chars: int = 0
 
 
@@ -213,12 +231,23 @@ class _RunTermination(Exception):
 
 
 class ScriptRunner:
-    """Execute a parsed script synchronously on a dedicated daemon thread."""
+    """Execute a parsed script synchronously on a dedicated daemon thread.
 
-    def __init__(self, script: Script, session: PortSession, metadata: RunMetadata) -> None:
+    Each pattern search stops at *pattern_timeout_seconds* and releases the interpreter lock while it runs,
+    so a pattern that backtracks without end ends its own run and never freezes the server.
+    """
+
+    def __init__(
+        self,
+        script: Script,
+        session: PortSession,
+        metadata: RunMetadata,
+        pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
+    ) -> None:
         self._script: Script = script
         self._session: PortSession = session
         self._metadata: RunMetadata = metadata
+        self._pattern_timeout_seconds: float = pattern_timeout_seconds
         self._max_seconds: float = self._read_max_seconds()
         self._matcher: OutputMatcher = OutputMatcher(session.encoding)
         self._stop_event: threading.Event = threading.Event()
@@ -284,7 +313,7 @@ class ScriptRunner:
             raise
 
     def cancel(self) -> None:
-        """Request cancellation and wake a matcher wait immediately."""
+        """Request cancellation and wake a matcher wait immediately; a search in flight ends at its limit."""
         self._request_stop(_RunTermination(RunState.CANCELLED, "cancelled"))
 
     def join(self, timeout: float | None = None) -> None:
@@ -328,13 +357,29 @@ class ScriptRunner:
         if cause is not None:
             raise cause
 
+    def _search(self, pattern: _ScriptPattern, text: str) -> regex.Match[str] | None:
+        limit = self._pattern_timeout_seconds
+        try:
+            # concurrent=True releases the interpreter lock, so the event loop, readers, and cancel keep running.
+            return pattern.compiled.search(text, timeout=limit, concurrent=True)
+        except TimeoutError:
+            self._check_stop()  # a cancel that arrived during the search outranks the search's failure
+            raise _RunTermination(
+                RunState.ERRORED,
+                "regex_timeout",
+                detail=(
+                    f"The pattern on line {pattern.line} ran longer than {limit:g} s, so the run stopped. "
+                    "Rewrite it without nested quantifiers."
+                ),
+            ) from None
+
     def _check_fail_patterns(self, text: str) -> None:
         if not text:
             return
         for active in self._fail_patterns:
             searchable = text[active.skip_chars :]
             active.skip_chars = 0
-            match = active.pattern.search(searchable)
+            match = self._search(active.pattern, searchable)
             if match is not None:
                 cause = _RunTermination(
                     RunState.FAILED,
@@ -362,7 +407,7 @@ class ScriptRunner:
     def _wait_until(
         self,
         deadline: float,
-        pattern: re.Pattern[str] | None = None,
+        pattern: _ScriptPattern | None = None,
     ) -> str | None:
         while True:
             self._check_stop()
@@ -370,7 +415,7 @@ class ScriptRunner:
             self._check_fail_patterns(self._matcher.take_since_fail_check())
 
             if pattern is not None:
-                match = pattern.search(snapshot.text)
+                match = self._search(pattern, snapshot.text)
                 if match is not None:
                     if self._matcher.consume(snapshot, match.end()):
                         return match.group(0)
@@ -498,14 +543,14 @@ class ScriptRunner:
                 seconds = step.seconds if step.seconds is not None else settings.timeout
                 matched_text = self._wait_until(
                     time.monotonic() + seconds,
-                    re.compile(step.payload),
+                    _script_pattern(step),
                 )
             case StepKind.PROMPT:
-                settings.prompt = re.compile(step.payload) if step.enabled else None
+                settings.prompt = _script_pattern(step) if step.enabled else None
             case StepKind.FAIL_ON:
                 if step.enabled:
                     self._fail_patterns.append(
-                        _ActiveFailPattern(re.compile(step.payload), self._fail_overlap_length)
+                        _ActiveFailPattern(_script_pattern(step), self._fail_overlap_length)
                     )
                 else:
                     self._fail_patterns.clear()

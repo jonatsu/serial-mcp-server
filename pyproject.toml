@@ -16,6 +16,7 @@ dependencies = [
     "pyserial>=3.5,<4",
     "mcp>=1.30.0,<2",
     "pyyaml>=6.0,<7",
+    "regex>=2024.11.6",
 ]
 
 [project.optional-dependencies]
