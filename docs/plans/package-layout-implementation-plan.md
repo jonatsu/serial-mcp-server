@@ -625,4 +625,21 @@ serial_mcp_server`, so it needed no change; its `tools`, `ports`, and `list` com
 Self-review: `git diff -M --stat` shows `cli.py` unchanged and the renamed test file changed only where it names the
 module.
 
+### Unit 10: The Full Layer Contract
+
+Replaced on 9 October 2026. One `layers` contract lists `plugin_api`, then `mcp` and `cli`, then `script` and
+`specs`, then `port`, then `portlog`, then the three foundation modules. Modules that share a layer are joined with
+`:`, which import-linter 2.15 reads as allowed to import each other, because design section 5.2 permits imports
+within a layer; `|` would forbid them. An independence contract keeps `cli` and `plugin_api` apart, and a forbidden
+contract keeps `cli` from importing `mcp`, which the shared layer alone allows.
+
+P1 results: `just check` clean with three contracts kept. The test count fell from 785 to 769 because
+`tests/test_import_contracts.py` runs one case per module a contract names: 14 now, 30 before. Temporary violations,
+each removed afterwards: an import of `serial_mcp_server.mcp.state` in `port/writer.py` broke the layers contract,
+and the forbidden contract through the chain `cli` to `script.runner` to `port.writer`; an import of
+`mcp.responses` in `cli.py` broke the forbidden contract; an import of `cli` in `plugin_api.py`, which the layers
+allow, broke the independence contract.
+
+Self-review: the diff touches only the contracts in `pyproject.toml` and this record.
+
 No other unit has started.

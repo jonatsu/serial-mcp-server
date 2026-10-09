@@ -55,73 +55,30 @@ skip_covered = false
 [tool.importlinter]
 root_package = "serial_mcp_server"
 
-# Layers of docs/plans/package-layout-design.md section 5.2. Each package refactor unit extends these
-# contracts; the final unit replaces them with one layers contract.
+# The layers of docs/plans/package-layout-design.md section 5.2, top first. A module may import from its own layer
+# and the layers below it; a layer whose modules are joined by ":" lets them import each other.
 [[tool.importlinter.contracts]]
-name = "port/ imports nothing from the script engine, the specs, or the MCP server"
-type = "forbidden"
-source_modules = ["serial_mcp_server.port"]
-forbidden_modules = [
-    "serial_mcp_server.script",
-    "serial_mcp_server.specs",
-    "serial_mcp_server.mcp",
+name = "every module imports only from its own layer and the layers below"
+type = "layers"
+layers = [
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.cli",
-]
-
-[[tool.importlinter.contracts]]
-name = "portlog/ imports nothing from port/, the script engine, or the MCP server"
-type = "forbidden"
-source_modules = ["serial_mcp_server.portlog"]
-forbidden_modules = [
-    "serial_mcp_server.port",
-    "serial_mcp_server.script",
-    "serial_mcp_server.specs",
-    "serial_mcp_server.mcp",
-    "serial_mcp_server.plugin_api",
-    "serial_mcp_server.cli",
-]
-
-[[tool.importlinter.contracts]]
-name = "script/ imports nothing from the MCP server or the command-line runner"
-type = "forbidden"
-source_modules = ["serial_mcp_server.script"]
-forbidden_modules = [
-    "serial_mcp_server.mcp",
-    "serial_mcp_server.plugin_api",
-    "serial_mcp_server.cli",
-]
-
-[[tool.importlinter.contracts]]
-name = "specs/ imports nothing from the port, the script engine, or the MCP server"
-type = "forbidden"
-source_modules = ["serial_mcp_server.specs"]
-forbidden_modules = [
+    "serial_mcp_server.mcp : serial_mcp_server.cli",
+    "serial_mcp_server.script : serial_mcp_server.specs",
     "serial_mcp_server.port",
     "serial_mcp_server.portlog",
-    "serial_mcp_server.script",
-    "serial_mcp_server.mcp",
-    "serial_mcp_server.plugin_api",
-    "serial_mcp_server.cli",
+    "serial_mcp_server.config : serial_mcp_server.confined_files : serial_mcp_server.private_files",
 ]
 
 [[tool.importlinter.contracts]]
-name = "mcp/ imports neither the plugin interface above it nor the command-line runner"
-type = "forbidden"
-source_modules = ["serial_mcp_server.mcp"]
-forbidden_modules = [
-    "serial_mcp_server.plugin_api",
-    "serial_mcp_server.cli",
-]
+name = "the command-line runner and the plugin interface do not import each other"
+type = "independence"
+modules = ["serial_mcp_server.cli", "serial_mcp_server.plugin_api"]
 
 [[tool.importlinter.contracts]]
 name = "the command-line runner imports nothing from the MCP server"
 type = "forbidden"
 source_modules = ["serial_mcp_server.cli"]
-forbidden_modules = [
-    "serial_mcp_server.mcp",
-    "serial_mcp_server.plugin_api",
-]
+forbidden_modules = ["serial_mcp_server.mcp"]
 
 [tool.ruff]
 target-version = "py311"
