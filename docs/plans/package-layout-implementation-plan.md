@@ -609,4 +609,20 @@ file headers, imports, and the formatter's wrapping of two patch targets.
 
 Review: an independent `code-reviewer` approved with no findings.
 
+### Unit 9: `cli.py`
+
+Renamed on 9 October 2026 with `git mv`: `script_cli.py` became `cli.py` and `tests/test_script_cli.py` became
+`tests/test_cli.py`. The `serial_mcp_script` entry point, the import contracts, the harness's fallback command, and
+the tests name `serial_mcp_server.cli`; `CONTRIBUTING.md` lists `cli.py` in the package layout. The CHANGELOG needs
+no entry, because `serial_mcp_script` itself is unreleased.
+
+P1 results: 785 tests passed, including the probe that `serial_mcp_server.cli` loads no `mcp` module; `just check`
+clean with six contracts kept; Bandit no issues; after `uv sync`, the installed `serial_mcp_script --help` runs
+`cli.main`; `just integration` passed every scenario, including both runs of `serial_mcp_script`. The interactive
+client `tools/serial_cli.py` imports nothing from the package and reaches the server through `python -m
+serial_mcp_server`, so it needed no change; its `tools`, `ports`, and `list` commands worked against this tree.
+
+Self-review: `git diff -M --stat` shows `cli.py` unchanged and the renamed test file changed only where it names the
+module.
+
 No other unit has started.

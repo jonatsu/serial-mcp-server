@@ -39,7 +39,7 @@ Changelog = "https://github.com/jonatsu/serial-mcp-server/blob/main/CHANGELOG.md
 
 [project.scripts]
 serial_mcp = "serial_mcp_server.mcp.server:main"
-serial_mcp_script = "serial_mcp_server.script_cli:main"
+serial_mcp_script = "serial_mcp_server.cli:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -66,7 +66,7 @@ forbidden_modules = [
     "serial_mcp_server.specs",
     "serial_mcp_server.mcp",
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.script_cli",
+    "serial_mcp_server.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -79,7 +79,7 @@ forbidden_modules = [
     "serial_mcp_server.specs",
     "serial_mcp_server.mcp",
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.script_cli",
+    "serial_mcp_server.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -89,7 +89,7 @@ source_modules = ["serial_mcp_server.script"]
 forbidden_modules = [
     "serial_mcp_server.mcp",
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.script_cli",
+    "serial_mcp_server.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -102,7 +102,7 @@ forbidden_modules = [
     "serial_mcp_server.script",
     "serial_mcp_server.mcp",
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.script_cli",
+    "serial_mcp_server.cli",
 ]
 
 [[tool.importlinter.contracts]]
@@ -111,13 +111,13 @@ type = "forbidden"
 source_modules = ["serial_mcp_server.mcp"]
 forbidden_modules = [
     "serial_mcp_server.plugin_api",
-    "serial_mcp_server.script_cli",
+    "serial_mcp_server.cli",
 ]
 
 [[tool.importlinter.contracts]]
 name = "the command-line runner imports nothing from the MCP server"
 type = "forbidden"
-source_modules = ["serial_mcp_server.script_cli"]
+source_modules = ["serial_mcp_server.cli"]
 forbidden_modules = [
     "serial_mcp_server.mcp",
     "serial_mcp_server.plugin_api",
