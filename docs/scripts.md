@@ -79,3 +79,50 @@ Devices often echo input. For example, `@expect ls` after the bare command `ls` 
 The parser returns every syntax error together, with its source line. Unknown directives, malformed arguments, invalid regular expressions, undefined variables, unitless durations, and rejected `@send_file` paths produce errors. Fix them before starting a run.
 
 The script language has no shell escape or include directive. `@send_file` is its only file operation, and it is confined to the configured files directory.
+
+## Running from the command line
+
+`serial_mcp_script` runs one script on one serial port without an agent or the MCP server. It uses the same engine, writer, reader, and port log as the MCP tools.
+
+```bash
+serial_mcp_script SCRIPT --port PORT [options]
+```
+
+| Option | Meaning |
+| --- | --- |
+| `SCRIPT` | Path of the script. Any readable path works. |
+| `--port PORT` | Serial port to open. Required. |
+| `--baud N` | Baud rate. Default `115200`. |
+| `--var NAME=VALUE` | Set a script variable. Repeat for several. The value starts after the first `=`. The command exits with status `2` if a name breaks the [variable naming rule](#variables). |
+| `--log-format FORMAT` | Port log format: `text`, `jsonl`, `lines`, or `raw`. Repeat for several. Default: `SERIAL_MCP_LOG_FORMATS`, else `text`. |
+| `--no-log` | Do not record a port log. |
+| `--log-dir DIR` | Directory for the port log and, unless `--result` is set, the result file. Default: `SERIAL_MCP_LOG_DIR`, else `.serial_mcp/logs/`. |
+| `--files-dir DIR` | Directory `@send_file` reads from. Default: `SERIAL_MCP_FILES_DIR`, else `.serial_mcp/files/`. |
+| `--result FILE` | Write the result file here. |
+
+The port opens with 8 data bits, no parity, one stop bit, 200 ms read and write timeouts, UTF-8 text, the newline `\r\n`, and an exclusive lock. The command records a port log unless you pass `--no-log`.
+
+The command reads and parses the script before it opens the port. A parse error prints every error with its line and exits with status `2`; nothing reaches the port. If `--result` names a file that already exists, the command exits with status `2` before it opens the port, so a result is never overwritten. A missing port exits with status `2` and a message, and so does a port that another program holds with an exclusive lock. The lock stops only programs that ask for one too, so close the port in the MCP server and in other tools before you run a script.
+
+While the script runs, the command prints the line number and text of the current step to standard error. It checks five times a second, so a step that ends sooner may not appear; the result file lists every step. When the run ends, the command prints a summary: the final state, the reason, the failing line and its text, the device output before the failure, the result file path, and the log paths. Standard output stays empty.
+
+### Exit status
+
+| Status | Meaning |
+| --- | --- |
+| `0` | The script passed. |
+| `1` | The script failed: an `@expect` timed out, an `@fail_on` pattern matched, or another check failed. |
+| `2` | The run errored, the arguments or script were unusable, the port could not be opened, the run ended `cancelled` without an interrupt, or the command hit an unexpected error. |
+| `130` | You interrupted the command with Ctrl-C. |
+
+### Result file
+
+The result file has the same structure as the one the MCP tools write: `schema_version`, `state`, `steps`, `failure`, `log_paths`, and the variable names, never their values. Without `--result`, the file goes in the log directory with a name that cannot collide with an earlier run. With `--result`, the command creates the file's parent directories and refuses an existing file.
+
+### Interrupting
+
+Ctrl-C (SIGINT) cancels the run. The command waits up to five seconds for the run to stop, then stops the writer and reader, closes the port log and the port, and exits with status `130`. The result file records the state `cancelled`. A second Ctrl-C does not skip that cleanup. Other signals, such as SIGTERM, end the command at once and write no result file.
+
+### Paths
+
+The script path is not confined: the command reads whatever file you name. `@send_file` stays confined to the files directory, as it is under the MCP tools.

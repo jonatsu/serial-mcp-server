@@ -28,7 +28,8 @@ from serial_mcp_server.handlers_serial import (
     handle_set_rts,
     handle_write,
 )
-from serial_mcp_server.state import SerialState
+from serial_mcp_server.port_stack import open_port_stack
+from serial_mcp_server.state import SerialState, stop_connections
 from serial_mcp_server.writer import Pacing, SerialWriter
 
 
@@ -85,7 +86,7 @@ class TestOpen:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result["ok"]
@@ -105,7 +106,7 @@ class TestOpen:
         }
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result["ok"]
@@ -127,7 +128,7 @@ class TestOpen:
     async def test_open_with_character_pacing(self, serial_state, mock_serial, mock_reader):
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader) as make_reader,
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
                 serial_state,
@@ -141,7 +142,7 @@ class TestOpen:
     async def test_open_with_chunk_pacing(self, serial_state, mock_serial, mock_reader):
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader) as make_reader,
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
                 serial_state,
@@ -195,7 +196,7 @@ class TestOpen:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
         ):
             result1 = await handle_open(state, {"port": "/dev/ttyUSB0"})
         assert result1["ok"]
@@ -516,13 +517,79 @@ class TestOpenResourceCleanup:
         mock_reader.mirror_info.return_value = None
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
-            patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
             pytest.raises(RuntimeError),
         ):
             await handle_open(state, {"port": "/dev/ttyUSB0"})
         mock_reader.signal_stop.assert_called_once()
         mock_reader.join.assert_called_once()
         mock_ser.close.assert_called_once()
+
+    async def test_cancelled_open_releases_the_stack_the_worker_finishes_building(
+        self, serial_state, mock_serial, mock_reader
+    ):
+        worker_started = threading.Event()
+        proceed = threading.Event()
+        stopped = threading.Event()
+        stopped_connections = []
+
+        def blocked_open(ser, **kwargs):
+            worker_started.set()
+            assert proceed.wait(5), "the test never let the worker proceed"
+            return open_port_stack(ser, **kwargs)
+
+        def recording_stop(conns):
+            stop_connections(conns)
+            stopped_connections.extend(conns)
+            stopped.set()
+
+        with (
+            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.handlers_serial.open_port_stack", side_effect=blocked_open),
+            patch("serial_mcp_server.handlers_serial.stop_connections", side_effect=recording_stop),
+        ):
+            task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
+            assert await asyncio.to_thread(worker_started.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            proceed.set()
+            assert await asyncio.to_thread(stopped.wait, 5)
+
+        (conn,) = stopped_connections
+        assert not conn.writer.alive
+        mock_reader.signal_stop.assert_called_once()
+        mock_serial.close.assert_called_once()
+        assert serial_state.connections == {}
+
+    async def test_cancelled_open_closes_the_port_when_the_worker_fails(self, serial_state, mock_serial):
+        worker_started = threading.Event()
+        proceed = threading.Event()
+        closed = threading.Event()
+        mock_serial.close.side_effect = closed.set
+
+        def failing_open(_ser, **_kwargs):
+            worker_started.set()
+            assert proceed.wait(5), "the test never let the worker proceed"
+            raise OSError("the stack could not be built")
+
+        with (
+            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.handlers_serial.open_port_stack", side_effect=failing_open),
+            patch("serial_mcp_server.handlers_serial.stop_connections") as stop,
+        ):
+            task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
+            assert await asyncio.to_thread(worker_started.wait, 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            proceed.set()
+            assert await asyncio.to_thread(closed.wait, 5)
+
+        mock_serial.close.assert_called_once()
+        stop.assert_not_called()
+        assert serial_state.connections == {}
 
 
 class TestFormatData:

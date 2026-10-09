@@ -199,6 +199,17 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 
 See the [serial script reference](docs/scripts.md) for script syntax and examples.
 
+### Run a script without an agent
+
+`serial_mcp_script` runs one script on a port with no agent and no MCP server. A CI job reads the outcome from the exit status and the result file:
+
+```bash
+serial_mcp_script tests/uboot-smoke.serial --port /dev/ttyUSB0 --baud 115200 \
+  --var SERVER_IP=10.0.0.1 --result build/out.json
+```
+
+The exit status is `0` when the script passed, `1` when it failed, `2` for an error or unusable input, and `130` when interrupted. See [Running from the command line](docs/scripts.md#running-from-the-command-line) for every option.
+
 ---
 
 ## Protocol Specs

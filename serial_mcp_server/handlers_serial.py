@@ -23,14 +23,12 @@ from serial_mcp_server.helpers import (
     max_write_seconds,
     script_running_error,
 )
-from serial_mcp_server.mirror import SerialBuffer, create_reader
-from serial_mcp_server.portlog import PortLog, PortLogSlot, resolve_log_request
+from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
+from serial_mcp_server.portlog import resolve_log_request
 from serial_mcp_server.portlog_formats import (
-    BUFFER_DROP_EVENT,
     CONFIGURE_EVENT,
     LOG_FORMATS_SCHEMA,
     LOG_TEXT_TIMESTAMPS_SCHEMA,
-    OPEN_EVENT,
     is_text_encoding,
 )
 from serial_mcp_server.state import (
@@ -43,7 +41,6 @@ from serial_mcp_server.writer import (
     MAX_PACING_DELAY_MS,
     NO_PACING,
     Pacing,
-    SerialWriter,
     WriteAborted,
     WriterClosed,
 )
@@ -200,30 +197,6 @@ async def run_write_job(
         return 0, _err("connection_closed", str(exc))
     except WriteAborted as exc:
         return exc.bytes_written, {**_err("write_aborted", str(exc)), "bytes_written": exc.bytes_written}
-
-
-def make_read_buffer(slot: PortLogSlot) -> SerialBuffer:
-    """A read buffer that records each trim of unread bytes as a ``buffer_drop`` port-log event."""
-    return SerialBuffer(on_drop=lambda count: slot.event(BUFFER_DROP_EVENT, dropped_bytes=count))
-
-
-def conn_config(conn: SerialConnection) -> dict[str, Any]:
-    """Return a dict describing the connection's serial configuration."""
-    pacing = conn.writer.pacing
-    return {
-        "port": conn.port,
-        "baudrate": conn.baudrate,
-        "bytesize": conn.bytesize,
-        "parity": conn.parity,
-        "stopbits": conn.stopbits,
-        "timeout_ms": round(conn.timeout * 1000),
-        "write_timeout_ms": round(conn.write_timeout * 1000),
-        "inter_char_delay_ms": pacing.inter_char_delay_ms,
-        "chunk_size": pacing.chunk_size,
-        "chunk_delay_ms": pacing.chunk_delay_ms,
-        "encoding": conn.encoding,
-        "newline": repr(conn.newline),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -695,13 +668,22 @@ async def handle_list_ports(state: SerialState, args: dict[str, Any]) -> dict[st
     )
 
 
-def _abandon_open(ser: pyserial.Serial, slot: PortLogSlot, conn: SerialConnection | None) -> None:
-    """Release what ``handle_open`` acquired when the connection was never registered."""
-    if conn is not None:
-        stop_connections([conn])  # joins the threads, closes the log and the port
-        return
-    slot.close_log()
-    ser.close()
+def _release_when_worker_ends(worker: asyncio.Future[SerialConnection], ser: pyserial.Serial) -> None:
+    """Release what an abandoned ``open_port_stack`` worker built, once its thread ends.
+
+    Cancelling ``serial.open`` cannot stop the worker thread, so closing *ser* now would pull the port
+    out from under it. This waits for the thread, then stops the connection it returned or, if it failed,
+    closes the port. The blocking release runs in the default executor, never on the event loop.
+    """
+
+    def release(finished: asyncio.Future[SerialConnection]) -> None:
+        loop = finished.get_loop()
+        if finished.cancelled() or finished.exception() is not None:
+            loop.run_in_executor(None, ser.close)
+        else:
+            loop.run_in_executor(None, stop_connections, [finished.result()])
+
+    worker.add_done_callback(release)
 
 
 async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -765,23 +747,10 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         kwargs["exclusive"] = exclusive
 
     ser = await asyncio.to_thread(pyserial.Serial, **kwargs)
-
-    slot = PortLogSlot()
-    conn: SerialConnection | None = None
-    registered = False
-    try:
-        if log_request is not None:
-            # Fail the open rather than run a session the caller asked to record without its log.
-            try:
-                slot.set(await asyncio.to_thread(PortLog.start, log_request, encoding))
-            except OSError as exc:
-                return _err("log_failed", f"Could not start the port log in {log_request.directory}: {exc}")
-
-        buf = make_read_buffer(slot)
-        writer = SerialWriter(ser, pacing, slot)
-        reader = create_reader(ser, buf, MIRROR_PTY, MIRROR_PTY_LINK, writer=writer, log_slot=slot)
-        conn = SerialConnection(
-            connection_id=state.generate_id(),
+    worker = asyncio.ensure_future(
+        asyncio.to_thread(
+            open_port_stack,
+            ser,
             port=port,
             baudrate=baudrate,
             bytesize=bytesize,
@@ -791,29 +760,38 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
             write_timeout=write_timeout_s,
             encoding=encoding,
             newline=newline,
-            ser=ser,
-            writer=writer,
-            buffer=buf,
-            reader=reader,
+            pacing=pacing,
+            log_request=log_request,
+            connection_id=state.generate_id(),
+            mirror_mode=MIRROR_PTY,
+            mirror_link=MIRROR_PTY_LINK,
         )
-        # Record the open before the threads start, so the log begins with it, not with a boot banner.
-        slot.event(OPEN_EVENT, config=conn_config(conn))
-        writer.start()
-        reader.start()
+    )
+    try:
+        conn = await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        _release_when_worker_ends(worker, ser)  # the thread keeps running and owns *ser* until it ends
+        raise
+    except PortLogStartError as exc:
+        await asyncio.to_thread(ser.close)
+        return _err("log_failed", str(exc))
+    except BaseException:
+        await asyncio.to_thread(ser.close)
+        raise
+    try:
         state.add_connection(conn)
-        registered = True
-    finally:
-        if not registered:
-            await asyncio.to_thread(_abandon_open, ser, slot, conn)
+    except BaseException:
+        await asyncio.to_thread(stop_connections, [conn])  # joins the threads, closes the log and the port
+        raise
 
     result = _ok(
         message=f"Opened {port} at {baudrate} baud.",
         connection_id=conn.connection_id,
         config=conn_config(conn),
     )
-    if slot.log is not None:
-        result["log"] = slot.log.status()
-    mirror = reader.mirror_info()
+    if conn.log_slot.log is not None:
+        result["log"] = conn.log_slot.log.status()
+    mirror = conn.reader.mirror_info() if conn.reader is not None else None
     if mirror is not None:
         result["mirror"] = mirror
     return result

@@ -152,9 +152,16 @@ def test_send_file_step_keeps_the_resolved_confined_path(files_dir: Path):
     assert step.path == path.resolve()
 
 
-def test_invalid_variable_names_are_rejected(files_dir: Path):
-    with pytest.raises(ValueError, match="Invalid variable name"):
+def test_invalid_variable_names_are_rejected_with_the_rule(files_dir: Path):
+    with pytest.raises(ValueError, match="Invalid variable name") as raised:
         parse("", {"BAD-NAME": "value"}, files_dir)
+
+    assert "start with a letter or underscore" in str(raised.value)
+
+
+def test_a_variable_name_may_not_start_with_a_digit(files_dir: Path):
+    with pytest.raises(ValueError, match="Invalid variable name '1BAD'"):
+        parse("", {"1BAD": "value"}, files_dir)
 
 
 def test_documented_directive_names_match_the_parser_table():

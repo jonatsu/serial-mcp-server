@@ -10,6 +10,7 @@
 - `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced write; longer writes are rejected with `invalid_params` before any byte is sent.
 - The script engine runs validated serial scripts on a dedicated thread and writes private JSON results under `SERIAL_MCP_LOG_DIR`. `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each run. See [docs/scripts.md](docs/scripts.md).
 - Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A running script owns its connection's writes and control lines. See [docs/scripts.md](docs/scripts.md).
+- `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See [Running from the command line](docs/scripts.md#running-from-the-command-line).
 
 ### Fixed
 - Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to overflow.
