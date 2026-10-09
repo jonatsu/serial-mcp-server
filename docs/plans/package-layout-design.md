@@ -1,7 +1,7 @@
 # Package Layout and Configuration Design
 
-Status: draft, 9 October 2026. Three decisions are provisional until the user settles them (questions Q1 to Q3).
-Once implemented, the code wins and this document is updated to match.
+Status: accepted by the user on 9 October 2026, with every decision settled. Once implemented, the code wins and
+this document is updated to match.
 Basis: the user's request of 9 October 2026 to reorganize `serial_mcp_server/` by capability and to move all
 configuration to one place, and the entanglement analysis summarized in section 1.1. No spec governs this work; the
 refactor keeps every tool's observable behavior, except the configuration changes that section 8.1 lists.
@@ -232,7 +232,7 @@ An unset or blank variable means its default. Every boolean accepts `1`, `true`,
 `off`, in any case. Any other value of any variable is invalid, and `load` collects all invalid variables before it
 raises, so one start reports every mistake.
 
-These rules change observable behavior, and the CHANGELOG lists each change (provisional, Q1 and Q2):
+These rules change observable behavior, and the CHANGELOG lists each change (decisions L3 and L4):
 
 - Settings are read once at start. Changing the process environment later no longer affects the next call. An MCP
   server over stdio cannot have its environment changed from outside after it starts, so only in-process callers
@@ -253,7 +253,7 @@ Plugin modules keep their shape: `TOOLS`, `HANDLERS`, and handlers taking `(stat
 `serial.plugin.template` generates, the demo plugin, and the plugin documentation import from `plugin_api` only.
 Names in `plugin_api.__all__` change only with a CHANGELOG entry.
 
-Plugins that import the old module paths stop loading (provisional, Q3). The loader reports the failing import in
+Plugins that import the old module paths stop loading (decision L5). The loader reports the failing import in
 `serial.plugin.list` as it reports any load error today, and the CHANGELOG states the replacement imports.
 
 ### 8.3 Tests
@@ -293,9 +293,9 @@ into a move.
 | --- | ---------------------------------------------------------------------------------------- | --------------- | ----------------------------- |
 | L1  | Subpackages by capability: `port`, `portlog`, `script`, `specs`, `mcp`.                    | User decision   | The flat layout: concerns cannot be found. Packages by kind (`models/`, `utils/`): they collect unrelated code. |
 | L2  | No `src/` level.                                                                          | User decision   | `src/` layout: adds the extra directory level the user rejected; its benefit, testing the installed package, comes cheaper from a CI job that builds the wheel and runs the tests against it. |
-| L3  | One `config.py` with a frozen `Settings`, read once at start and passed down.              | Provisional (Q1) | Accessor functions that read the environment on each call: keeps today's semantics, but every consumer still depends on process state, and invalid values still surface late, at the call. |
-| L4  | Invalid configuration stops the start with one message listing every invalid variable.    | Provisional (Q2) | Warn and fall back: an operator's typo silently changes behavior, as `SERIAL_MCP_TRACE=off` does today. |
-| L5  | `plugin_api.py` is the only supported plugin import; old paths are not kept.               | Provisional (Q3) | Compatibility modules at the old paths: recreate the flat top level this design removes, for a 0.x package whose only known plugin is the demo. |
+| L3  | One `config.py` with a frozen `Settings`, read once at start and passed down.              | User decision   | Accessor functions that read the environment on each call: keeps today's semantics, but every consumer still depends on process state, and invalid values still surface late, at the call. |
+| L4  | Invalid configuration stops the start with one message listing every invalid variable.    | User decision   | Warn and fall back: an operator's typo silently changes behavior, as `SERIAL_MCP_TRACE=off` does today. |
+| L5  | `plugin_api.py` is the only supported plugin import; old paths are not kept.               | User decision   | Compatibility modules at the old paths: recreate the flat top level this design removes, for a 0.x package whose only known plugin is the demo. |
 | L6  | An `import-linter` `layers` contract enforces section 5.2.                                | Recommended     | Review only: the interpreter and type checker accept a layer violation. |
 | L7  | `cli.py` and `plugin_api.py` are top-level modules, not packages.                         | Recommended     | `cli/` and `plugins/` packages: each would hold one module. |
 | L8  | Async code uses `anyio`, declared as a dependency (section 8.4).                           | User decision   | Raw `asyncio`: a second set of cancellation rules beside the SDK's, and no shielded scopes or structured timeouts. |
@@ -310,7 +310,7 @@ the modules section 5.1 names.
 
 1. Most test imports change: about 110 import lines in the tests and the demo plugin name 27 module paths. Moving one package per commit keeps
    each diff reviewable, and the suite must pass after each.
-2. User plugins generated from the old template break (Q3). The CHANGELOG entry and the loader's error carry the fix.
+2. User plugins generated from the old template break (decision L5). The CHANGELOG entry and the loader's error carry the fix.
 3. Reading settings once changes the behavior that section 8.1 lists. The tests that relied on `setenv` move to
    `Settings`, so a missed consumer shows as a failing test, and the `os.environ` search catches a stray read.
 4. `run_write_job` and the duration check stay in the MCP layer, so a future non-MCP caller would need them moved
@@ -326,11 +326,8 @@ the modules section 5.1 names.
 
 ## Questions Register
 
-| ID | Question | Recommendation | Consequence of the alternative |
-| -- | -------- | -------------- | ------------------------------ |
-| Q1 | Read settings once at start (L3)? | Yes. | Per-call reads keep in-process environment changes working but leave every module coupled to process state. |
-| Q2 | Stop the start on any invalid value (L4)? | Yes, with one message listing all of them. | Keeping warnings and fallbacks preserves today's mixed behavior, including the `SERIAL_MCP_TRACE=off` bug unless fixed separately. |
-| Q3 | Drop the old import paths for plugins (L5)? | Yes, with a CHANGELOG entry. | Compatibility modules keep old plugins loading but leave `helpers.py`, `state.py`, and `handlers_serial.py` at the top level. |
+No question is open. The user settled the three that were, on 9 October 2026: settings are read once at start
+(L3), any invalid value stops the start (L4), and plugins import only from `plugin_api` (L5).
 
 ## Planning Handoff
 
