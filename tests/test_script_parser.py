@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from serial_mcp_server.port.pacing import NO_PACING, Pacing
 from serial_mcp_server.script import DIRECTIVES, ScriptSyntaxError, StepKind, parse
-from serial_mcp_server.writer import NO_PACING, Pacing
 
 
 @pytest.fixture()

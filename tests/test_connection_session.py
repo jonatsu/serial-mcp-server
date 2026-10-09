@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 
 from serial_mcp_server.connection_session import ConnectionSession
-from serial_mcp_server.mirror import SerialBuffer
-from serial_mcp_server.state import SerialConnection
-from serial_mcp_server.writer import NO_PACING, Pacing, SerialWriter, WriteAborted
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.connection import SerialConnection
+from serial_mcp_server.port.pacing import NO_PACING, Pacing
+from serial_mcp_server.port.writer import SerialWriter, WriteAborted
 
 WAIT_S = 5.0
 

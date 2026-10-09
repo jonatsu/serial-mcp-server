@@ -8,7 +8,6 @@ a slow paced write cannot delay receiving.
 from __future__ import annotations
 
 import logging
-import math
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -18,6 +17,7 @@ from typing import Any
 
 import serial as pyserial
 
+from serial_mcp_server.port.pacing import NO_PACING, Pacing
 from serial_mcp_server.portlog import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
@@ -26,7 +26,6 @@ SOURCE_MCP = "mcp"
 SOURCE_MIRROR = "mirror"
 
 JOIN_TIMEOUT_S = 3.0
-MAX_PACING_DELAY_MS = 1000  # longest pause between segments that a pacing setting may ask for
 
 
 class WriterClosed(Exception):
@@ -44,37 +43,6 @@ class WriteAborted(Exception):
         super().__init__(message)
         self.bytes_written = bytes_written
 
-
-@dataclass(frozen=True)
-class Pacing:
-    """How a payload is split and delayed on its way to the port."""
-
-    inter_char_delay_ms: int = 0
-    chunk_size: int = 0
-    chunk_delay_ms: int = 0
-
-    @property
-    def is_paced(self) -> bool:
-        return bool(self.inter_char_delay_ms or self.chunk_size)
-
-    @property
-    def segment_size(self) -> int:
-        """Bytes per write; character pacing is chunk pacing with a chunk of 1. Zero when unpaced."""
-        return 1 if self.inter_char_delay_ms else self.chunk_size
-
-    @property
-    def segment_delay_ms(self) -> int:
-        return self.inter_char_delay_ms or self.chunk_delay_ms
-
-    def estimated_seconds(self, payload_size: int) -> float:
-        """Upper-bound pacing time for *payload_size* bytes: segments times the delay."""
-        if not self.is_paced:
-            return 0.0
-        segments = math.ceil(payload_size / self.segment_size)
-        return segments * self.segment_delay_ms / 1000.0
-
-
-NO_PACING = Pacing()
 
 # Without pacing, a file still goes out in segments so cancel and bytes_written
 # work as they do for paced writes.

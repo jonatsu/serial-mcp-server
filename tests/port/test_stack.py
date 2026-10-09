@@ -10,12 +10,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from serial_mcp_server import mirror
-from serial_mcp_server.mirror import ReaderThread, SerialBuffer
-from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
+from serial_mcp_server.port import mirror
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.connection import stop_connections
+from serial_mcp_server.port.pacing import NO_PACING
+from serial_mcp_server.port.reader import ReaderThread
+from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.portlog import LogRequest
-from serial_mcp_server.state import stop_connections
-from serial_mcp_server.writer import NO_PACING
 from tests.helpers import read_jsonl
 
 
@@ -89,7 +90,7 @@ def test_unwritable_log_directory_raises_a_log_start_error_and_starts_nothing(mo
 def test_reader_creation_failure_closes_the_log(mock_serial, tmp_path):
     before = _threads("serial-portlog")
     with (
-        patch("serial_mcp_server.port_stack.create_reader", side_effect=OSError("no ptys")),
+        patch("serial_mcp_server.port.stack.create_reader", side_effect=OSError("no ptys")),
         pytest.raises(OSError, match="no ptys"),
     ):
         open_stack(mock_serial, tmp_path)
@@ -104,7 +105,7 @@ def test_reader_start_failure_stops_the_writer_and_closes_the_log(mock_serial, t
     before_writers = _threads("serial-writer")
     before_logs = _threads("serial-portlog")
     with (
-        patch("serial_mcp_server.port_stack.create_reader", return_value=reader),
+        patch("serial_mcp_server.port.stack.create_reader", return_value=reader),
         pytest.raises(RuntimeError, match="cannot start reader"),
     ):
         open_stack(mock_serial, tmp_path)
@@ -120,9 +121,9 @@ def test_writer_start_failure_releases_the_log_and_never_starts_the_reader(mock_
     reader = MagicMock()
     before_logs = _threads("serial-portlog")
     with (
-        patch("serial_mcp_server.port_stack.create_reader", return_value=reader),
+        patch("serial_mcp_server.port.stack.create_reader", return_value=reader),
         patch(
-            "serial_mcp_server.port_stack.SerialWriter.start", side_effect=RuntimeError("cannot start writer")
+            "serial_mcp_server.port.stack.SerialWriter.start", side_effect=RuntimeError("cannot start writer")
         ),
         pytest.raises(RuntimeError, match="cannot start writer"),
     ):
@@ -148,7 +149,7 @@ def test_a_thread_that_cannot_start_does_not_mask_the_error_or_skip_the_log_clos
     before_writers = _threads("serial-writer")
     with (
         patch(
-            "serial_mcp_server.port_stack.create_reader",
+            "serial_mcp_server.port.stack.create_reader",
             return_value=ReaderThread(mock_serial, SerialBuffer()),
         ),
         patch.object(threading.Thread, "start", start),

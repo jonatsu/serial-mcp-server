@@ -40,10 +40,10 @@ from serial_mcp_server.handlers_serial import (
     handle_set_rts,
     handle_write,
 )
-from serial_mcp_server.mirror import SerialBuffer
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.script.directives import DIRECTIVES
 from serial_mcp_server.script.runner import ScriptRunner
-from serial_mcp_server.writer import SerialWriter
 from tests.helpers import reconfigure
 
 SID = {"connection_id": "s1"}

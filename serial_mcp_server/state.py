@@ -11,47 +11,14 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-
-import serial as pyserial
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
-from serial_mcp_server.mirror import ReaderThread, SerialBuffer
-from serial_mcp_server.portlog import PortLogSlot
+from serial_mcp_server.port.connection import SerialConnection, stop_connections
 from serial_mcp_server.script.runner import RunResult, ScriptRunner
-from serial_mcp_server.writer import SerialWriter
 
 SCRIPT_CANCEL_WAIT_SECONDS = 5.0
 logger = logging.getLogger("serial_mcp_server")
-
-
-@dataclass
-class SerialConnection:
-    """A managed serial port connection."""
-
-    connection_id: str
-    port: str
-    baudrate: int
-    bytesize: int
-    parity: str
-    stopbits: float
-    timeout: float  # seconds
-    write_timeout: float  # seconds
-    encoding: str
-    newline: str
-    ser: pyserial.Serial
-    writer: SerialWriter
-    buffer: SerialBuffer = field(default_factory=SerialBuffer)
-    reader: ReaderThread | None = None
-    opened_at: float = field(default_factory=time.time)
-    last_seen_ts: float = field(default_factory=time.time)
-    spec: dict[str, Any] | None = None
-
-    @property
-    def log_slot(self) -> PortLogSlot:
-        """The port log holder shared with this connection's writer and reader."""
-        return self.writer.log_slot
 
 
 @dataclass
@@ -219,27 +186,3 @@ class SerialState:
         conns = list(self.connections.values())
         self.connections.clear()
         await asyncio.to_thread(stop_connections, conns)
-
-
-def stop_connections(conns: list[SerialConnection]) -> None:
-    """Signal every connection's threads before joining any, then close the logs and ports."""
-    for conn in conns:
-        conn.writer.stop()
-        if conn.reader is not None:
-            conn.reader.signal_stop()
-    for conn in conns:
-        conn.writer.join()
-        if conn.reader is not None:
-            try:
-                conn.reader.join()
-            except Exception:
-                logger.warning("Reader for %s did not stop cleanly.", conn.port, exc_info=True)
-        try:
-            conn.log_slot.close_log()
-        except Exception:
-            logger.warning("Closing the port log for %s failed.", conn.port, exc_info=True)
-        try:
-            if conn.ser.is_open:
-                conn.ser.close()
-        except Exception:
-            logger.warning("Closing %s failed.", conn.port, exc_info=True)

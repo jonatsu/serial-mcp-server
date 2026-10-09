@@ -8,7 +8,8 @@ from typing import Any
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import _err, _ok, script_running_error
-from serial_mcp_server.port_stack import conn_config
+from serial_mcp_server.port.connection import SerialConnection
+from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog import PortLog, build_log_request
 from serial_mcp_server.portlog_formats import (
     CLOSE_EVENT,
@@ -17,7 +18,7 @@ from serial_mcp_server.portlog_formats import (
     MARK_EVENT,
     OPEN_EVENT,
 )
-from serial_mcp_server.state import SerialConnection, SerialState
+from serial_mcp_server.state import SerialState
 
 # ---------------------------------------------------------------------------
 # Tool definitions

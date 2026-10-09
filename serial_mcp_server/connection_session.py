@@ -13,10 +13,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from serial_mcp_server.confined_files import MAX_CONFINED_FILE_BYTES, read_confined_file
+from serial_mcp_server.port.connection import SerialConnection
+from serial_mcp_server.port.pacing import Pacing
+from serial_mcp_server.port.writer import SOURCE_MCP, UNPACED_SEGMENT_BYTES, WriteAborted
 from serial_mcp_server.portlog_formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.script.matcher import OutputMatcher
-from serial_mcp_server.state import SerialConnection
-from serial_mcp_server.writer import SOURCE_MCP, UNPACED_SEGMENT_BYTES, Pacing, WriteAborted
 
 _WRITE_WAIT_SECONDS = 0.05
 

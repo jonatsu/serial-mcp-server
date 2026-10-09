@@ -566,7 +566,7 @@ def test_a_second_interrupt_does_not_skip_waiting_for_the_cancelled_run():
     assert runner.joins == 2
 
 
-@pytest.mark.parametrize("module", ["serial_mcp_server.script_cli", "serial_mcp_server.port_stack"])
+@pytest.mark.parametrize("module", ["serial_mcp_server.script_cli", "serial_mcp_server.port.stack"])
 def test_importing_the_cli_path_leaves_mcp_out(module):
     probe = f"import sys, {module}; sys.exit(1 if any(n == 'mcp' or n.startswith('mcp.') for n in sys.modules) else 0)"
 

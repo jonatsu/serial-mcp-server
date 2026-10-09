@@ -9,6 +9,8 @@ import pytest
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
+from serial_mcp_server.port.connection import SerialConnection
+from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.specs import (
     compute_spec_id,
     get_template,
@@ -19,8 +21,7 @@ from serial_mcp_server.specs import (
     search_spec,
     validate_spec_meta,
 )
-from serial_mcp_server.state import SerialConnection, SerialState
-from serial_mcp_server.writer import SerialWriter
+from serial_mcp_server.state import SerialState
 
 # ---------------------------------------------------------------------------
 # Helpers

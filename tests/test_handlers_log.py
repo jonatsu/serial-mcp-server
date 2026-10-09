@@ -19,8 +19,8 @@ from serial_mcp_server.handlers_log import (
     handle_log_stop,
 )
 from serial_mcp_server.handlers_serial import handle_connection_status, handle_open
-from serial_mcp_server.mirror import DEFAULT_BUFFER_BYTES, SerialBuffer
-from serial_mcp_server.port_stack import make_read_buffer
+from serial_mcp_server.port.buffer import DEFAULT_BUFFER_BYTES, SerialBuffer
+from serial_mcp_server.port.stack import make_read_buffer
 from serial_mcp_server.portlog import PortLog
 from serial_mcp_server.portlog_formats import BUFFER_DROP_EVENT
 from tests.helpers import read_jsonl, reconfigure
@@ -304,7 +304,7 @@ class TestOpenWiresBufferDrops:
     ):
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader),
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             opened = await handle_open(serial_state, {"port": "/dev/ttyUSB0", "log_formats": ["jsonl"]})
         sid = {"connection_id": opened["connection_id"]}

@@ -11,11 +11,14 @@ from typing import Any
 
 import serial as pyserial
 
-from serial_mcp_server.mirror import ReaderThread, SerialBuffer, create_reader
+from serial_mcp_server.port.buffer import SerialBuffer
+from serial_mcp_server.port.connection import SerialConnection
+from serial_mcp_server.port.mirror import create_reader
+from serial_mcp_server.port.pacing import Pacing
+from serial_mcp_server.port.reader import ReaderThread
+from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.portlog import LogRequest, PortLog, PortLogSlot
 from serial_mcp_server.portlog_formats import BUFFER_DROP_EVENT, OPEN_EVENT
-from serial_mcp_server.state import SerialConnection
-from serial_mcp_server.writer import Pacing, SerialWriter
 
 logger = logging.getLogger("serial_mcp_server")
 

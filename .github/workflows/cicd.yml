@@ -20,9 +20,10 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install ruff
+      - run: pip install ruff import-linter
       - run: ruff check .
       - run: ruff format --check .
+      - run: lint-imports
 
   test:
     runs-on: ubuntu-latest

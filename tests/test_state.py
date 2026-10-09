@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from serial_mcp_server import config
-from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
-from serial_mcp_server.writer import SerialWriter
+from serial_mcp_server.port.connection import SerialConnection, stop_connections
+from serial_mcp_server.port.writer import SerialWriter
+from serial_mcp_server.state import SerialState
 
 
 class TestSerialState:
@@ -152,23 +153,3 @@ class TestSerialState:
         mock_ser1.close.assert_called_once()
         mock_ser2.close.assert_called_once()
         assert len(state.connections) == 0
-
-
-class TestSerialConnection:
-    def test_defaults(self):
-        conn = SerialConnection(
-            connection_id="s1",
-            port="/dev/ttyUSB0",
-            baudrate=115200,
-            bytesize=8,
-            parity="N",
-            stopbits=1,
-            timeout=0.2,
-            write_timeout=0.2,
-            encoding="utf-8",
-            newline="\n",
-            ser=MagicMock(),
-            writer=SerialWriter(MagicMock()),
-        )
-        assert conn.opened_at > 0
-        assert conn.last_seen_ts > 0

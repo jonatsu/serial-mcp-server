@@ -7,8 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.script.matcher import OutputMatcher
-from serial_mcp_server.writer import Pacing
 
 
 class PortSession(Protocol):
