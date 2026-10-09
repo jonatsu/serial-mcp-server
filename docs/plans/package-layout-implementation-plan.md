@@ -1,7 +1,7 @@
 # Package Layout and Configuration Implementation Plan
 
-Status: ready for implementation, 9 October 2026, after plan-critic review. No unit has started; the
-[Execution Record](#execution-record) holds results as units land.
+Status: implemented, 9 October 2026. Units 1 to 11 and the final integration gate are done; the
+[Execution Record](#execution-record) holds the results.
 Basis: `main` at `2a13952`, and the accepted [package layout design](package-layout-design.md) on branch
 `refactor/package-layout`. The design owns the target structure, the configuration model, the plugin interface, and
 the switch to AnyIO; this plan owns the order and the checks.
@@ -499,6 +499,10 @@ also showed that the environment-isolation test could not fail; it now also sets
 environment source would read, and a mutation that re-enables that source fails it. Not handled: a working
 directory deleted before start raises `FileNotFoundError` from the data-root walk, as it did before.
 
+Deviation, found by the final conformance review: the CLI applies only `--log-dir` and `--files-dir` with
+`model_copy`; `--log-format` and `--no-log` shape the log request, and the port stack and the runner take plain
+values rather than `Settings`. The behavior is the one the unit asked for. Design section 6.2 now describes it.
+
 ### Unit 2: File Access Modules
 
 Moved on 9 October 2026. `paths.py` became `confined_files.py` (a rename in `git diff -M`), and `private_files.py`
@@ -670,7 +674,7 @@ runs a handler in its own cancel scope as the SDK does, and the concurrency test
 threads and `Thread.start` waits on an event. The integration harness stays on `asyncio`; it is a separate MCP
 client and this unit's evidence.
 
-P1 results: 773 tests passed (769 before, plus four cancellation tests replacing two). The new cleanup test failed
+P1 results: 773 tests passed (769 before; five cancellation tests added, one of them replacing an earlier one). The new cleanup test failed
 before the change, as the plan required: the cancelled request ended before the port closed. On the old
 `connection.py`, four of the five open-cleanup tests fail, including a request cancelled while `pyserial.Serial`
 opened the port, which used to leave the port to garbage collection. Removing the checkpoint in `log.py` or
@@ -687,4 +691,32 @@ stays up until stdin closes, because the SDK reads stdin in a worker thread, the
 closed port log. Not exiting on SIGINT alone predates this unit and is a follow-up. A test of a write cancelled
 while still queued, through `serial.send_file`'s log path, is also a follow-up.
 
-All eleven units are done; the final integration gate has not started.
+### Final Integration
+
+Run on 9 October 2026 at `cb39707`, then on the fixes below. A wheel built from `cb39707` and installed in a fresh
+virtual environment outside the checkout imported every subpackage from `site-packages`; its `python -m
+serial_mcp_server` listed 38 tools and exited 0 when stdin closed, and `serial_mcp_script --help` exited 0. The
+package's top level matches design section 5.1. `just integration` passed every scenario at `cb39707`.
+
+The conformance review (`conformance-review`, a fresh Opus agent) found that the code conforms, with five ledger and
+leftover findings, all fixed. The plan's status line still said no unit had started. Design section 6.2 described CLI
+wiring that was not built; it now describes the code, and the unit 1 record names the deviation. Unit 3 had left a
+second `NO_PACING` assignment in `port/pacing.py` (`980790a` removes it). `mcp/threads.py` was missing from the
+section 5.1 tree and from the layout in `CONTRIBUTING.md`. The unit 11 record miscounted the cancellation tests.
+
+The final `code-reviewer` pass (Opus, medium effort) over `2a13952..cb39707` requested changes for one finding and
+raised two optional ones; all three are fixed, because each was a regression the design's no-regression goal
+forbids. `SerialState`, which plugins reach through `plugin_api`, now takes `Settings` instead of
+`max_connections`; the CHANGELOG plugin entry says so. `SERIAL_MCP_MIRROR_LINK` became a `Path`, which dropped a
+trailing slash and so renamed the links of a mirror pointed at a directory; it is a string prefix again.
+`SERIAL_MCP_LOG_LEVEL` rejected `WARN` and `FATAL`, which the `logging` lookup accepted before; they map to
+`WARNING` and `CRITICAL`. New tests cover both and fail on `cb39707`. The reviewer's doubt that the CI lint job finds
+the package without installing it was checked: in a fresh environment with only Ruff and import-linter,
+`lint-imports` keeps all three contracts.
+
+P1 results after the fixes: 776 tests passed (three new configuration tests); `just check` clean with three
+contracts kept; Bandit no issues; `just integration` passed every scenario.
+
+Follow-ups, none blocking: direct tests of `mcp/writes.py`; the integration harness on AnyIO; a server that exits on
+SIGINT alone, before stdin closes; a bounded join in the rare `serial.script.run` cleanup path; and a test of a write
+cancelled while still queued. Nothing is pushed.

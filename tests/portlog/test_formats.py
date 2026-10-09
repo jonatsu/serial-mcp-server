@@ -1,4 +1,4 @@
-"""Tests for the text timestamps and the lines and raw formats in portlog_formats."""
+"""Tests for the text timestamps and the lines and raw formats in portlog/formats.py."""
 
 from __future__ import annotations
 

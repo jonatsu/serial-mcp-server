@@ -25,7 +25,7 @@ serial_mcp_server/
 ├── portlog/             # the port log: log, request, formats
 ├── script/              # the script engine: parser, matcher, runner, results, connection adapter
 ├── specs/               # protocol specs: front matter and the spec store
-└── mcp/                 # the MCP server: server, state, responses, writes, plugins, trace, tools/
+└── mcp/                 # the MCP server: server, state, responses, writes, threads, plugins, trace, tools/
 ```
 
 Dependencies point one way: `plugin_api` above `mcp/` and the command-line runner, then `script/` and `specs/`, then `port/`, then `portlog/`, then the top-level foundation modules. `just check` and CI run `lint-imports`, which fails on an import against that order; the contracts are in `pyproject.toml`. Tests mirror the package: the tests of `port/writer.py` are in `tests/port/test_writer.py`. The [package layout design](docs/plans/package-layout-design.md) explains the structure.
