@@ -17,3 +17,7 @@ format-check *paths='.':
 
 # Run the repository's lint and formatting checks.
 check: lint format-check
+
+# Run the slow end-to-end harness against the demo device (about 90 s).
+integration:
+    uv run python tests/integration/run.py
