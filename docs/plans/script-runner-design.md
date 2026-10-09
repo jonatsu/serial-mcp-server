@@ -111,14 +111,13 @@ flowchart TB
     Runner --> Session
     Runner --> Result
     ConnSession[ConnectionSession] -.implements.-> Session
-    CliSession[CLI session] -.implements.-> Session
     ConnSession --> Writer[SerialWriter, unit 1]
     ConnSession --> Log[PortLog, unit 4]
     Reader[ReaderThread._deliver, unit 4] -->|received bytes| Matcher
 ```
 
 The engine package has no MCP import, so the CLI can use it without the server. The MCP layer adds the job
-registry and the tools. Both sides adapt a connection to `PortSession`.
+registry and the tools. Both sides adapt a connection to `PortSession` with the same `ConnectionSession`.
 
 | Component           | Responsibility                                                                                             | Interface                                                                 |
 | ------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -129,7 +128,7 @@ registry and the tools. Both sides adapt a connection to `PortSession`.
 | `RunResult`         | The run's outcome, step records, and failure detail; serializes to the result file.                      | Dataclass with `to_json()`.                                               |
 | `ScriptJobs`        | One active run per connection; the last 20 finished results; claim and release of a connection's writes. | Owned by `SerialState`.                                                   |
 | `handlers_script`   | The `serial.script.*` tools.                                                                              | Section 5.3.                                                              |
-| `ConnectionSession` | Adapts an MCP `SerialConnection` to `PortSession`.                                                       | Built by `serial.script.run`.                                             |
+| `ConnectionSession` | Adapts a managed `SerialConnection` to `PortSession`; it lives in an `mcp`-free module.                  | Built by `serial.script.run` and by `script_cli`.                         |
 | `script_cli`        | Opens a port with the same reader, writer, and port log stack, runs one script, and exits.               | Console entry point `serial_mcp_script`.                                  |
 | Port stack opener   | Builds the writer, reader, and port log slot for an open port; shared by `serial.open` and the CLI.      | An `mcp`-free function, so the CLI need not import the MCP handlers.      |
 
@@ -254,7 +253,7 @@ serial_mcp_script tests/uboot-smoke.serial --port /dev/ttyUSB0 --baud 115200 \
   --var SERVER_IP=10.0.0.1 --var IMAGE=fitImage --result build/uboot-smoke.json
 ```
 
-`script_cli` opens the port, builds the reader, `SerialWriter`, and port log, adapts them as a CLI session, and
+`script_cli` opens the port, builds the reader, `SerialWriter`, and port log, adapts them with `ConnectionSession`, and
 starts the runner, then waits for it on the main thread. Progress lines go to stderr. On completion it writes the result file
 and exits with 0 for passed, 1 for failed, 2 for errored or for a usage or parse error, and 130 when interrupted
 by SIGINT, which cancels the run first.
@@ -264,7 +263,9 @@ by SIGINT, which cancels the run first.
 The engine runs inside whichever process owns the port. In the MCP server, each run adds one daemon thread beside
 the connection's reader, writer, and port log threads. The CLI is a separate process with the same thread set for
 one connection. Because a serial port has one owner, a CI job must not run the CLI against a port the MCP server
-holds open; the open fails with the operating system's busy error, which the CLI reports as exit 2.
+holds open. The CLI opens the port with an exclusive lock, so the open fails, and the CLI reports exit 2, when the
+other holder also took an exclusive lock. The operating system lets a plain open share the port, so the lock cannot
+stop a holder that did not ask for one.
 
 ## 8. Crosscutting Concepts
 

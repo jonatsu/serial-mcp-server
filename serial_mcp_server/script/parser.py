@@ -41,7 +41,10 @@ def parse(source: str, variables: Mapping[str, str], files_dir: Path) -> Script:
     """
     for name in variables:
         if not VARIABLE_NAME.fullmatch(name):
-            raise ValueError(f"Invalid variable name {name!r}: use letters, digits, and underscores.")
+            raise ValueError(
+                f"Invalid variable name {name!r}: use letters, digits, and underscores, "
+                "and start with a letter or underscore."
+            )
     context = LineContext(variables, files_dir)
     steps: list[Step] = []
     errors: list[ScriptError] = []

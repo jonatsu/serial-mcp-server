@@ -15,6 +15,7 @@ from serial_mcp_server.portlog import (
     LogRequest,
     PortLog,
     PortLogSlot,
+    build_log_request,
     open_log_files,
     resolve_log_request,
 )
@@ -97,6 +98,18 @@ class TestResolveLogRequest:
     def test_directory_comes_from_the_environment(self, monkeypatch, tmp_path):
         monkeypatch.setenv(portlog.ENV_DIR, str(tmp_path / "elsewhere"))
         assert resolve_log_request(True).directory == tmp_path / "elsewhere"
+
+
+class TestBuildLogRequestOrigin:
+    def test_an_unknown_format_names_log_formats_by_default(self):
+        with pytest.raises(ValueError, match="'bogus' in log_formats"):
+            build_log_request(["bogus"])
+
+    def test_a_caller_can_name_its_own_option_in_the_error(self):
+        with pytest.raises(ValueError, match="'bogus' in --log-format") as raised:
+            build_log_request(["bogus"], formats_origin="--log-format")
+
+        assert "log_formats" not in str(raised.value)
 
 
 class TestOpenLogFiles:
@@ -427,6 +440,18 @@ class TestPortLogSlot:
 
         assert slot.log is None
         assert read_jsonl(next((tmp_path / "logs").glob("*.jsonl")))[-1]["event"] == "close"
+
+    def test_file_paths_lists_the_active_logs_files_and_nothing_without_one(self, tmp_path):
+        slot = PortLogSlot()
+        assert slot.file_paths() == ()
+
+        log = start_log(tmp_path, ["text", "jsonl"])
+        slot.set(log)
+
+        assert slot.file_paths() == tuple(log.files.values())
+        assert len(slot.file_paths()) == 2
+        slot.close_log()
+        assert slot.file_paths() == ()
 
 
 class TestEncodings:

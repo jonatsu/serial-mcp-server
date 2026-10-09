@@ -251,6 +251,11 @@ class PortLogSlot:
         log, self._log = self._log, None
         return log
 
+    def file_paths(self) -> tuple[Path, ...]:
+        """The active log's files, or an empty tuple with no log."""
+        log = self._log
+        return tuple(log.files.values()) if log is not None else ()
+
     def rx(self, data: bytes) -> None:
         log = self._log
         if log is not None:
@@ -353,14 +358,18 @@ def log_directory() -> Path:
     return Path(env_dir) if env_dir else resolve_spec_root() / "logs"
 
 
-def build_log_request(formats: Any = None, text_timestamps: Any = None) -> LogRequest:
+def build_log_request(
+    formats: Any = None, text_timestamps: Any = None, formats_origin: str = "log_formats"
+) -> LogRequest:
     """Build a request for a log that is definitely wanted, filling gaps from the environment.
+
+    *formats_origin* names where *formats* came from, so an error points at the caller's own option.
 
     Raises:
         ValueError: A format list or the timestamp mode is invalid.
     """
     if formats is not None:
-        names = parse_formats(formats, "log_formats")
+        names = parse_formats(formats, formats_origin)
     else:
         names = parse_formats(os.environ.get(ENV_FORMATS, "").strip() or list(DEFAULT_FORMATS), ENV_FORMATS)
     return LogRequest(names, log_directory(), _parse_text_timestamps(text_timestamps))

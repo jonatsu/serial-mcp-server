@@ -46,7 +46,7 @@ async def open_port(state, mock_serial, mock_reader, **args):
     """Run handle_open with the serial layer faked; return (result, create_reader mock)."""
     with (
         patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-        patch("serial_mcp_server.handlers_serial.create_reader", return_value=mock_reader) as make_reader,
+        patch("serial_mcp_server.port_stack.create_reader", return_value=mock_reader) as make_reader,
     ):
         result = await handle_open(state, {"port": "/dev/ttyUSB0", **args})
     return result, make_reader
@@ -337,7 +337,7 @@ class TestOpenSchemaAndFailures:
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
             patch(
-                "serial_mcp_server.handlers_serial.create_reader",
+                "serial_mcp_server.port_stack.create_reader",
                 side_effect=lambda *a, log_slot, **k: slots.append(log_slot) or mock_reader,
             ),
         ):
@@ -353,7 +353,7 @@ class TestOpenSchemaAndFailures:
         before = _log_threads()
         with (
             patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.handlers_serial.create_reader", side_effect=OSError("no ptys")),
+            patch("serial_mcp_server.port_stack.create_reader", side_effect=OSError("no ptys")),
             pytest.raises(OSError, match="no ptys"),
         ):
             await handle_open(serial_state, {"port": "/dev/ttyUSB0", "log": True})
