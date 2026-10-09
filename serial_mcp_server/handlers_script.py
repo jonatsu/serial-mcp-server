@@ -12,9 +12,9 @@ from typing import Any
 
 from mcp.types import Tool, ToolAnnotations
 
+from serial_mcp_server.confined_files import read_confined_file
 from serial_mcp_server.connection_session import ConnectionSession
 from serial_mcp_server.helpers import _coerce_bool, _err, _ok
-from serial_mcp_server.paths import read_confined_file
 from serial_mcp_server.port_stack import conn_config
 from serial_mcp_server.portlog import PortLog, build_log_request
 from serial_mcp_server.portlog_formats import (

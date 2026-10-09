@@ -17,7 +17,7 @@ from typing import BinaryIO, Literal, NoReturn
 import regex
 
 from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS
-from serial_mcp_server.portlog import (
+from serial_mcp_server.private_files import (
     DIR_MODE,
     FILE_MODE,
     MAX_NAME_COLLISIONS,

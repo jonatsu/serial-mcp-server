@@ -499,4 +499,11 @@ also showed that the environment-isolation test could not fail; it now also sets
 environment source would read, and a mutation that re-enables that source fails it. Not handled: a working
 directory deleted before start raises `FileNotFoundError` from the data-root walk, as it did before.
 
+### Unit 2: File Access Modules
+
+Moved on 9 October 2026. `paths.py` became `confined_files.py` (a rename in `git diff -M`), and `private_files.py`
+took `open_exclusive`, `log_base_name`, `FILE_MODE`, `DIR_MODE`, and `MAX_NAME_COLLISIONS` from `portlog.py`, which
+imports them. Self-review: the diff changes only imports, patch targets, and moved code; 746 tests passed, the same
+as unit 1; `just check` clean.
+
 No other unit has started.

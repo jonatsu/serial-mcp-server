@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import serial as pyserial
 
-from serial_mcp_server import paths
+from serial_mcp_server import confined_files
 from serial_mcp_server.handlers_file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
 from serial_mcp_server.portlog import LogRequest, PortLog
 from serial_mcp_server.writer import Pacing
@@ -335,7 +335,7 @@ class TestClaimRecheckedAfterTheFileRead:
         (files / "a.txt").write_bytes(b"hello")
         reading = threading.Event()
         proceed = threading.Event()
-        real_read = paths.read_confined_file
+        real_read = confined_files.read_confined_file
 
         def gated_read(*args):
             reading.set()
