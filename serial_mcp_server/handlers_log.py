@@ -8,7 +8,7 @@ from typing import Any
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.handlers_serial import conn_config
-from serial_mcp_server.helpers import _err, _ok
+from serial_mcp_server.helpers import _err, _ok, script_running_error
 from serial_mcp_server.portlog import PortLog, build_log_request
 from serial_mcp_server.portlog_formats import (
     CLOSE_EVENT,
@@ -107,6 +107,9 @@ def _not_logging(conn: SerialConnection) -> dict[str, Any]:
 
 async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     if conn.log_slot.log is not None:
         return _already_logging(conn)
     try:
@@ -122,6 +125,10 @@ async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str
     if state.connections.get(conn.connection_id) is not conn:
         await _discard(log)
         return _err("not_found", f"Connection {conn.connection_id} closed while the log was starting.")
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        await _discard(log)
+        return blocked
     if conn.log_slot.log is not None:  # another start finished while the files were being created
         await _discard(log)
         return _already_logging(conn)
@@ -131,14 +138,15 @@ async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str
 
 
 async def _discard(log: PortLog) -> None:
-    """Close a log that was never attached and remove its empty files."""
-    await asyncio.to_thread(log.close)
-    for path in log.files.values():
-        path.unlink(missing_ok=True)
+    """Close a log that was never attached and remove its files."""
+    await asyncio.to_thread(log.discard)
 
 
 async def handle_log_stop(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     log = conn.log_slot.detach()
     if log is None:
         return _not_logging(conn)

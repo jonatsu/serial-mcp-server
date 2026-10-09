@@ -73,6 +73,7 @@ class RunStatus:
     reason: str | None = None
     current_text: str | None = None
     variables: tuple[str, ...] = ()
+    completed_steps: int = 0
 
 
 @dataclass(frozen=True)
@@ -226,6 +227,7 @@ class ScriptRunner:
         self._state: RunState = RunState.RUNNING
         self._current_line: int | None = None
         self._current_text: str | None = None
+        self._completed_steps: int = 0
         self._reason: str | None = None
         self._result: RunResult | None = None
         self._result_path: Path | None = metadata.result_path
@@ -301,6 +303,7 @@ class ScriptRunner:
                 reason=self._reason,
                 current_text=self._current_text,
                 variables=self._script.variable_names,
+                completed_steps=self._completed_steps,
             )
 
     def _request_stop(self, cause: _RunTermination) -> None:
@@ -594,6 +597,8 @@ class ScriptRunner:
                     matched_text=matched_text,
                 )
             )
+            with self._lock:
+                self._completed_steps += 1
             if termination is not None:
                 break
 

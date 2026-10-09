@@ -136,6 +136,12 @@ class PortLog:
             # The disk thread closes the files itself when it finishes, so nothing leaks.
             logger.warning("Port log disk thread did not finish within %.0f s.", CLOSE_JOIN_TIMEOUT_S)
 
+    def discard(self) -> None:
+        """Close a log that was never attached and remove its files."""
+        self.close()
+        for path in self.files.values():
+            path.unlink(missing_ok=True)
+
     def _offset(self) -> float:
         """Seconds since the log started, on the monotonic clock."""
         return self._monotonic() - self._start
@@ -341,6 +347,12 @@ def resolve_log_request(
     return build_log_request(formats, text_timestamps)
 
 
+def log_directory() -> Path:
+    """The configured log directory: ``SERIAL_MCP_LOG_DIR`` or the spec root's ``logs``."""
+    env_dir = os.environ.get(ENV_DIR, "").strip()
+    return Path(env_dir) if env_dir else resolve_spec_root() / "logs"
+
+
 def build_log_request(formats: Any = None, text_timestamps: Any = None) -> LogRequest:
     """Build a request for a log that is definitely wanted, filling gaps from the environment.
 
@@ -351,9 +363,7 @@ def build_log_request(formats: Any = None, text_timestamps: Any = None) -> LogRe
         names = parse_formats(formats, "log_formats")
     else:
         names = parse_formats(os.environ.get(ENV_FORMATS, "").strip() or list(DEFAULT_FORMATS), ENV_FORMATS)
-    env_dir = os.environ.get(ENV_DIR, "").strip()
-    directory = Path(env_dir) if env_dir else resolve_spec_root() / "logs"
-    return LogRequest(names, directory, _parse_text_timestamps(text_timestamps))
+    return LogRequest(names, log_directory(), _parse_text_timestamps(text_timestamps))
 
 
 def log_base_name(prefix: str, now: datetime, number: int) -> str:

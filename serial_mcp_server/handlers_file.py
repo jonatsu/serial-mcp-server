@@ -14,18 +14,13 @@ from serial_mcp_server.handlers_serial import (
     run_write_job,
     wire_seconds,
 )
-from serial_mcp_server.helpers import _err, _ok
+from serial_mcp_server.helpers import _err, _ok, script_running_error
 from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, files_dir, read_confined_file
+from serial_mcp_server.portlog_formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.state import SerialState
-from serial_mcp_server.writer import Pacing
-
-SEND_FILE_START_EVENT = "send_file_start"
-SEND_FILE_END_EVENT = "send_file_end"
+from serial_mcp_server.writer import UNPACED_SEGMENT_BYTES, Pacing
 
 MAX_SEND_FILE_BYTES = MAX_CONFINED_FILE_BYTES
-
-# Without pacing, a file still goes out in segments so cancel and bytes_written work as for paced writes.
-UNPACED_SEGMENT_BYTES = 4096
 
 TOOLS: list[Tool] = [
     Tool(
@@ -70,6 +65,9 @@ def _estimated_seconds(pacing: Pacing, size: int, baudrate: int) -> float:
 
 async def handle_send_file(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     conn = state.get_connection(args["connection_id"])
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     requested = args["path"]
     root = files_dir()
     try:

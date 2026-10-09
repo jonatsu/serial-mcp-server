@@ -20,6 +20,7 @@ from serial_mcp_server import (
     handlers_introspection,
     handlers_log,
     handlers_plugin,
+    handlers_script,
     handlers_serial,
     handlers_spec,
     handlers_trace,
@@ -76,6 +77,7 @@ def build_server() -> tuple[Server, SerialState]:
         + handlers_introspection.TOOLS
         + handlers_file.TOOLS
         + handlers_log.TOOLS
+        + handlers_script.TOOLS
         + handlers_spec.TOOLS
         + handlers_trace.TOOLS
         + handlers_plugin.TOOLS
@@ -85,6 +87,7 @@ def build_server() -> tuple[Server, SerialState]:
         **handlers_introspection.HANDLERS,
         **handlers_file.HANDLERS,
         **handlers_log.HANDLERS,
+        **handlers_script.HANDLERS,
         **handlers_spec.HANDLERS,
         **handlers_trace.HANDLERS,
     }
