@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
 import time
 from typing import Any
@@ -16,6 +15,7 @@ from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
 from serial_mcp_server import (
+    config,
     handlers_file,
     handlers_introspection,
     handlers_log,
@@ -25,30 +25,12 @@ from serial_mcp_server import (
     handlers_spec,
     handlers_trace,
 )
-from serial_mcp_server.helpers import (
-    MAX_CONNECTIONS,
-    _err,
-    _result_text,
-)
-from serial_mcp_server.plugins import PluginManager, parse_plugin_policy
-from serial_mcp_server.specs import resolve_spec_root
+from serial_mcp_server.config import ConfigError, Settings
+from serial_mcp_server.helpers import _err, _result_text
+from serial_mcp_server.plugins import PluginManager
 from serial_mcp_server.state import SerialState
-from serial_mcp_server.trace import get_trace_buffer, init_trace, sanitize_args
+from serial_mcp_server.trace import get_trace_buffer, init_trace
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-# Tool-name separator (default ".").  Set SERIAL_MCP_TOOL_SEPARATOR=_ for
-# MCP clients that reject dots in tool names (e.g. Cursor).
-_TOOL_SEP = os.environ.get("SERIAL_MCP_TOOL_SEPARATOR", ".")
-
-_LOG_LEVEL = os.environ.get("SERIAL_MCP_LOG_LEVEL", "WARNING").upper()
-logging.basicConfig(
-    level=getattr(logging, _LOG_LEVEL, logging.WARNING),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    stream=sys.stderr,
-)
 logger = logging.getLogger("serial_mcp_server")
 
 # ---------------------------------------------------------------------------
@@ -68,8 +50,8 @@ def _apply_tool_separator(tools: list[Tool], handlers: dict[str, Any], sep: str)
             handlers[new_key] = handlers.pop(old_key)
 
 
-def build_server() -> tuple[Server, SerialState]:
-    state = SerialState(max_connections=MAX_CONNECTIONS)
+def build_server(settings: Settings) -> tuple[Server, SerialState]:
+    state = SerialState(settings)
     server = Server("serial-mcp-server")
 
     tools: list[Tool] = (
@@ -93,21 +75,19 @@ def build_server() -> tuple[Server, SerialState]:
     }
 
     # --- Plugin system ---
-    plugins_dir = resolve_spec_root() / "plugins"
-    plugins_enabled, plugins_allowlist = parse_plugin_policy()
     manager = PluginManager(
-        plugins_dir,
+        settings.data_root / "plugins",
         tools,
         handlers,
-        enabled=plugins_enabled,
-        allowlist=plugins_allowlist,
-        tool_separator=_TOOL_SEP,
+        enabled=settings.plugins.enabled,
+        allowlist=settings.plugins.allowlist,
+        tool_separator=settings.tool_separator,
     )
     manager.load_all()
     handlers.update(handlers_plugin.make_handlers(manager, server))
 
     # Rename tool names / handler keys for clients that reject dots.
-    _apply_tool_separator(tools, handlers, _TOOL_SEP)
+    _apply_tool_separator(tools, handlers, settings.tool_separator)
 
     @server.list_tools()
     async def _list_tools() -> list[Tool]:
@@ -120,7 +100,7 @@ def build_server() -> tuple[Server, SerialState]:
         buf = get_trace_buffer()
         if buf:
             cid = arguments.get("connection_id")
-            safe_args = sanitize_args(arguments)
+            safe_args = buf.sanitize(arguments)
             buf.emit({"event": "tool_call_start", "tool": name, "args": safe_args, "connection_id": cid})
             t0 = time.monotonic()
 
@@ -168,7 +148,7 @@ def build_server() -> tuple[Server, SerialState]:
 
         return _result_text(result)
 
-    init_trace()
+    init_trace(settings)
     return server, state
 
 
@@ -177,10 +157,10 @@ def build_server() -> tuple[Server, SerialState]:
 # ---------------------------------------------------------------------------
 
 
-async def _run() -> None:
-    server, state = build_server()
+async def _run(settings: Settings) -> None:
+    server, state = build_server(settings)
 
-    logger.info("Starting Serial MCP server (max_connections=%s)", MAX_CONNECTIONS)
+    logger.info("Starting Serial MCP server (max_connections=%s)", settings.max_connections)
 
     _BENIGN_ASYNC = (EOFError, BrokenPipeError, anyio.ClosedResourceError, anyio.BrokenResourceError)
 
@@ -220,9 +200,22 @@ _BENIGN_SYNC = (
 )
 
 
+CONFIG_ERROR_EXIT_STATUS = 2
+
+
 def main() -> None:
     try:
-        asyncio.run(_run())
+        settings = config.load()
+    except ConfigError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(CONFIG_ERROR_EXIT_STATUS)
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
+    try:
+        asyncio.run(_run(settings))
     except _BENIGN_SYNC:
         pass
     except BaseExceptionGroup as eg:

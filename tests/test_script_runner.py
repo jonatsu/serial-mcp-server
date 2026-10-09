@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 import serial as pyserial
 
+from serial_mcp_server import config
+from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, ConfigError
 from serial_mcp_server.script import Script, parse
 from serial_mcp_server.script import runner as script_runner
 from serial_mcp_server.script.matcher import OutputMatcher
@@ -156,6 +158,7 @@ def make_runner(
     files_directory: Path | None = None,
     result_path: Path | None = None,
     pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
+    max_seconds: float = DEFAULT_SCRIPT_MAX_SECONDS,
 ) -> tuple[ScriptRunner, Script]:
     parsed = parse(source, variables or {}, files_directory or result_directory)
     metadata = RunMetadata(
@@ -170,7 +173,7 @@ def make_runner(
         log_paths=session.log_paths,
         result_path=result_path,
     )
-    return ScriptRunner(parsed, session, metadata, pattern_timeout_seconds), parsed
+    return ScriptRunner(parsed, session, metadata, pattern_timeout_seconds, max_seconds=max_seconds), parsed
 
 
 def test_design_example_runs_to_passed_with_echoing_device_responses(tmp_path: Path) -> None:
@@ -576,10 +579,9 @@ def test_closed_matcher_ends_the_run_as_errored(tmp_path: Path) -> None:
     assert result.reason == "end_of_stream"
 
 
-def test_maximum_duration_fails_a_long_sleep(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERIAL_MCP_SCRIPT_MAX_SECONDS", "0.02")
+def test_maximum_duration_fails_a_long_sleep(tmp_path: Path) -> None:
     session = FakePortSession()
-    runner, _ = make_runner("@sleep 60s", session, tmp_path)
+    runner, _ = make_runner("@sleep 60s", session, tmp_path, max_seconds=0.02)
     runner.start()
 
     assert runner.done.wait(timeout=1.0)
@@ -590,26 +592,16 @@ def test_maximum_duration_fails_a_long_sleep(tmp_path: Path, monkeypatch: pytest
     assert result.reason == "max_duration"
 
 
-def test_invalid_maximum_duration_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SERIAL_MCP_SCRIPT_MAX_SECONDS", "nan")
-
-    with pytest.raises(ValueError, match="SERIAL_MCP_SCRIPT_MAX_SECONDS"):
-        make_runner("@mark start", FakePortSession(), tmp_path)
+def test_invalid_maximum_duration_is_rejected() -> None:
+    with pytest.raises(ConfigError, match="SERIAL_MCP_SCRIPT_MAX_SECONDS"):
+        config.load({"SERIAL_MCP_SCRIPT_MAX_SECONDS": "nan"})
 
 
 @pytest.mark.parametrize("blank", ["", "   "])
-def test_blank_maximum_duration_means_the_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blank: str
-) -> None:
-    monkeypatch.setenv("SERIAL_MCP_SCRIPT_MAX_SECONDS", blank)
-    runner, _ = make_runner("@mark start", FakePortSession(), tmp_path)
-    runner.start()
+def test_blank_maximum_duration_means_the_default(blank: str) -> None:
+    settings = config.load({"SERIAL_MCP_SCRIPT_MAX_SECONDS": blank})
 
-    assert runner.done.wait(timeout=1.0)
-
-    result = runner.result
-    assert result is not None
-    assert result.state is RunState.PASSED
+    assert settings.script_max_seconds == DEFAULT_SCRIPT_MAX_SECONDS
 
 
 def test_failed_thread_start_keeps_the_runner_recoverable(

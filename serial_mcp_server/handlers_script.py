@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import stat
 import time
 from collections.abc import Mapping
@@ -15,9 +14,9 @@ from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.connection_session import ConnectionSession
 from serial_mcp_server.helpers import _coerce_bool, _err, _ok
-from serial_mcp_server.paths import files_dir, read_confined_file
+from serial_mcp_server.paths import read_confined_file
 from serial_mcp_server.port_stack import conn_config
-from serial_mcp_server.portlog import PortLog, build_log_request, log_directory
+from serial_mcp_server.portlog import PortLog, build_log_request
 from serial_mcp_server.portlog_formats import (
     CLOSE_EVENT,
     LOG_FORMATS_SCHEMA,
@@ -25,7 +24,6 @@ from serial_mcp_server.portlog_formats import (
 )
 from serial_mcp_server.script import DIRECTIVES, ScriptSyntaxError, parse
 from serial_mcp_server.script.runner import RunMetadata, ScriptRunner
-from serial_mcp_server.specs import resolve_spec_root
 from serial_mcp_server.state import (
     SCRIPT_CANCEL_WAIT_SECONDS,
     ScriptRun,
@@ -35,8 +33,6 @@ from serial_mcp_server.state import (
 
 logger = logging.getLogger("serial_mcp_server")
 
-ENV_SCRIPTS_DIR = "SERIAL_MCP_SCRIPTS_DIR"
-SCRIPTS_DIR_NAME = "scripts"
 MAX_SCRIPT_BYTES = 256 * 1024
 MAX_WAIT_MS = 60_000
 
@@ -102,16 +98,6 @@ TOOLS: list[Tool] = [
 ]
 
 
-def scripts_dir() -> Path:
-    """Return the scripts directory, reading its environment override for this call."""
-    configured = os.environ.get(ENV_SCRIPTS_DIR, "").strip()
-    return Path(configured) if configured else resolve_spec_root() / SCRIPTS_DIR_NAME
-
-
-def _result_directory() -> Path:
-    return log_directory()
-
-
 def _parse_wait_ms(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, str)):
         raise ValueError("wait_ms must be an integer from 0 to 60000.")
@@ -137,7 +123,7 @@ def _parse_variables(value: Any) -> dict[str, str]:
     return parsed
 
 
-async def _script_source(args: dict[str, Any]) -> tuple[str, str] | dict[str, Any]:
+async def _script_source(args: dict[str, Any], scripts_root: Path) -> tuple[str, str] | dict[str, Any]:
     """Validate and load one inline or confined script source."""
     has_path = "path" in args
     has_source = "source" in args
@@ -158,7 +144,6 @@ async def _script_source(args: dict[str, Any]) -> tuple[str, str] | dict[str, An
     requested = args["path"]
     if not isinstance(requested, str):
         return _err("invalid_params", "path must be a relative string.")
-    scripts_root = scripts_dir()
     try:
         _resolved, payload = await asyncio.to_thread(
             read_confined_file, scripts_root, requested, MAX_SCRIPT_BYTES
@@ -231,8 +216,8 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
     except ValueError as exc:
         return _err("invalid_params", str(exc))
 
-    files_root = files_dir()
-    loaded = await _script_source(args)
+    files_root = state.settings.files_dir
+    loaded = await _script_source(args, state.settings.scripts_dir)
     if isinstance(loaded, dict):
         return loaded
     source, script_name = loaded
@@ -256,7 +241,9 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
     should_log = _coerce_bool(log_value)
     try:
         log_request = (
-            build_log_request(args.get("log_formats")) if should_log and conn.log_slot.log is None else None
+            build_log_request(state.settings, args.get("log_formats"))
+            if should_log and conn.log_slot.log is None
+            else None
         )
     except ValueError as exc:
         return _err("invalid_params", str(exc))
@@ -267,9 +254,10 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
         metadata=RunMetadata(
             script_name=script_name,
             connection_config=conn_config(conn),
-            result_directory=_result_directory(),
+            result_directory=state.settings.log_dir,
             log_paths=conn.log_slot.file_paths,
         ),
+        max_seconds=state.settings.script_max_seconds,
     )
     run, existing_run_id = state.script_jobs.claim(connection_id, runner)
     if run is None:
@@ -397,9 +385,9 @@ def _list_scripts(root: Path) -> list[dict[str, Any]]:
     return scripts
 
 
-async def handle_script_list(_state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
+async def handle_script_list(state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
     try:
-        scripts = await asyncio.to_thread(_list_scripts, scripts_dir())
+        scripts = await asyncio.to_thread(_list_scripts, state.settings.scripts_dir)
     except OSError as exc:
         return _err("file_unreadable", f"Could not list scripts: {exc.strerror or exc}")
     return _ok(scripts=scripts, count=len(scripts))

@@ -13,6 +13,8 @@
 - `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See [Running from the command line](docs/scripts.md#running-from-the-command-line).
 
 ### Changed
+- Configuration is read once, when the server or `serial_mcp_script` starts, into one validated set of settings; changing the process environment afterwards has no effect. An invalid `SERIAL_MCP_*` value now stops the start with exit status 2 and one message that names every invalid variable. Before, the outcome depended on the variable: `SERIAL_MCP_MAX_CONNECTIONS` and `SERIAL_MCP_TRACE_MAX_BYTES` crashed with a traceback, `SERIAL_MCP_MIRROR` and `SERIAL_MCP_MAX_WRITE_SECONDS` logged a warning and used the default, `SERIAL_MCP_LOG_LEVEL` silently used `WARNING` for an unknown name (it now accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`), and `SERIAL_MCP_SCRIPT_MAX_SECONDS` and the log variables failed each call that used them. `serial_mcp_script` also stops on an invalid variable that only the server uses, such as `SERIAL_MCP_MIRROR`. See the [environment variables](README.md#environment-variables).
+- Every boolean variable accepts `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off` in any case. `SERIAL_MCP_TRACE=off` now disables tracing; before, only `0`, `false`, and `no` did.
 - The package's project URLs (homepage, repository, issues, changelog) now point to <https://github.com/jonatsu/serial-mcp-server>.
 
 ### Fixed

@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import TYPE_CHECKING, Any, BinaryIO
 
 from serial_mcp_server.portlog_formats import (
     CLOSE_EVENT,
@@ -34,17 +34,12 @@ from serial_mcp_server.portlog_formats import (
     TextTimestamps,
     WriterOptions,
 )
-from serial_mcp_server.specs import resolve_spec_root
+
+if TYPE_CHECKING:
+    from serial_mcp_server.config import Settings
 
 logger = logging.getLogger("serial_mcp_server")
 
-ENV_LOG = "SERIAL_MCP_LOG"
-ENV_FORMATS = "SERIAL_MCP_LOG_FORMATS"
-ENV_DIR = "SERIAL_MCP_LOG_DIR"
-ENV_TEXT_TIMESTAMPS = "SERIAL_MCP_LOG_TEXT_TIMESTAMPS"
-_TRUE_VALUES = ("1", "true", "yes")
-
-DEFAULT_FORMATS = ("text",)
 DEFAULT_TEXT_TIMESTAMPS = TextTimestamps.OFF
 QUEUE_LIMIT_BYTES = 8 * 1024 * 1024
 CLOSE_JOIN_TIMEOUT_S = 5.0
@@ -313,16 +308,14 @@ def parse_formats(value: Any, origin: str) -> tuple[str, ...]:
     return names
 
 
-def _parse_text_timestamps(value: Any) -> TextTimestamps:
-    """Validate the timestamp mode from an argument, else from the environment, else the default.
+def _parse_text_timestamps(value: Any, settings: Settings) -> TextTimestamps:
+    """Validate the timestamp mode from an argument, else take the configured one.
 
     Raises:
         ValueError: The mode is not one of ``TEXT_TIMESTAMP_MODES``.
     """
     if value is None:
-        return _text_timestamps(
-            os.environ.get(ENV_TEXT_TIMESTAMPS, "").strip() or DEFAULT_TEXT_TIMESTAMPS, ENV_TEXT_TIMESTAMPS
-        )
+        return TextTimestamps(settings.log_text_timestamps)
     return _text_timestamps(value, "log_text_timestamps")
 
 
@@ -334,45 +327,35 @@ def _text_timestamps(value: Any, origin: str) -> TextTimestamps:
 
 
 def resolve_log_request(
-    log: bool | None, formats: Any = None, text_timestamps: Any = None
+    settings: Settings, log: bool | None, formats: Any = None, text_timestamps: Any = None
 ) -> LogRequest | None:
     """Decide whether a connection logs, and in which formats and directory.
 
-    An argument beats the environment: ``log=False`` disables logging, ``log=True`` or
-    *formats* alone enables it, and otherwise ``SERIAL_MCP_LOG`` decides. Read at call
-    time, so a change to the environment applies to the next connection.
+    An argument beats the configuration: ``log=False`` disables logging, ``log=True`` or
+    *formats* alone enables it, and otherwise ``settings.log_enabled`` (``SERIAL_MCP_LOG``) decides.
 
     Raises:
         ValueError: A format list or the timestamp mode is invalid.
     """
     if log is None:
-        log = formats is not None or os.environ.get(ENV_LOG, "").strip().lower() in _TRUE_VALUES
+        log = formats is not None or settings.log_enabled
     if not log:
         return None
-    return build_log_request(formats, text_timestamps)
-
-
-def log_directory() -> Path:
-    """The configured log directory: ``SERIAL_MCP_LOG_DIR`` or the spec root's ``logs``."""
-    env_dir = os.environ.get(ENV_DIR, "").strip()
-    return Path(env_dir) if env_dir else resolve_spec_root() / "logs"
+    return build_log_request(settings, formats, text_timestamps)
 
 
 def build_log_request(
-    formats: Any = None, text_timestamps: Any = None, formats_origin: str = "log_formats"
+    settings: Settings, formats: Any = None, text_timestamps: Any = None, formats_origin: str = "log_formats"
 ) -> LogRequest:
-    """Build a request for a log that is definitely wanted, filling gaps from the environment.
+    """Build a request for a log that is definitely wanted, filling gaps from the configuration.
 
     *formats_origin* names where *formats* came from, so an error points at the caller's own option.
 
     Raises:
         ValueError: A format list or the timestamp mode is invalid.
     """
-    if formats is not None:
-        names = parse_formats(formats, formats_origin)
-    else:
-        names = parse_formats(os.environ.get(ENV_FORMATS, "").strip() or list(DEFAULT_FORMATS), ENV_FORMATS)
-    return LogRequest(names, log_directory(), _parse_text_timestamps(text_timestamps))
+    names = parse_formats(formats, formats_origin) if formats is not None else settings.log_formats
+    return LogRequest(names, settings.log_dir, _parse_text_timestamps(text_timestamps, settings))
 
 
 def log_base_name(prefix: str, now: datetime, number: int) -> str:

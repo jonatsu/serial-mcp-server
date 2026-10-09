@@ -8,8 +8,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import logging
-import os
 import sys
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,28 +19,6 @@ from mcp.types import Tool
 logger = logging.getLogger(__name__)
 
 RESERVED_NAMES = frozenset({"all"})
-
-
-# ---------------------------------------------------------------------------
-# Policy
-# ---------------------------------------------------------------------------
-
-
-def parse_plugin_policy() -> tuple[bool, set[str] | None]:
-    """Parse ``SERIAL_MCP_PLUGINS`` env var.
-
-    Returns ``(enabled, allowlist)``:
-    - unset/empty → ``(False, None)`` — plugins disabled
-    - ``*``       → ``(True, None)``  — all plugins allowed
-    - ``a,b``     → ``(True, {"a", "b"})`` — only named plugins
-    """
-    raw = os.environ.get("SERIAL_MCP_PLUGINS", "").strip()
-    if not raw:
-        return False, None
-    if raw in ("*", "all"):
-        return True, None
-    names = {n.strip() for n in raw.split(",") if n.strip()}
-    return (True, names) if names else (False, None)
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +154,7 @@ class PluginManager:
         handlers: dict[str, Any],
         *,
         enabled: bool = False,
-        allowlist: set[str] | None = None,
+        allowlist: AbstractSet[str] | None = None,
         tool_separator: str = ".",
     ) -> None:
         self.plugins_dir = plugins_dir

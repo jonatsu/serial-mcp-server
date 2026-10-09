@@ -15,12 +15,9 @@ import serial.tools.list_ports
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.helpers import (
-    MIRROR_PTY,
-    MIRROR_PTY_LINK,
     _coerce_bool,
     _err,
     _ok,
-    max_write_seconds,
     script_running_error,
 )
 from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
@@ -136,11 +133,10 @@ def paced_transfer_seconds(pacing: Pacing, size: int, baudrate: int) -> float:
     return max(pacing.estimated_seconds(size), wire_seconds(size, baudrate))
 
 
-def duration_error(estimate_seconds: float) -> dict[str, Any] | None:
-    """Return an error when an estimated transfer time exceeds the server-wide cap."""
+def duration_error(estimate_seconds: float, cap: float) -> dict[str, Any] | None:
+    """Return an error when an estimated transfer time exceeds the server-wide *cap*, in seconds."""
     if estimate_seconds <= 0:
         return None
-    cap = max_write_seconds()
     if estimate_seconds <= cap:
         return None
     return _err(
@@ -724,6 +720,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
 
     try:
         log_request = resolve_log_request(
+            state.settings,
             _coerce_bool(args["log"]) if "log" in args else None,
             args.get("log_formats"),
             args.get("log_text_timestamps"),
@@ -763,8 +760,8 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
             pacing=pacing,
             log_request=log_request,
             connection_id=state.generate_id(),
-            mirror_mode=MIRROR_PTY,
-            mirror_link=MIRROR_PTY_LINK,
+            mirror_mode=state.settings.mirror,
+            mirror_link=str(state.settings.mirror_link) if state.settings.mirror_link else None,
         )
     )
     try:
@@ -917,7 +914,9 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
     if append_newline:
         payload += newline.encode(encoding, errors="replace")
 
-    too_long = duration_error(paced_transfer_seconds(pacing, len(payload), conn.baudrate))
+    too_long = duration_error(
+        paced_transfer_seconds(pacing, len(payload), conn.baudrate), state.settings.max_write_seconds
+    )
     if too_long is not None:
         return too_long
 

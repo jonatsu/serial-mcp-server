@@ -15,6 +15,8 @@ from typing import Any
 
 import serial as pyserial
 
+from serial_mcp_server import config
+from serial_mcp_server.config import Settings
 from serial_mcp_server.mirror import ReaderThread, SerialBuffer
 from serial_mcp_server.portlog import PortLogSlot
 from serial_mcp_server.script.runner import RunResult, ScriptRunner
@@ -179,9 +181,9 @@ class SerialState:
     Reader threads synchronize their buffer and serial-port access separately.
     """
 
-    def __init__(self, max_connections: int = 10) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings: Settings = settings if settings is not None else config.load({})
         self.connections: dict[str, SerialConnection] = {}
-        self.max_connections = max_connections
         self.script_jobs = ScriptJobs()
 
     def generate_id(self) -> str:
@@ -196,9 +198,9 @@ class SerialState:
         return self.connections[connection_id]
 
     def add_connection(self, conn: SerialConnection) -> None:
-        if len(self.connections) >= self.max_connections:
+        if len(self.connections) >= self.settings.max_connections:
             raise RuntimeError(
-                f"Maximum connections ({self.max_connections}) reached. "
+                f"Maximum connections ({self.settings.max_connections}) reached. "
                 "Close a connection first. Set SERIAL_MCP_MAX_CONNECTIONS to adjust."
             )
         self.connections[conn.connection_id] = conn

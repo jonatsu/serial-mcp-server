@@ -10,7 +10,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from mcp.types import Tool
 
-from serial_mcp_server.plugins import PluginManager, discover_plugins, load_plugin, parse_plugin_policy
+from serial_mcp_server import config
+from serial_mcp_server.config import PluginPolicy
+from serial_mcp_server.plugins import PluginManager, discover_plugins, load_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers — write plugin files into tmp_path
@@ -409,50 +411,39 @@ class TestPluginListHandler:
 
 
 # ---------------------------------------------------------------------------
-# parse_plugin_policy
+# Plugin policy
 # ---------------------------------------------------------------------------
 
 
-class TestParsePluginPolicy:
-    def test_unset_returns_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("SERIAL_MCP_PLUGINS", raising=False)
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is False
-        assert allowlist is None
+class TestPluginPolicy:
+    """``SERIAL_MCP_PLUGINS`` as ``config.load`` parses it into ``Settings.plugins``."""
 
-    def test_empty_returns_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", "")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is False
+    @staticmethod
+    def policy(raw: str | None) -> PluginPolicy:
+        return config.load({} if raw is None else {"SERIAL_MCP_PLUGINS": raw}).plugins
 
-    def test_star_returns_all(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", "*")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is True
-        assert allowlist is None
+    def test_unset_returns_disabled(self) -> None:
+        assert self.policy(None) == PluginPolicy(enabled=False, allowlist=None)
 
-    def test_all_returns_all(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", "all")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is True
-        assert allowlist is None
+    def test_empty_returns_disabled(self) -> None:
+        assert self.policy("").enabled is False
 
-    def test_csv_returns_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", "sensortag, hello")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is True
-        assert allowlist == {"sensortag", "hello"}
+    def test_star_returns_all(self) -> None:
+        assert self.policy("*") == PluginPolicy(enabled=True, allowlist=None)
 
-    def test_whitespace_only_returns_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", "   ")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is False
+    def test_all_returns_all(self) -> None:
+        assert self.policy("all") == PluginPolicy(enabled=True, allowlist=None)
 
-    def test_empty_commas_returns_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SERIAL_MCP_PLUGINS", ",,,")
-        enabled, allowlist = parse_plugin_policy()
-        assert enabled is False
-        assert allowlist is None
+    def test_csv_returns_set(self) -> None:
+        assert self.policy("sensortag, hello") == PluginPolicy(
+            enabled=True, allowlist=frozenset({"sensortag", "hello"})
+        )
+
+    def test_whitespace_only_returns_disabled(self) -> None:
+        assert self.policy("   ").enabled is False
+
+    def test_empty_commas_returns_disabled(self) -> None:
+        assert self.policy(",,,") == PluginPolicy(enabled=False, allowlist=None)
 
 
 # ---------------------------------------------------------------------------

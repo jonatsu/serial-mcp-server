@@ -6,15 +6,23 @@ from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
+from serial_mcp_server import config
+from serial_mcp_server.config import Settings
 from serial_mcp_server.mirror import SerialBuffer
 from serial_mcp_server.state import SerialConnection, SerialState
 from serial_mcp_server.writer import SerialWriter
 
 
 @pytest.fixture()
-def serial_state():
-    """Fresh SerialState instance."""
-    return SerialState()
+def settings(tmp_path):
+    """Default settings with the data root, and so every log, file, and script directory, under tmp_path."""
+    return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path / ".serial_mcp")})
+
+
+@pytest.fixture()
+def serial_state(settings: Settings):
+    """Fresh SerialState instance using the test's settings."""
+    return SerialState(settings)
 
 
 @pytest.fixture()

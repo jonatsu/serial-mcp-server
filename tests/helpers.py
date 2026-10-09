@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from serial_mcp_server.state import SerialState
+
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     """Parse a JSON Lines file into a list of objects."""
@@ -24,3 +26,8 @@ def writer_goes_idle(writer: Any, source: str, within_seconds: float) -> bool:
             return False
         time.sleep(0.002)
     return True
+
+
+def reconfigure(state: SerialState, **changes: Any) -> None:
+    """Replace some of *state*'s settings, as a server started with those values would have them."""
+    state.settings = state.settings.model_copy(update=changes)

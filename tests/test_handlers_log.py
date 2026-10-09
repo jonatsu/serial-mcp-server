@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from serial_mcp_server import portlog
+from serial_mcp_server import config
+from serial_mcp_server.config import Settings
 from serial_mcp_server.handlers_log import (
     HANDLERS,
     TOOLS,
@@ -22,22 +23,20 @@ from serial_mcp_server.mirror import DEFAULT_BUFFER_BYTES, SerialBuffer
 from serial_mcp_server.port_stack import make_read_buffer
 from serial_mcp_server.portlog import PortLog
 from serial_mcp_server.portlog_formats import BUFFER_DROP_EVENT
-from tests.helpers import read_jsonl
+from tests.helpers import read_jsonl, reconfigure
 
 SID = {"connection_id": "s1"}
 
 
-@pytest.fixture(autouse=True)
-def log_env(monkeypatch, tmp_path):
-    for name in (
-        portlog.ENV_LOG,
-        portlog.ENV_FORMATS,
-        portlog.ENV_DIR,
-        portlog.ENV_TEXT_TIMESTAMPS,
-    ):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("SERIAL_MCP_SPEC_ROOT", str(tmp_path / "spec"))
-    return tmp_path / "spec" / "logs"
+@pytest.fixture
+def settings(tmp_path) -> Settings:
+    """Default settings with the data root at tmp_path/spec; serial_state uses them."""
+    return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path / "spec")})
+
+
+@pytest.fixture
+def log_env(settings: Settings):
+    return settings.log_dir
 
 
 def files_by_suffix(directory) -> dict:
@@ -114,7 +113,7 @@ class TestStart:
         state, conn = connected_entry
         blocker = tmp_path / "file"
         blocker.write_text("x")
-        monkeypatch.setenv(portlog.ENV_DIR, str(blocker / "logs"))
+        reconfigure(state, log_dir=blocker / "logs")
 
         result = await handle_log_start(state, SID)
 

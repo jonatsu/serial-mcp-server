@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from serial_mcp_server import config
 from serial_mcp_server.state import SerialConnection, SerialState, stop_connections
 from serial_mcp_server.writer import SerialWriter
 
@@ -42,7 +43,7 @@ class TestSerialState:
             state.get_connection("nonexistent")
 
     def test_add_connection_limit(self):
-        state = SerialState(max_connections=1)
+        state = SerialState(config.load({"SERIAL_MCP_MAX_CONNECTIONS": "1"}))
         conn1 = SerialConnection(
             connection_id="s1",
             port="/dev/ttyUSB0",

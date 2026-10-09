@@ -484,7 +484,7 @@ def test_variable_name_that_cannot_start_with_a_digit_is_a_usage_error(device, t
     assert device.lines == []
 
 
-def test_invalid_max_seconds_exits_two_with_a_message_and_releases_the_port(device, tmp_path, monkeypatch):
+def test_invalid_max_seconds_exits_two_with_a_message_before_opening_the_port(device, tmp_path, monkeypatch):
     script = write_script(tmp_path, PING_SCRIPT)
     monkeypatch.setenv("SERIAL_MCP_SCRIPT_MAX_SECONDS", "abc")
     logs = tmp_path / "logs"
@@ -495,8 +495,7 @@ def test_invalid_max_seconds_exits_two_with_a_message_and_releases_the_port(devi
     assert "SERIAL_MCP_SCRIPT_MAX_SECONDS" in done.stderr
     assert "Traceback" not in done.stderr
     assert device.lines == []
-    (log_path,) = logs.glob("*.jsonl")
-    assert read_jsonl(log_path)[-1]["event"] == "close"
+    assert not logs.exists()
 
 
 def test_result_that_cannot_be_written_exits_two_and_is_not_reported(device, tmp_path):
