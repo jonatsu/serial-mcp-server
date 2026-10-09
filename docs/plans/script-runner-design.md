@@ -230,7 +230,9 @@ promptly when the stop event is set: expect and `@sleep` both wait on the matche
 deadline, and writes pass the stop event to the writer job, which checks it between segments. The run ends as
 `cancelled` with the step it was on, then tears down as in 6.1.
 
-If the runner is still alive after five seconds, for example inside a slow regular expression,
+A pattern search in flight cannot be interrupted, but it ends within its two-second limit (8.2), well inside the
+five-second wait. The stop cause outranks a search that timed out, so the run ends `cancelled`. If the runner is
+still alive after five seconds anyway,
 `serial.script.cancel` returns the state at that moment with `cancel_requested: true`. The run keeps its claim
 until the runner thread returns, then ends `cancelled` and releases it.
 
@@ -346,13 +348,23 @@ through an incremental decoder with `errors="replace"`. A cursor marks the start
 and the prompt wait search from the cursor; on a match, the cursor moves past the match's end, so the same output
 cannot satisfy two expects. This follows pexpect, where a match keeps only the output after it buffered for the
 next `expect()` ([pexpect 4.9 `expect.py`](https://raw.githubusercontent.com/pexpect/pexpect/4.9/pexpect/expect.py)).
-Patterns are Python `re` patterns with no flags; authors use inline flags such as `(?i)` or `(?m)`.
+Patterns are [`regex`](https://pypi.org/project/regex/) patterns in its default `VERSION0` mode, which accepts `re`
+syntax, with no flags; authors use inline flags such as `(?i)` or `(?m)`. The parser validates patterns with the same
+engine, so a pattern that parses also compiles in the runner.
 
 `OutputMatcher.feed` runs on the reader thread, so it only decodes, appends, and notifies; it never evaluates a
 pattern. The runner thread checks fail patterns whenever it wakes, over the text received since its last check
 joined with the 256 characters before it, so a pattern split across two chunks still matches. Fail patterns see
 all output, consumed or not. Keeping pattern evaluation off the reader thread means a slow pattern can delay only
 its own run, never receiving or the mirror.
+
+Every search calls `search(text, timeout=2.0, concurrent=True)`. The `timeout` makes the engine itself stop a match at
+the limit and raise `TimeoutError`, and the run ends `errored` with the reason `regex_timeout`. `concurrent=True`
+releases the interpreter lock during the match, so a slow search cannot freeze the event loop, the readers, or
+cancel. Measured on CPython 3.13 with `regex` 2026.9.29, `(a|aa)+$` against 40 `a` characters followed by `b`
+timed out at the limit, and another thread kept its 20 ms ticks throughout; without `concurrent=True` it stalled for
+the whole search. `re` holds the lock for a whole match and has no timeout, and a signal-based limit cannot reach the
+runner thread, because Python runs signal handlers only on the main thread.
 
 The window keeps at most 1 MiB of unconsumed text. Past that, the oldest text is dropped, the drop is counted, and
 the result records `window_overflow` with the count. pexpect has no such bound; this one keeps a long silent
@@ -416,6 +428,7 @@ where they may appear in results.
 | D7  | Scripts are linear: no branches, loops, labels, or includes; the first failure ends the run.             | Accepted        | minicom runscript's `goto`, `gosub`, and `if` ([runscript(1)](https://manpages.debian.org/unstable/minicom/runscript.1.en.html)): control flow makes results harder to reproduce and review; the agent and plugins hold logic.                                                                                                                                                                                          |
 | D8  | The engine is an MCP-independent library with a `serial_mcp_script` command.                             | User decision   | MCP-only runner: CI would need an agent to run tests.                                                                                                                                                                                                                                                                                                                                                                  |
 | D9  | Patterns match decoded text.                                                                              | Accepted        | Byte patterns: harder to write for console output. Binary protocols belong in plugins; `@sendhex` covers raw sends.                                                                                                                                                                                                                                                                                                  |
+| D10 | Patterns use the `regex` package; each search has a two-second `timeout` and releases the interpreter lock. | User decision   | A `SIGALRM` context manager: signal handlers run only on the main thread, and the runner thread never is. A child process per run that is killed at the limit: works with `re`, but adds a process lifecycle, a wire protocol, and orphan handling for what the library already does. Screening for nested quantifiers: misses ambiguous alternations. |
 
 ## 10. Quality Requirements
 
@@ -425,11 +438,10 @@ The numeric limits in this document (1 MiB window, 256 KiB inline source, 2 KiB 
 
 ## 11. Risks and Technical Debt
 
-1. A pattern with catastrophic backtracking holds the runner thread inside `re`, where cancel cannot reach it.
-   `re` does not release the interpreter lock, so it also stalls every other thread in the server (the event
-   loop, readers, cancel, and close) until the match ends. The window bound limits the input size but not the
-   time. Accepted for a local tool and stated in `docs/scripts.md`; revisit with a regex engine that has a timeout
-   if scripts come from untrusted sources.
+1. A pattern with catastrophic backtracking is bounded by the search timeout (8.2) and ends the run `errored` with
+   the reason `regex_timeout`. Two costs remain. The limit is fixed, so a legitimate pattern that needs longer
+   cannot run. A cancel cannot interrupt a search, so it can wait up to the limit before the run ends. The `regex`
+   dialect also differs from `re` in a few corner cases, which a script written against `re` may hit.
 2. Operator input through a read/write mirror reaches the device mid-run and can change the outcome. It is logged
    with source `mirror`, which makes it visible in the port log, but the result does not flag it.
 3. A failed run leaves the device where the failure happened, because there is no cleanup block. A `@finally`

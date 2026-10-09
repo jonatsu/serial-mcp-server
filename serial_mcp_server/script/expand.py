@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+import regex
+
 VARIABLE = re.compile(r"\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}")
 VARIABLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 DURATION = re.compile(r"(\d+(?:\.\d+)?)(ms|s|m)")
@@ -38,19 +40,22 @@ class LineContext:
         return expand(template, self.variables, decode_escapes=True)
 
     def pattern(self, template: str) -> str:
-        """Substitute variables with ``re.escape`` so their values match literally, and check the pattern."""
-        pattern = expand(template, self.variables, regex=True)
+        """Substitute variables with ``regex.escape`` so their values match literally, and check the pattern.
+
+        The check compiles with ``regex``, the engine the runner searches with, so both accept the same syntax.
+        """
+        pattern = expand(template, self.variables, for_pattern=True)
         if not pattern:
             raise LineError("the pattern is empty.")
         try:
-            re.compile(pattern)
-        except re.error as exc:
+            _ = regex.compile(pattern)
+        except regex.error as exc:
             raise LineError(f"invalid regular expression: {exc}.") from exc
         return pattern
 
 
 def expand(
-    template: str, variables: Mapping[str, str], *, decode_escapes: bool = False, regex: bool = False
+    template: str, variables: Mapping[str, str], *, decode_escapes: bool = False, for_pattern: bool = False
 ) -> str:
     """Replace ``{{NAME}}`` with its value, optionally decoding escapes in the literal text around it.
 
@@ -64,7 +69,7 @@ def expand(
         name = match.group(1)
         if name not in variables:
             raise LineError(f"undefined variable {{{{{name}}}}}.")
-        parts.append(re.escape(variables[name]) if regex else variables[name])
+        parts.append(regex.escape(variables[name]) if for_pattern else variables[name])
         position = match.end()
     parts.append(_literal(template[position:], decode_escapes))
     return "".join(parts)

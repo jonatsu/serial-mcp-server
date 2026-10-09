@@ -56,7 +56,7 @@ Pacing delays must be whole numbers of milliseconds from 1 to 1000. The chunk si
 Write variables as `{{NAME}}`. A name starts with a letter or underscore, followed by letters, digits, or underscores. An undefined variable is a parse error with its source line. The parser leaves `${...}` unchanged for shells and bootloaders that use that form.
 
 Inside a regular expression, variable values are escaped so they match literal text rather than regular-expression syntax. For example, `@expect {{VERSION}}` with `VERSION=U-Boot 2026.10` matches that text literally.
-Patterns use Python regular-expression syntax. Inline flags, such as `(?i)`, work.
+Patterns use the syntax of the [`regex`](https://pypi.org/project/regex/) package, which accepts Python `re` syntax and adds features such as Unicode property classes (`\p{N}`). Inline flags, such as `(?i)`, work.
 
 Each step retains its original source line before substitution. Result step text retains `{{SERVER_IP}}`. The variable-name list contains only `SERVER_IP`, never its value. Values still appear elsewhere: device output is recorded as received, so echoes can expose values in output and port logs; the `tx` entries of the port log hold every byte sent, including substituted values; and a variable used in an `@mark` label is stored in the result's `marks` and in the port log.
 
@@ -66,7 +66,7 @@ A matcher stores decoded output that arrives after a run subscribes to the reade
 
 A cursor marks the start of unconsumed text. `@expect` and prompt waits search after the cursor, then move it through the match. One occurrence cannot satisfy two waits.
 
-Fail patterns search new output whenever the runner wakes. They also include the 256 characters before the latest output, so a pattern split across chunks still matches. Pattern evaluation runs on the runner thread, not the reader thread.
+Fail patterns search new output whenever the runner wakes. They also include the 256 characters before the latest output, so a pattern split across chunks still matches. The runner thread asks for these searches, never the reader thread, and every search has a time limit (see [Limits](#limits)).
 
 The matcher holds at most 1 MiB of unconsumed text. It drops older text beyond that limit. The result records `window_overflow` and the exact drop count.
 
@@ -82,7 +82,7 @@ The script language has no shell escape or include directive. `@send_file` is it
 
 ## Limits
 
-Pattern matching runs on the runner thread inside Python's `re` module, which holds the interpreter lock. A pattern with nested quantifiers, such as `(a+)+$`, can stall the whole server until the match finishes, and no per-run guard limits a pattern's time, whoever wrote the script. Avoid nested quantifiers.
+Each pattern search has a limit of two seconds. A pattern that backtracks without end, such as `(a|aa)+$` against a long run of `a` characters, stops at the limit and ends the run `errored` with the reason `regex_timeout`. The search releases the interpreter lock, so the server keeps answering while it runs. A cancel that arrives during a search takes effect when the search returns, at the latest at the limit. If a pattern hits the limit, rewrite it without nested or overlapping quantifiers. The limit is fixed.
 
 `SERIAL_MCP_SCRIPT_MAX_SECONDS` and `@fail_on` are checked between steps and when output arrives, not while a single write is in flight. A long paced `@send` or `@send_file` therefore runs to its end unless the run is cancelled, and a `@fail_on` pattern that appears during the write is noticed only afterwards. A script's writes are not subject to `SERIAL_MCP_MAX_WRITE_SECONDS`.
 

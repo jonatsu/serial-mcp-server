@@ -245,6 +245,8 @@ flowchart LR
 
 The output matcher feeds the runner's `@expect`, prompt, and failure-pattern checks. See [Serial Script Reference](scripts.md) for the language behavior.
 
+Each pattern search has a two-second limit and releases the interpreter lock while it runs. A pattern that backtracks without end therefore ends its run instead of freezing the server.
+
 The `serial_mcp_script` command shares this engine and runs without the MCP server, so a CI job can run a script with no agent.
 
 While a script runs, it owns its connection's writes and control lines. The server rejects `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, the DTR and RTS tools, and `serial.log.start` and `serial.log.stop` on that connection with `script_running`, so an agent cannot interleave bytes with the script. Input from a read/write PTY mirror is not blocked, so an operator can still send bytes to the device during a run. Reads, status, and log marks still work, and `serial.close` cancels the run before it stops the reader and writer.

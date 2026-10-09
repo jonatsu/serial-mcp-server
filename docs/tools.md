@@ -372,6 +372,7 @@ A log that the run starts is closed when the run ends, so the `log_paths` in the
 
 The response includes `run_id` and `state`. If the run finishes within `wait_ms`, the response includes the full result. Each run also writes a result file under `SERIAL_MCP_LOG_DIR`, which the server never deletes.
 Parse failures return `invalid_params` and an `errors` array. Each entry includes the source line, text, and message. A script `path` that exists but cannot be read, or an operating-system error while the parser checks the `@send_file` paths, returns `file_unreadable`. A `@send_file` file that exists but cannot be read passes that check, and the run then ends `errored` with the reason `file_error`. If the port log cannot be started, the call returns `log_failed`. If the connection closes while the script is starting, the call returns `not_found`.
+A pattern that takes longer than two seconds to search ends the run `errored` with the reason `regex_timeout`; see [Limits](scripts.md#limits).
 
 `script_running` blocks `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, `serial.set_dtr`, `serial.set_rts`, `serial.pulse_dtr`, and `serial.pulse_rts`.
 `serial.log.start` and `serial.log.stop` also return `script_running` while a run owns the connection.

@@ -8,6 +8,7 @@ import stat
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -18,7 +19,14 @@ import serial as pyserial
 from serial_mcp_server.script import Script, parse
 from serial_mcp_server.script import runner as script_runner
 from serial_mcp_server.script.matcher import OutputMatcher
-from serial_mcp_server.script.runner import RunMetadata, RunState, RunStatus, ScriptRunner
+from serial_mcp_server.script.runner import (
+    PATTERN_TIMEOUT_SECONDS,
+    RunMetadata,
+    RunResult,
+    RunState,
+    RunStatus,
+    ScriptRunner,
+)
 from serial_mcp_server.writer import NO_PACING, Pacing, WriteAborted, WriterClosed
 
 EXAMPLE_SCRIPT = r"""# U-Boot smoke test
@@ -147,6 +155,7 @@ def make_runner(
     script_name: str = "inline",
     files_directory: Path | None = None,
     result_path: Path | None = None,
+    pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
 ) -> tuple[ScriptRunner, Script]:
     parsed = parse(source, variables or {}, files_directory or result_directory)
     metadata = RunMetadata(
@@ -161,7 +170,7 @@ def make_runner(
         log_paths=session.log_paths,
         result_path=result_path,
     )
-    return ScriptRunner(parsed, session, metadata), parsed
+    return ScriptRunner(parsed, session, metadata, pattern_timeout_seconds), parsed
 
 
 def test_design_example_runs_to_passed_with_echoing_device_responses(tmp_path: Path) -> None:
@@ -685,3 +694,163 @@ def test_control_directives_reach_the_port_session(tmp_path: Path) -> None:
     assert ("mark", {"label": "boot stage"}) in session.events
     assert session.matcher is not None
     assert session.matcher.snapshot().text == ""
+
+
+# Alternation that overlaps itself: both re and regex backtrack exponentially on this text, so a search
+# with a half-second limit always times out, and a search without one would hang the test.
+CATASTROPHIC_PATTERN = r"(a|aa)+$"
+CATASTROPHIC_TEXT = "a" * 60 + "b"
+CATASTROPHIC_OUTPUT = CATASTROPHIC_TEXT.encode()
+LIMIT_SECONDS = 0.5
+
+
+def timeout_detail(line: int, limit: float = LIMIT_SECONDS) -> str:
+    return (
+        f"The pattern on line {line} ran longer than {limit:g} s, so the run stopped. "
+        "Rewrite it without nested quantifiers."
+    )
+
+
+def run_to_end(
+    source: str,
+    session: FakePortSession,
+    tmp_path: Path,
+    *,
+    variables: Mapping[str, str] | None = None,
+) -> RunResult:
+    runner, _ = make_runner(
+        source, session, tmp_path, variables=variables, pattern_timeout_seconds=LIMIT_SECONDS
+    )
+    runner.start()
+    assert runner.done.wait(timeout=10.0)
+    result = runner.result
+    assert result is not None
+    return result
+
+
+def test_catastrophic_expect_ends_the_run_errored_and_keeps_earlier_steps(tmp_path: Path) -> None:
+    session = FakePortSession({b"go\n": CATASTROPHIC_OUTPUT}, echo=False)
+    source = f'@mark before\ngo\n@expect "{CATASTROPHIC_PATTERN}" --timeout 30s'
+
+    result = run_to_end(source, session, tmp_path)
+
+    assert result.state is RunState.ERRORED
+    assert result.reason == "regex_timeout"
+    assert [step.outcome for step in result.steps] == ["passed", "passed", "regex_timeout"]
+    assert result.marks == ("before",)
+    failure = result.failure
+    assert failure is not None
+    assert failure.reason == "regex_timeout"
+    assert failure.line == 3
+    assert failure.output_tail == CATASTROPHIC_TEXT
+    assert failure.detail == timeout_detail(3)
+
+
+@pytest.mark.parametrize(
+    ("source", "pattern_line", "running_line", "outcomes"),
+    [
+        pytest.param(
+            f'@mark before\n@fail_on "{CATASTROPHIC_PATTERN}"\n@sleep 60s',
+            2,
+            3,
+            ["passed", "passed", "regex_timeout"],
+            id="fail-on-then-sleep",
+        ),
+        pytest.param(
+            f'@fail_on "{CATASTROPHIC_PATTERN}"\n@expect never --timeout 30s',
+            1,
+            2,
+            ["passed", "regex_timeout"],
+            id="fail-on-then-expect",
+        ),
+    ],
+)
+def test_catastrophic_fail_on_pattern_ends_the_run_errored_and_names_its_own_line(
+    source: str,
+    pattern_line: int,
+    running_line: int,
+    outcomes: list[str],
+    tmp_path: Path,
+) -> None:
+    session = FakePortSession()
+    runner, _ = make_runner(source, session, tmp_path, pattern_timeout_seconds=LIMIT_SECONDS)
+    runner.start()
+    assert session.wait_entered.wait(timeout=5.0)
+
+    session.feed(CATASTROPHIC_OUTPUT)
+    assert runner.done.wait(timeout=10.0)
+
+    result = runner.result
+    assert result is not None
+    assert result.state is RunState.ERRORED
+    assert result.reason == "regex_timeout"
+    assert [step.outcome for step in result.steps] == outcomes
+    failure = result.failure
+    assert failure is not None
+    assert failure.line == running_line
+    assert failure.detail == timeout_detail(pattern_line)
+
+
+def test_catastrophic_prompt_pattern_names_the_prompt_line_not_the_step_waiting_for_it(
+    tmp_path: Path,
+) -> None:
+    session = FakePortSession({b"go\n": CATASTROPHIC_OUTPUT}, echo=False)
+
+    result = run_to_end(f'@prompt "{CATASTROPHIC_PATTERN}"\ngo', session, tmp_path)
+
+    assert result.state is RunState.ERRORED
+    assert result.reason == "regex_timeout"
+    failure = result.failure
+    assert failure is not None
+    assert failure.line == 2
+    assert failure.detail == timeout_detail(1)
+
+
+def test_regex_timeout_result_never_repeats_a_variable_value(tmp_path: Path) -> None:
+    session = FakePortSession({b"go\n": CATASTROPHIC_OUTPUT}, echo=False)
+    source = 'go\n@expect "(a|aa)+(?:{{TOKEN}})?$" --timeout 30s'
+
+    result = run_to_end(source, session, tmp_path, variables={"TOKEN": "hunter2-s3cret"})
+
+    assert result.reason == "regex_timeout"
+    serialized = json.dumps(result.to_json())
+    assert "hunter2" not in serialized
+    assert "s3cret" not in serialized
+    assert result.failure is not None
+    assert result.failure.detail == timeout_detail(2)
+
+
+def test_catastrophic_search_leaves_other_threads_running_and_cancel_wins(tmp_path: Path) -> None:
+    session = FakePortSession({b"go\n": CATASTROPHIC_OUTPUT}, echo=False)
+    source = f'go\n@expect "{CATASTROPHIC_PATTERN}" --timeout 60s'
+    runner, _ = make_runner(source, session, tmp_path, pattern_timeout_seconds=2.0)
+    runner.start()
+    while runner.snapshot().current_line != 2 and not runner.done.is_set():
+        time.sleep(0.005)
+    time.sleep(0.2)  # let the runner get into the search
+
+    # Holding the interpreter lock for the search would stall this thread until the search ended.
+    started = time.monotonic()
+    for _ in range(10):
+        time.sleep(0.01)
+    assert time.monotonic() - started < 0.5
+    assert not runner.done.is_set()
+
+    runner.cancel()
+
+    assert runner.done.wait(timeout=5.0)
+    result = runner.result
+    assert result is not None
+    assert result.state is RunState.CANCELLED  # the cancel outranks the timeout that ended the search
+    assert result.reason == "cancelled"
+
+
+def test_parser_and_runner_accept_the_same_pattern_syntax(tmp_path: Path) -> None:
+    session = FakePortSession({b"go\n": b"value: 42\n"}, echo=False)
+    # \p{N} is a Unicode property class: regex accepts it, re rejects it.
+    source = 'go\n@expect "value: \\p{N}+"'
+
+    result = run_to_end(source, session, tmp_path)
+
+    assert result.state is RunState.PASSED
+    assert result.steps[-1].matched_text == "value: 42"
