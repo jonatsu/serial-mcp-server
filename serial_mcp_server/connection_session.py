@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, read_confined_file
+from serial_mcp_server.confined_files import MAX_CONFINED_FILE_BYTES, read_confined_file
 from serial_mcp_server.portlog_formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.script.matcher import OutputMatcher
 from serial_mcp_server.state import SerialConnection

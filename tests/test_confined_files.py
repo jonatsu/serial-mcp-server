@@ -1,4 +1,4 @@
-"""Tests for serial_mcp_server.paths — confinement of file reads to one directory."""
+"""Tests for serial_mcp_server.confined_files — confinement of file reads to one directory."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import sys
 
 import pytest
 
-from serial_mcp_server import paths
-from serial_mcp_server.paths import PathRefused, read_confined_file, resolve_confined_file
+from serial_mcp_server import confined_files
+from serial_mcp_server.confined_files import PathRefused, read_confined_file, resolve_confined_file
 
 LIMIT = 1024
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX symlinks and FIFOs")
@@ -163,11 +163,11 @@ class TestDeviceFiles:
     def test_only_a_regular_file_passes_the_type_check(self, mode):
         info = os.stat_result((mode | 0o600, 1, 1, 1, 0, 0, 10, 0, 0, 0))
         with pytest.raises(PathRefused, match="not a regular file"):
-            paths._check_regular_and_size(info, "dev", LIMIT)
+            confined_files._check_regular_and_size(info, "dev", LIMIT)
 
     def test_a_regular_file_passes(self):
         info = os.stat_result((stat.S_IFREG | 0o600, 1, 1, 1, 0, 0, 10, 0, 0, 0))
-        paths._check_regular_and_size(info, "ok", LIMIT)
+        confined_files._check_regular_and_size(info, "ok", LIMIT)
 
 
 class TestRecheckOnTheOpenHandle:
@@ -175,14 +175,14 @@ class TestRecheckOnTheOpenHandle:
 
     @staticmethod
     def swap_after_check(monkeypatch, swap):
-        real = paths._resolve_checked
+        real = confined_files._resolve_checked
 
         def check_then_swap(*args, **kwargs):
             result = real(*args, **kwargs)
             swap(result[0])
             return result
 
-        monkeypatch.setattr(paths, "_resolve_checked", check_then_swap)
+        monkeypatch.setattr(confined_files, "_resolve_checked", check_then_swap)
 
     @POSIX_ONLY
     def test_a_file_swapped_for_a_fifo_is_refused_without_hanging(self, root, monkeypatch):
@@ -247,7 +247,7 @@ class TestRecheckOnTheOpenHandle:
     def test_the_open_file_must_still_be_inside_the_root_where_the_platform_can_say(self, root, monkeypatch):
         if not os.path.exists("/proc/self/fd"):
             pytest.skip("needs /proc to name an open file")
-        monkeypatch.setattr(paths.os, "readlink", lambda path: "/somewhere/else/file")
+        monkeypatch.setattr(confined_files.os, "readlink", lambda path: "/somewhere/else/file")
 
         with pytest.raises(PathRefused, match="inside the files directory"):
             read_confined_file(root, "ok.txt", LIMIT)
@@ -256,7 +256,7 @@ class TestRecheckOnTheOpenHandle:
         def no_proc(path):
             raise OSError("no /proc")
 
-        monkeypatch.setattr(paths.os, "readlink", no_proc)
+        monkeypatch.setattr(confined_files.os, "readlink", no_proc)
 
         assert read_confined_file(root, "ok.txt", LIMIT)[1] == b"hello\n"
 
@@ -265,6 +265,6 @@ class TestImports:
     def test_module_imports_no_mcp(self):
         import subprocess
 
-        code = "import sys, serial_mcp_server.paths; sys.exit(any(m == 'mcp' or m.startswith('mcp.') for m in sys.modules))"
+        code = "import sys, serial_mcp_server.confined_files; sys.exit(any(m == 'mcp' or m.startswith('mcp.') for m in sys.modules))"
         result = subprocess.run([sys.executable, "-I", "-c", code], check=False)  # noqa: S603 - fixed arguments
         assert result.returncode == 0

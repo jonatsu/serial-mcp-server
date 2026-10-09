@@ -10,7 +10,7 @@ import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from serial_mcp_server.paths import MAX_CONFINED_FILE_BYTES, PathRefused, resolve_confined_file
+from serial_mcp_server.confined_files import MAX_CONFINED_FILE_BYTES, PathRefused, resolve_confined_file
 from serial_mcp_server.script.expand import LineContext, LineError, parse_duration
 from serial_mcp_server.script.model import Step, StepKind
 from serial_mcp_server.writer import MAX_PACING_DELAY_MS, NO_PACING, Pacing

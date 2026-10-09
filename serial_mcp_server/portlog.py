@@ -11,7 +11,6 @@ No MCP imports; the script engine reuses the file-opening helpers.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections import deque
@@ -34,6 +33,7 @@ from serial_mcp_server.portlog_formats import (
     TextTimestamps,
     WriterOptions,
 )
+from serial_mcp_server.private_files import DIR_MODE, MAX_NAME_COLLISIONS, log_base_name, open_exclusive
 
 if TYPE_CHECKING:
     from serial_mcp_server.config import Settings
@@ -44,9 +44,6 @@ DEFAULT_TEXT_TIMESTAMPS = TextTimestamps.OFF
 QUEUE_LIMIT_BYTES = 8 * 1024 * 1024
 CLOSE_JOIN_TIMEOUT_S = 5.0
 LOG_FILE_PREFIX = "serial-mcp-log"
-MAX_NAME_COLLISIONS = 1000
-FILE_MODE = 0o600
-DIR_MODE = 0o700
 
 # ---------------------------------------------------------------------------
 # PortLog
@@ -356,22 +353,6 @@ def build_log_request(
     """
     names = parse_formats(formats, formats_origin) if formats is not None else settings.log_formats
     return LogRequest(names, settings.log_dir, _parse_text_timestamps(text_timestamps, settings))
-
-
-def log_base_name(prefix: str, now: datetime, number: int) -> str:
-    """``<prefix>-<DDMMYYYY>-<HHMM>`` with ``-<number>`` appended after the first."""
-    base = f"{prefix}-{now:%d%m%Y-%H%M}"
-    return base if number == 0 else f"{base}-{number}"
-
-
-def open_exclusive(path: Path) -> BinaryIO:
-    """Create *path* for writing; never follow a symlink or reuse an existing file.
-
-    Raises:
-        FileExistsError: Something already has this name, including a symlink.
-    """
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    return os.fdopen(os.open(path, flags, FILE_MODE), "wb")
 
 
 def open_log_files(
