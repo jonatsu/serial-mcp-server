@@ -12,6 +12,9 @@
 - Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A running script owns its connection's writes and control lines. The tool-call trace strips the inline `source` and the `vars`, as it strips write `data`; it strips an argument with either name from any tool, plugin tools included. See [docs/scripts.md](docs/scripts.md).
 - `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See [Running from the command line](docs/scripts.md#running-from-the-command-line).
 
+### Changed
+- The package's project URLs (homepage, repository, issues, changelog) now point to <https://github.com/jonatsu/serial-mcp-server>.
+
 ### Fixed
 - Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to overflow.
 - Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
