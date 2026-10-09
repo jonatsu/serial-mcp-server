@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import time
 from typing import Any
 
+import anyio
+import anyio.to_thread
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.mcp.responses import (
@@ -279,7 +280,7 @@ async def handle_read(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     timeout_ms = args.get("timeout_ms")
     timeout_s = int(timeout_ms) / 1000.0 if timeout_ms is not None else conn.timeout
 
-    raw = await asyncio.to_thread(conn.buffer.read, nbytes, timeout_s)
+    raw = await anyio.to_thread.run_sync(conn.buffer.read, nbytes, timeout_s, abandon_on_cancel=True)
 
     conn.last_seen_ts = time.time()
     formatted = _format_data(raw, fmt, conn.encoding)
@@ -348,7 +349,9 @@ async def handle_readline(state: SerialState, args: dict[str, Any]) -> dict[str,
     expected = newline.encode(conn.encoding, errors="replace")
     timeout_s = int(timeout_ms) / 1000.0 if timeout_ms is not None else conn.timeout
 
-    raw = await asyncio.to_thread(conn.buffer.read_until, expected, max_bytes, timeout_s)
+    raw = await anyio.to_thread.run_sync(
+        conn.buffer.read_until, expected, max_bytes, timeout_s, abandon_on_cancel=True
+    )
 
     conn.last_seen_ts = time.time()
     formatted = _format_data(raw, fmt, conn.encoding)
@@ -368,7 +371,9 @@ async def handle_read_until(state: SerialState, args: dict[str, Any]) -> dict[st
     expected = delimiter.encode(conn.encoding, errors="replace")
     timeout_s = int(timeout_ms) / 1000.0 if timeout_ms is not None else conn.timeout
 
-    raw = await asyncio.to_thread(conn.buffer.read_until, expected, max_bytes, timeout_s)
+    raw = await anyio.to_thread.run_sync(
+        conn.buffer.read_until, expected, max_bytes, timeout_s, abandon_on_cancel=True
+    )
 
     conn.last_seen_ts = time.time()
     formatted = _format_data(raw, fmt, conn.encoding)
@@ -387,7 +392,7 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
     what = args.get("what", "both")
 
     if what in ("input", "both"):
-        await asyncio.to_thread(conn.ser.reset_input_buffer)
+        await anyio.to_thread.run_sync(conn.ser.reset_input_buffer)
         # A script may have claimed the connection meanwhile; nothing awaits between this check and the discard.
         blocked = script_running_error(state, conn.connection_id)
         if blocked is not None:
@@ -396,7 +401,7 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
     if what in ("output", "both"):
         # Queued and running writes would otherwise refill the buffer being flushed.
         conn.writer.discard_pending()
-        await asyncio.to_thread(conn.ser.reset_output_buffer)
+        await anyio.to_thread.run_sync(conn.ser.reset_output_buffer)
 
     conn.log_slot.event("flush", what=what)
 

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from unittest.mock import MagicMock, patch
 
+import anyio
+import anyio.to_thread
 import pytest
 import serial as pyserial
 
@@ -24,7 +25,7 @@ from serial_mcp_server.mcp.tools.io import (
 )
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.writer import SerialWriter
-from tests.helpers import reconfigure, writer_goes_idle
+from tests.helpers import reconfigure, skipped_timed_waits, start_request, writer_goes_idle
 
 
 class TestToolRegistration:
@@ -106,29 +107,29 @@ class TestWrite:
         state, conn = connected_entry
         conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.side_effect = len
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(state, {"connection_id": "s1", "data": "ABC"})
 
         assert result["bytes_written"] == 3
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
+        assert sleeps == [0.008, 0.008]
 
     async def test_write_with_connection_chunk_pacing(self, connected_entry):
         state, conn = connected_entry
         conn.writer.pacing = Pacing(chunk_size=2, chunk_delay_ms=5)
         conn.ser.write.side_effect = len
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(state, {"connection_id": "s1", "data": "ABCDE"})
 
         assert result["bytes_written"] == 5
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"AB", b"CD", b"E"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.005, 0.005]
+        assert sleeps == [0.005, 0.005]
 
     async def test_write_with_per_call_character_delay_override(self, connected_entry):
         state, conn = connected_entry
         conn.writer.pacing = Pacing(inter_char_delay_ms=2)
         conn.ser.write.side_effect = len
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABC", "inter_char_delay_ms": 8},
@@ -136,13 +137,13 @@ class TestWrite:
 
         assert result["bytes_written"] == 3
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"A", b"B", b"C"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.008, 0.008]
+        assert sleeps == [0.008, 0.008]
 
     async def test_write_with_per_call_chunk_override_from_character_pacing(self, connected_entry):
         state, conn = connected_entry
         conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.side_effect = len
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(
                 state,
                 {
@@ -155,13 +156,13 @@ class TestWrite:
 
         assert result["bytes_written"] == 7
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"ABC", b"DEF", b"G"]
-        assert [call.args[0] for call in sleep.call_args_list] == [0.005, 0.005]
+        assert sleeps == [0.005, 0.005]
 
     async def test_write_zero_override_disables_connection_chunk_pacing(self, connected_entry):
         state, conn = connected_entry
         conn.writer.pacing = Pacing(chunk_size=2, chunk_delay_ms=5)
         conn.ser.write.return_value = 5
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
@@ -169,13 +170,13 @@ class TestWrite:
 
         assert result["bytes_written"] == 5
         conn.ser.write.assert_called_once_with(b"ABCDE")
-        sleep.assert_not_called()
+        assert sleeps == []
 
     async def test_write_zero_character_delay_disables_connection_pacing(self, connected_entry):
         state, conn = connected_entry
         conn.writer.pacing = Pacing(inter_char_delay_ms=8)
         conn.ser.write.return_value = 5
-        with patch.object(threading.Event, "wait", return_value=False) as sleep:
+        with skipped_timed_waits() as sleeps:
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABCDE", "inter_char_delay_ms": 0},
@@ -183,7 +184,7 @@ class TestWrite:
 
         assert result["bytes_written"] == 5
         conn.ser.write.assert_called_once_with(b"ABCDE")
-        sleep.assert_not_called()
+        assert sleeps == []
 
     @pytest.mark.parametrize(
         "delay",
@@ -281,12 +282,13 @@ class TestClaimRecheckedAfterAwait:
 
         conn.ser.reset_input_buffer.side_effect = gated_reset
         with patch.object(conn.writer, "discard_pending") as discard:
-            task = asyncio.create_task(handle_flush(state, {"connection_id": "s1"}))
-            assert await asyncio.to_thread(reading.wait, 5)
-            run, _owner = state.script_jobs.claim("s1", MagicMock())
-            assert run is not None
-            proceed.set()
-            result = await task
+            async with anyio.create_task_group() as tg:
+                flush = start_request(tg, handle_flush, state, {"connection_id": "s1"})
+                assert await anyio.to_thread.run_sync(reading.wait, 5)
+                run, _owner = state.script_jobs.claim("s1", MagicMock())
+                assert run is not None
+                proceed.set()
+                result = await flush.outcome()
 
         assert result["error"]["code"] == "script_running"
         discard.assert_not_called()
@@ -356,7 +358,7 @@ def held_entry(connected_entry):
 
 
 async def _wait_until_held(port: _HeldPort) -> None:
-    assert await asyncio.to_thread(port.entered.wait, 2)
+    assert await anyio.to_thread.run_sync(port.entered.wait, 2)
 
 
 class TestWriterIntegration:
@@ -364,12 +366,13 @@ class TestWriterIntegration:
         state, conn, port = held_entry
         args = {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1}
 
-        first = asyncio.create_task(handle_write(state, {**args, "data": "AAAA"}))
-        await _wait_until_held(port)
-        second = asyncio.create_task(handle_write(state, {**args, "data": "BBBB"}))
-        await asyncio.sleep(0)
-        port.release.set()
-        results = await asyncio.gather(first, second)
+        async with anyio.create_task_group() as tg:
+            first = start_request(tg, handle_write, state, {**args, "data": "AAAA"})
+            await _wait_until_held(port)
+            second = start_request(tg, handle_write, state, {**args, "data": "BBBB"})
+            await anyio.wait_all_tasks_blocked()
+            port.release.set()
+            results = [await first.outcome(), await second.outcome()]
 
         assert [r["bytes_written"] for r in results] == [4, 4]
         assert port.writes == [b"AA", b"AA", b"BB", b"BB"]
@@ -377,15 +380,17 @@ class TestWriterIntegration:
     async def test_cancelling_a_queued_write_sends_nothing(self, held_entry):
         state, conn, port = held_entry
 
-        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
-        await _wait_until_held(port)
-        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "never"}))
-        await asyncio.sleep(0)
-        queued.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await queued
-        port.release.set()
-        await first
+        async with anyio.create_task_group() as tg:
+            first = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "first"})
+            await _wait_until_held(port)
+            queued = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "never"})
+            await anyio.wait_all_tasks_blocked()
+            queued.cancel()
+            await queued.outcome()
+            port.release.set()
+            await first.outcome()
+
+        assert queued.cancelled
 
         assert port.writes == [b"first"]
 
@@ -394,34 +399,36 @@ class TestWriterIntegration:
         # Six segments a second apart: left running, the write would take five more seconds.
         args = {"connection_id": "s1", "data": "ABCDEF", "chunk_size": 1, "chunk_delay_ms": 1000}
 
-        task = asyncio.create_task(handle_write(state, args))
-        await _wait_until_held(port)
-        task.cancel()
-        port.release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        async with anyio.create_task_group() as tg:
+            write = start_request(tg, handle_write, state, args)
+            await _wait_until_held(port)
+            write.cancel()
+            port.release.set()
+            await write.outcome()
+        assert write.cancelled
 
         # Only the cancellation reaches the job here; nothing stops the writer. Within half the
         # delay between segments the job must have ended with its first segment.
-        assert await asyncio.to_thread(writer_goes_idle, conn.writer, "mcp", 0.5)
+        assert await anyio.to_thread.run_sync(writer_goes_idle, conn.writer, "mcp", 0.5)
         assert port.writes == [b"A"]
 
     async def test_close_fails_a_queued_write_and_ends_the_writer_thread(self, held_entry):
         state, conn, port = held_entry
 
-        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
-        await _wait_until_held(port)
-        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "queued"}))
-        await asyncio.sleep(0)
-        stopped = threading.Event()
-        real_stop = conn.writer.stop
-        conn.writer.stop = lambda: (real_stop(), stopped.set())
-        closing = asyncio.create_task(handle_close(state, {"connection_id": "s1"}))
-        assert await asyncio.to_thread(stopped.wait, 2)
-        port.release.set()
-        await closing
-        queued_result = await queued
-        await first
+        async with anyio.create_task_group() as tg:
+            first = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "first"})
+            await _wait_until_held(port)
+            queued = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "queued"})
+            await anyio.wait_all_tasks_blocked()
+            stopped = threading.Event()
+            real_stop = conn.writer.stop
+            conn.writer.stop = lambda: (real_stop(), stopped.set())
+            closing = start_request(tg, handle_close, state, {"connection_id": "s1"})
+            assert await anyio.to_thread.run_sync(stopped.wait, 2)
+            port.release.set()
+            await closing.outcome()
+            queued_result = await queued.outcome()
+            await first.outcome()
 
         assert queued_result["error"]["code"] == "connection_closed"
         assert port.writes == [b"first"]
@@ -438,14 +445,15 @@ class TestWriterIntegration:
     async def test_flush_output_discards_queued_writes(self, held_entry):
         state, conn, port = held_entry
 
-        first = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "first"}))
-        await _wait_until_held(port)
-        queued = asyncio.create_task(handle_write(state, {"connection_id": "s1", "data": "queued"}))
-        await asyncio.sleep(0)
-        await handle_flush(state, {"connection_id": "s1", "what": "output"})
-        port.release.set()
-        await first
-        queued_result = await queued
+        async with anyio.create_task_group() as tg:
+            first = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "first"})
+            await _wait_until_held(port)
+            queued = start_request(tg, handle_write, state, {"connection_id": "s1", "data": "queued"})
+            await anyio.wait_all_tasks_blocked()
+            await handle_flush(state, {"connection_id": "s1", "what": "output"})
+            port.release.set()
+            await first.outcome()
+            queued_result = await queued.outcome()
 
         assert queued_result["error"]["code"] == "write_aborted"
         assert queued_result["bytes_written"] == 0
@@ -471,7 +479,7 @@ class TestWriteDurationCap:
         reconfigure(state, max_write_seconds=0.016)
         conn.ser.write.side_effect = len
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             result = await handle_write(
                 state, {"connection_id": "s1", "data": "AB", "inter_char_delay_ms": 8}
             )
@@ -482,7 +490,7 @@ class TestWriteDurationCap:
         state, conn = connected_entry
         conn.ser.write.side_effect = len
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             result = await handle_write(
                 state, {"connection_id": "s1", "data": "A" * 7500, "inter_char_delay_ms": 8}
             )
@@ -508,7 +516,7 @@ class TestWriteDurationCap:
         state, conn = connected_entry
         conn.ser.write.side_effect = [2, 2, pyserial.SerialTimeoutException("write timeout")]
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             result = await handle_write(
                 state,
                 {"connection_id": "s1", "data": "ABCDEFGH", "chunk_size": 2, "chunk_delay_ms": 1},

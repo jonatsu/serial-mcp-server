@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
+import anyio
+import anyio.to_thread
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.confined_files import MAX_CONFINED_FILE_BYTES, read_confined_file
@@ -69,7 +70,9 @@ async def handle_send_file(state: SerialState, args: dict[str, Any]) -> dict[str
     root = state.settings.files_dir
     try:
         pacing = parse_write_pacing(args, conn.writer.pacing)
-        resolved, payload = await asyncio.to_thread(read_confined_file, root, requested, MAX_SEND_FILE_BYTES)
+        resolved, payload = await anyio.to_thread.run_sync(
+            read_confined_file, root, requested, MAX_SEND_FILE_BYTES, abandon_on_cancel=True
+        )
     except ValueError as exc:  # includes PathRefused
         return _err("invalid_params", str(exc))
     except OSError as exc:

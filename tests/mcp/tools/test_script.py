@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import re
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import anyio
+import anyio.to_thread
 import pytest
 
 from serial_mcp_server.mcp.tools.connection import handle_close, handle_configure, handle_connection_status
@@ -38,9 +40,10 @@ from serial_mcp_server.mcp.tools.script import (
 )
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.writer import SerialWriter
+from serial_mcp_server.portlog.log import PortLog
 from serial_mcp_server.script.directives import DIRECTIVES
 from serial_mcp_server.script.runner import ScriptRunner
-from tests.helpers import reconfigure
+from tests.helpers import reconfigure, start_request
 
 SID = {"connection_id": "s1"}
 
@@ -89,7 +92,7 @@ async def _wait_for_status(state, run_id: str, condition, timeout: float = 2.0):
         result = await handle_script_status(state, {"run_id": run_id})
         if condition(result):
             return result
-        await asyncio.sleep(0.01)
+        await anyio.sleep(0.01)
     raise AssertionError(f"script status did not reach the expected state: {result}")
 
 
@@ -108,6 +111,30 @@ class TestRegistration:
 
 
 class TestRun:
+    async def test_a_run_cancelled_while_its_log_starts_never_starts(self, connected_entry, script_env):
+        state, conn = connected_entry
+        real_start = PortLog.start
+        creating = threading.Event()
+        proceed = threading.Event()
+
+        def gated_start(*args, **kwargs):
+            creating.set()
+            assert proceed.wait(5), "the test never let the log start"
+            return real_start(*args, **kwargs)
+
+        with patch.object(PortLog, "start", side_effect=gated_start):
+            async with anyio.create_task_group() as tg:
+                run = start_request(tg, handle_script_run, state, {**SID, "source": "hello\n"})
+                assert await anyio.to_thread.run_sync(creating.wait, 5)
+                run.cancel()
+                proceed.set()
+                await run.outcome()
+
+        assert run.cancelled
+        assert state.script_jobs.active_for_connection("s1") is None
+        assert conn.log_slot.log is None
+        conn.ser.write.assert_not_called()
+
     async def test_parse_errors_include_each_line_and_send_nothing(self, connected_entry, script_env):
         state, conn = connected_entry
 
@@ -377,7 +404,7 @@ class TestRun:
         duplicate = await handle_script_run(state, {**SID, "source": "other\n", "log": False})
 
         original_cancel(job.runner)
-        assert await asyncio.to_thread(job.runner.done.wait, 2.0)
+        assert await anyio.to_thread.run_sync(job.runner.done.wait, 2.0)
         released = await _wait_for_status(state, run_id, lambda value: value["state"] == "cancelled")
 
         assert timed_out["cancel_requested"] is True

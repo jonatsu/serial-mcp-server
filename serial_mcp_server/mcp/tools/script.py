@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import stat
 import time
@@ -10,11 +9,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import anyio
+import anyio.lowlevel
+import anyio.to_thread
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.confined_files import read_confined_file
 from serial_mcp_server.mcp.responses import _coerce_bool, _err, _ok
 from serial_mcp_server.mcp.state import ScriptRun, SerialState
+from serial_mcp_server.mcp.threads import run_to_completion
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog.formats import CLOSE_EVENT, LOG_FORMATS_SCHEMA, OPEN_EVENT
@@ -139,8 +142,8 @@ async def _script_source(args: dict[str, Any], scripts_root: Path) -> tuple[str,
     if not isinstance(requested, str):
         return _err("invalid_params", "path must be a relative string.")
     try:
-        _resolved, payload = await asyncio.to_thread(
-            read_confined_file, scripts_root, requested, MAX_SCRIPT_BYTES
+        _resolved, payload = await anyio.to_thread.run_sync(
+            read_confined_file, scripts_root, requested, MAX_SCRIPT_BYTES, abandon_on_cancel=True
         )
         return payload.decode("utf-8"), requested
     except UnicodeError as exc:
@@ -216,7 +219,7 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
         return loaded
     source, script_name = loaded
     try:
-        script = await asyncio.to_thread(parse, source, variables, files_root)
+        script = await anyio.to_thread.run_sync(parse, source, variables, files_root, abandon_on_cancel=True)
     except ScriptSyntaxError as exc:
         return _parse_error_result(exc)
     except ValueError as exc:
@@ -268,12 +271,12 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
     try:
         if log_request is not None and conn.log_slot.log is None:
             try:
-                created_log = await asyncio.to_thread(PortLog.start, log_request, conn.encoding)
+                created_log = await anyio.to_thread.run_sync(PortLog.start, log_request, conn.encoding)
             except OSError as exc:
                 state.script_jobs.release_unstarted(run.run_id)
                 return _err("log_failed", f"Could not start the port log in {log_request.directory}: {exc}")
             if state.connections.get(connection_id) is not conn:
-                await asyncio.to_thread(created_log.discard)
+                await run_to_completion(created_log.discard)
                 state.script_jobs.release_unstarted(run.run_id)
                 return _err("not_found", f"Connection {connection_id} closed while the script was starting.")
             if conn.log_slot.log is None:
@@ -281,8 +284,11 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
                 conn.log_slot.set(created_log)
                 started_log = created_log
             else:
-                await asyncio.to_thread(created_log.discard)
+                await run_to_completion(created_log.discard)
 
+        # PortLog.start is waited for even when the request is cancelled; the cancellation ends the request
+        # here, before the run starts, and the handler below closes the log this request started.
+        await anyio.lowlevel.checkpoint()
         if state.connections.get(connection_id) is not conn:
             state.script_jobs.release_unstarted(run.run_id)
             return _err("not_found", f"Connection {connection_id} closed while the script was starting.")
@@ -292,22 +298,22 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
     except BaseException:
         if runner_started:
             runner.cancel()
-            await asyncio.to_thread(runner.join)
-            await asyncio.to_thread(_close_owned_log, conn, started_log)
+            await run_to_completion(runner.join)
+            await run_to_completion(_close_owned_log, conn, started_log)
             state.script_jobs.finish(run.run_id)
         else:
             state.script_jobs.release_unstarted(run.run_id)
-            await asyncio.to_thread(_close_owned_log, conn, started_log)
+            await run_to_completion(_close_owned_log, conn, started_log)
         raise
 
     if wait_ms:
         wait_seconds = wait_ms / 1000.0
         deadline = time.monotonic() + wait_seconds
-        ended = await asyncio.to_thread(runner.done.wait, wait_seconds)
+        ended = await anyio.to_thread.run_sync(runner.done.wait, wait_seconds, abandon_on_cancel=True)
         if ended:
             remaining = max(0.0, deadline - time.monotonic())
             if remaining and not run.finished.is_set():
-                await asyncio.to_thread(run.finished.wait, remaining)
+                await anyio.to_thread.run_sync(run.finished.wait, remaining, abandon_on_cancel=True)
             return _job_status(run, include_runner_result=True)
     return _ok(run_id=run.run_id, state=runner.snapshot().state.value)
 
@@ -329,7 +335,7 @@ async def handle_script_status(state: SerialState, args: dict[str, Any]) -> dict
         identifier = f"run_id {run_id!r}" if run_id is not None else f"connection_id {connection_id!r}"
         return _err("not_found", f"No retained script run for {identifier}.")
     if run.runner.done.is_set() and not run.finished.is_set():
-        await asyncio.to_thread(run.finished.wait, 5.0)
+        await anyio.to_thread.run_sync(run.finished.wait, 5.0, abandon_on_cancel=True)
     return _job_status(run)
 
 
@@ -345,11 +351,11 @@ async def handle_script_cancel(state: SerialState, args: dict[str, Any]) -> dict
 
     deadline = time.monotonic() + SCRIPT_CANCEL_WAIT_SECONDS
     run.runner.cancel()
-    await asyncio.to_thread(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS)
+    await anyio.to_thread.run_sync(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS, abandon_on_cancel=True)
     if run.runner.done.is_set():
         remaining = max(0.0, deadline - time.monotonic())
         if remaining and not run.finished.is_set():
-            await asyncio.to_thread(run.finished.wait, remaining)
+            await anyio.to_thread.run_sync(run.finished.wait, remaining, abandon_on_cancel=True)
         status = _job_status(run, include_runner_result=True)
         return _ok(run_id=run.run_id, state=status["state"], result=status.get("result"))
     return _ok(run_id=run.run_id, state=run.runner.snapshot().state.value, cancel_requested=True)
@@ -381,7 +387,9 @@ def _list_scripts(root: Path) -> list[dict[str, Any]]:
 
 async def handle_script_list(state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
     try:
-        scripts = await asyncio.to_thread(_list_scripts, state.settings.scripts_dir)
+        scripts = await anyio.to_thread.run_sync(
+            _list_scripts, state.settings.scripts_dir, abandon_on_cancel=True
+        )
     except OSError as exc:
         return _err("file_unreadable", f"Could not list scripts: {exc.strerror or exc}")
     return _ok(scripts=scripts, count=len(scripts))

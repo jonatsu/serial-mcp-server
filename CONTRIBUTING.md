@@ -64,6 +64,16 @@ async def handle_something(state: SerialState, args: dict[str, Any]) -> dict[str
 - `args` — parsed tool arguments from the MCP client
 - Returns `_ok(key=value)` on success or `_err(code, message)` on failure, from `serial_mcp_server.mcp.responses`
 
+## Blocking calls and cancellation
+
+Handlers use AnyIO, the library the MCP SDK runs on, not `asyncio` directly. Run every blocking call, such as a port operation, a file read, or a thread join, with `anyio.to_thread.run_sync`, and choose what a cancelled request does with it:
+
+- Pass `abandon_on_cancel=True` when the call only produces a value, such as a read, a wait, or a listing. A cancelled request stops waiting, and the thread finishes on its own. Bound such a call with a timeout, because the process waits for its thread at exit.
+- Leave the default when the thread builds something that holds a resource, such as opening a port or starting a log. The request waits for the thread, then releases what it built; the cancellation arrives at the next checkpoint, which `anyio.lowlevel.checkpoint()` makes explicit.
+- Use `run_to_completion` from `mcp/threads.py` for a call that finishes a change already begun, such as closing a port, stopping a connection, or discarding a log. It runs in a shielded cancel scope, so a pending cancellation cannot skip it.
+
+The SDK cancels a request through the request's cancel scope, and a shielded scope holds against that. A task cancelled directly with `Task.cancel()` goes through shields, so tests cancel a tool call with `tests.helpers.start_request`, which runs the handler in its own cancel scope the way the SDK does. Async tests run on AnyIO's pytest plugin, on the asyncio backend.
+
 ## Configuration
 
 `serial_mcp_server/config.py` is the only module that reads the environment. `config.load()` reads every `SERIAL_MCP_*` variable once at start into a frozen `Settings`, and an invalid value stops the start with a message that names every invalid variable. Handlers read `state.settings`; other code takes the values it needs as parameters. To add a variable, add a field to `Settings` with its default and validation, document it in the README's variable table, and pass the value to the code that uses it. A test fails if any other module reads `os.environ`. In tests, build settings with `config.load({...})`, or change one value of a test's state with `tests.helpers.reconfigure`, instead of setting environment variables.

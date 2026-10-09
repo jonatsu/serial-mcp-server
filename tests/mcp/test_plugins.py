@@ -369,7 +369,6 @@ HANDLERS = {"test.hello": _h}
 
 
 class TestPluginListHandler:
-    @pytest.mark.asyncio
     async def test_returns_loaded_plugins(self, tmp_path: Path) -> None:
         from serial_mcp_server.mcp.tools.plugin import make_handlers
 
@@ -391,7 +390,6 @@ class TestPluginListHandler:
         assert "test.hello" in result["plugins"][0]["tools"]
         assert result["plugins_dir"] == str(plugins_dir)
 
-    @pytest.mark.asyncio
     async def test_returns_empty_when_none_loaded(self, tmp_path: Path) -> None:
         from serial_mcp_server.mcp.tools.plugin import make_handlers
 
@@ -547,7 +545,6 @@ class TestPluginHandlers:
         plugin_handlers = make_handlers(manager, mock_server)
         return plugin_handlers, manager
 
-    @pytest.mark.asyncio
     async def test_template_returns_template_and_path(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -557,7 +554,6 @@ class TestPluginHandlers:
         assert "HANDLERS" in result["template"]
         assert "suggested_path" in result
 
-    @pytest.mark.asyncio
     async def test_template_with_device_name(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -566,7 +562,6 @@ class TestPluginHandlers:
         assert "SensorTag" in result["template"] or "sensortag" in result["template"]
         assert "sensortag" in result["suggested_path"]
 
-    @pytest.mark.asyncio
     async def test_reload_success(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -579,7 +574,6 @@ class TestPluginHandlers:
         assert result["name"] == "hello"
         assert "test.hello" in result["tools"]
 
-    @pytest.mark.asyncio
     async def test_reload_unknown_plugin(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -587,7 +581,6 @@ class TestPluginHandlers:
         assert result["ok"] is False
         assert result["error"]["code"] == "not_found"
 
-    @pytest.mark.asyncio
     async def test_reload_missing_name(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -595,7 +588,6 @@ class TestPluginHandlers:
         assert result["ok"] is False
         assert result["error"]["code"] == "invalid_params"
 
-    @pytest.mark.asyncio
     async def test_load_success(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -608,7 +600,6 @@ class TestPluginHandlers:
         assert result["name"] == "hello"
         assert "test.hello" in result["tools"]
 
-    @pytest.mark.asyncio
     async def test_load_empty_path(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -616,7 +607,6 @@ class TestPluginHandlers:
         assert result["ok"] is False
         assert result["error"]["code"] == "invalid_params"
 
-    @pytest.mark.asyncio
     async def test_load_path_traversal_blocked(self, tmp_path: Path) -> None:
         plugin_handlers, manager = self._setup(tmp_path)
 
@@ -628,7 +618,6 @@ class TestPluginHandlers:
         assert result["ok"] is False
         assert result["error"]["code"] == "plugin_error"
 
-    @pytest.mark.asyncio
     async def test_list_when_plugins_disabled(self, tmp_path: Path) -> None:
         from serial_mcp_server.mcp.tools.plugin import make_handlers
 
@@ -646,7 +635,6 @@ class TestPluginHandlers:
         assert result["policy"] == "disabled"
         assert result["count"] == 0
 
-    @pytest.mark.asyncio
     async def test_list_shows_policy_with_allowlist(self, tmp_path: Path) -> None:
         from serial_mcp_server.mcp.tools.plugin import make_handlers
 

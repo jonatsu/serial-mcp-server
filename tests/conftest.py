@@ -15,6 +15,12 @@ from serial_mcp_server.port.writer import SerialWriter
 
 
 @pytest.fixture()
+def anyio_backend():
+    """Run async tests on asyncio only, the backend ``anyio.run`` gives the server."""
+    return "asyncio"
+
+
+@pytest.fixture()
 def settings(tmp_path):
     """Default settings with the data root, and so every log, file, and script directory, under tmp_path."""
     return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path / ".serial_mcp")})

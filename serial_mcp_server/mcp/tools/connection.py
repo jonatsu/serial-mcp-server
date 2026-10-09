@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
+from functools import partial
 from typing import Any
 
+import anyio
+import anyio.lowlevel
+import anyio.to_thread
 import serial as pyserial
 import serial.tools.list_ports
 from mcp.types import Tool, ToolAnnotations
@@ -17,8 +20,9 @@ from serial_mcp_server.mcp.responses import (
     script_running_error,
 )
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.threads import run_to_completion
 from serial_mcp_server.mcp.tools.io import PACING_KEYS, parse_write_pacing
-from serial_mcp_server.port.connection import SerialConnection, stop_connections
+from serial_mcp_server.port.connection import stop_connections
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.portlog.formats import (
     CONFIGURE_EVENT,
@@ -247,7 +251,7 @@ TOOLS: list[Tool] = [
 
 
 async def handle_list_ports(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
-    ports = await asyncio.to_thread(serial.tools.list_ports.comports)
+    ports = await anyio.to_thread.run_sync(serial.tools.list_ports.comports, abandon_on_cancel=True)
     port_list = []
     for p in sorted(ports, key=lambda x: x.device):
         info: dict[str, Any] = {"device": p.device, "description": p.description, "hwid": p.hwid}
@@ -271,24 +275,6 @@ async def handle_list_ports(state: SerialState, args: dict[str, Any]) -> dict[st
         ports=port_list,
         count=len(port_list),
     )
-
-
-def _release_when_worker_ends(worker: asyncio.Future[SerialConnection], ser: pyserial.Serial) -> None:
-    """Release what an abandoned ``open_port_stack`` worker built, once its thread ends.
-
-    Cancelling ``serial.open`` cannot stop the worker thread, so closing *ser* now would pull the port
-    out from under it. This waits for the thread, then stops the connection it returned or, if it failed,
-    closes the port. The blocking release runs in the default executor, never on the event loop.
-    """
-
-    def release(finished: asyncio.Future[SerialConnection]) -> None:
-        loop = finished.get_loop()
-        if finished.cancelled() or finished.exception() is not None:
-            loop.run_in_executor(None, ser.close)
-        else:
-            loop.run_in_executor(None, stop_connections, [finished.result()])
-
-    worker.add_done_callback(release)
 
 
 async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -352,42 +338,40 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     if exclusive is not None:
         kwargs["exclusive"] = exclusive
 
-    ser = await asyncio.to_thread(pyserial.Serial, **kwargs)
-    worker = asyncio.ensure_future(
-        asyncio.to_thread(
-            open_port_stack,
-            ser,
-            port=port,
-            baudrate=baudrate,
-            bytesize=bytesize,
-            parity=parity,
-            stopbits=stopbits,
-            timeout=timeout_s,
-            write_timeout=write_timeout_s,
-            encoding=encoding,
-            newline=newline,
-            pacing=pacing,
-            log_request=log_request,
-            connection_id=state.generate_id(),
-            mirror_mode=state.settings.mirror,
-            mirror_link=str(state.settings.mirror_link) if state.settings.mirror_link else None,
-        )
+    # Both threads build something that holds the port, so a cancelled request waits for them rather than
+    # abandoning them, then releases what they built; the cancellation arrives at the next checkpoint.
+    ser = await anyio.to_thread.run_sync(partial(pyserial.Serial, **kwargs))
+    build_stack = partial(
+        open_port_stack,
+        ser,
+        port=port,
+        baudrate=baudrate,
+        bytesize=bytesize,
+        parity=parity,
+        stopbits=stopbits,
+        timeout=timeout_s,
+        write_timeout=write_timeout_s,
+        encoding=encoding,
+        newline=newline,
+        pacing=pacing,
+        log_request=log_request,
+        connection_id=state.generate_id(),
+        mirror_mode=state.settings.mirror,
+        mirror_link=str(state.settings.mirror_link) if state.settings.mirror_link else None,
     )
     try:
-        conn = await asyncio.shield(worker)
-    except asyncio.CancelledError:
-        _release_when_worker_ends(worker, ser)  # the thread keeps running and owns *ser* until it ends
-        raise
+        conn = await anyio.to_thread.run_sync(build_stack)
     except PortLogStartError as exc:
-        await asyncio.to_thread(ser.close)
+        await run_to_completion(ser.close)
         return _err("log_failed", str(exc))
     except BaseException:
-        await asyncio.to_thread(ser.close)
+        await run_to_completion(ser.close)
         raise
     try:
+        await anyio.lowlevel.checkpoint()  # a request cancelled while the stack was built ends here
         state.add_connection(conn)
     except BaseException:
-        await asyncio.to_thread(stop_connections, [conn])  # joins the threads, closes the log and the port
+        await run_to_completion(stop_connections, [conn])  # joins the threads, closes the log and the port
         raise
 
     result = _ok(
@@ -409,10 +393,10 @@ async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, An
     run = state.script_jobs.active_for_connection(connection_id)
     if run is not None:
         run.runner.cancel()
-        await asyncio.to_thread(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS)
+        await anyio.to_thread.run_sync(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS, abandon_on_cancel=True)
     # Remove the connection on the loop, then join its threads off it.
     conn = state.remove_connection(connection_id)
-    await asyncio.to_thread(stop_connections, [conn])
+    await run_to_completion(stop_connections, [conn])  # removed above, so it must be stopped now
     return _ok(message=f"Closed {conn.port}.", connection_id=connection_id, port=conn.port)
 
 

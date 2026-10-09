@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
+import anyio
+import anyio.lowlevel
+import anyio.to_thread
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.mcp.responses import _err, _ok, script_running_error
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.threads import run_to_completion
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog.formats import (
@@ -120,9 +123,16 @@ async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str
         return _err("invalid_params", str(exc))
 
     try:
-        log = await asyncio.to_thread(PortLog.start, request, conn.encoding)
+        # Not abandoned on cancellation: the log's files are open once it starts, so it is attached or
+        # discarded below rather than left with no owner.
+        log = await anyio.to_thread.run_sync(PortLog.start, request, conn.encoding)
     except OSError as exc:
         return _err("log_failed", f"Could not start the port log in {request.directory}: {exc}")
+    try:
+        await anyio.lowlevel.checkpoint()  # a request cancelled while the files were created ends here
+    except anyio.get_cancelled_exc_class():
+        await _discard(log)
+        raise
     # Nothing below awaits until the log is attached, so these checks and the attach are one step.
     if state.connections.get(conn.connection_id) is not conn:
         await _discard(log)
@@ -141,7 +151,7 @@ async def handle_log_start(state: SerialState, args: dict[str, Any]) -> dict[str
 
 async def _discard(log: PortLog) -> None:
     """Close a log that was never attached and remove its files."""
-    await asyncio.to_thread(log.discard)
+    await run_to_completion(log.discard)
 
 
 async def handle_log_stop(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -153,7 +163,7 @@ async def handle_log_stop(state: SerialState, args: dict[str, Any]) -> dict[str,
     if log is None:
         return _not_logging(conn)
     log.event(CLOSE_EVENT)
-    await asyncio.to_thread(log.close)
+    await run_to_completion(log.close)  # detached above, so it must be closed now
     status = log.status()
     files = [
         {"format": name, "path": str(path), "bytes": path.stat().st_size if path.exists() else 0}

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 import sys
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from functools import partial
 
+import anyio
+import anyio.to_thread
 import pytest
 
 from serial_mcp_server.mcp.tools.io import handle_read
@@ -329,8 +331,8 @@ def test_subscribe_and_unsubscribe_do_not_block_reader_callbacks() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="PTY mirror requires Unix")
 async def test_mirror_subscriber_and_serial_read_receive_the_same_bytes(connected_entry) -> None:
     state, conn = connected_entry
-    mirror_session = await asyncio.to_thread(
-        MirrorSession, conn.ser, conn.buffer, mode="ro", writer=conn.writer
+    mirror_session = await anyio.to_thread.run_sync(
+        partial(MirrorSession, conn.ser, conn.buffer, mode="ro", writer=conn.writer)
     )
     matcher = OutputMatcher(conn.encoding)
     unsubscribe_matcher = mirror_session.subscribe(matcher)
@@ -338,13 +340,13 @@ async def test_mirror_subscriber_and_serial_read_receive_the_same_bytes(connecte
     received = b"device output\n"
 
     try:
-        await asyncio.to_thread(mirror_session._on_data, received)
+        await anyio.to_thread.run_sync(mirror_session._on_data, received)
         result = await handle_read(
             state, {"connection_id": conn.connection_id, "nbytes": len(received), "timeout_ms": 0}
         )
     finally:
         unsubscribe_matcher()
-        await asyncio.to_thread(mirror_session.stop)
+        await anyio.to_thread.run_sync(mirror_session.stop)
 
     assert result["ok"]
     assert result["data"] == received.decode(conn.encoding)

@@ -296,6 +296,22 @@ writer, port log, and script runner are threads, and only the async boundary cha
 This step changes cancellation behavior, so it follows the moves of section 5.3 as its own commits, never mixed
 into a move.
 
+As built, each blocking call takes one of three forms, which `CONTRIBUTING.md` states for new handlers. A call that
+only produces a value, such as a read, a wait, or a listing, passes `abandon_on_cancel=True`. A call that builds
+something holding a resource, such as opening the port, building the port stack, or starting a log, keeps the
+default: the request waits for the thread, and an explicit checkpoint right after it delivers a pending
+cancellation, so the request releases what it built instead of committing it. A call that finishes a change
+already begun, such as closing the port, stopping a connection, or closing a log, goes through `run_to_completion`
+in `mcp/threads.py`, which runs it in a shielded scope. The shield is needed because `run_sync` starts with a
+checkpoint that would raise a pending cancellation before the cleanup's thread ever started.
+
+Shields hold against the MCP SDK's cancellation, which cancels a request through the request's cancel scope. A
+task cancelled directly with `Task.cancel()` goes through them, so the tests cancel tool calls through a cancel
+scope, as the SDK does. AnyIO's worker threads, like asyncio's executor threads before them, are not daemon
+threads, so an abandoned call holds process exit until it returns; every abandoned call is bounded by a timeout or
+ends when shutdown stops the connections. The integration harness in `tests/integration/` is a separate MCP client
+and still uses `asyncio`.
+
 ## 9. Architecture Decisions
 
 | ID  | Decision                                                                                 | Status          | Rejected alternatives and why |
