@@ -83,8 +83,9 @@ A `lines` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567,
 Set `log_text_timestamps` to `elapsed` or `system` to prefix each line of the `text` log in the style of `grabserial`, a serial capture tool by Tim Bird: `[<time> <delta>] `, stamped when the line's first byte arrives. With `elapsed`, `<time>` is seconds since the first received byte; with `system` it is the UTC wall-clock time. `<delta>` is seconds since the previous line, and both numbers have six decimal places. The default is `off`, so the `text` file holds exactly the received bytes. Transmitted bytes never appear in the `text` file.
 
 The agent never chooses the directory or file names. Files go to `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`) and are named `serial-mcp-log-<DDMMYYYY>-<HHMM>[-<n>].<extension>` in local time; all formats of one log share the name. Files are created with mode `0600`, because a console log can capture passwords. If the log cannot be started, the port is closed and the call returns `log_failed`.
-A `jsonl` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567, "dir": "tx", "source": "mcp", "len": 3, "hex": "6c730a", "text": "ls\n"}`. The `source` is `mcp` or `mirror`. Control events (`open`, `close`, `dtr`, `rts`, `flush`, `configure`) have an `event` field instead of `dir`.
-If the disk falls more than 8 MiB behind, the log drops entries rather than block the port and records a `log_overflow` event (or, in `text`, a `--- serial-mcp: <n> bytes not logged ---` line) with the exact byte count.
+The server never deletes log files or script result files, and each `serial.script.run` adds a result file and, when the connection has no active log, a port log. Point `SERIAL_MCP_LOG_DIR` at a directory you clean.
+A `jsonl` entry looks like `{"ts": "2026-10-08T12:00:00.123456Z", "t": 1.234567, "dir": "tx", "source": "mcp", "len": 3, "hex": "6c730a", "text": "ls\n"}`. The `source` is `mcp` or `mirror`. Other entries have an `event` field instead of `dir`: `open`, `close`, `dtr`, `rts`, `flush`, `configure`, `mark`, `buffer_drop`, `send_file_start`, `send_file_end`, `script_start`, `script_end`, and `log_overflow`.
+If the disk falls more than 8 MiB behind, the log drops entries rather than block the port, and `serial.log.status` and `serial.log.stop` report the dropped byte count as `dropped_bytes`. The formats record the drop differently. The `jsonl` and `lines` files get a `log_overflow` event with the exact byte count, and the `text` file gets a `--- serial-mcp: <n> bytes not logged ---` line. The `raw` file records nothing, so a gap in it is silent; check `dropped_bytes`.
 When logging, the response and `serial.connection_status` include `log`, with the `formats` and the `files` paths.
 A port log holds everything on the wire, including passwords typed into a console and any terminal control sequences the device sends. Treat the files as sensitive, and view them with a pager that does not interpret escape sequences. `serial.open` also rejects an `encoding` that is not a text codec, such as `hex`.
 
@@ -200,7 +201,7 @@ Returns `{ "ok": true, "message": "Wrote 12 byte(s) to /dev/ttyUSB0.", "bytes_wr
 
 Writes to one connection run in order on a single writer thread, so concurrent writes and mirror input never interleave within a payload. If the connection closes while a write is queued, the call returns the error code `connection_closed`. If a write stops early because `serial.flush` discarded it, or because the connection closed mid-write, the call returns the error code `write_aborted` and a `bytes_written` count. Cancelling the request stops a paced write between segments and returns no result.
 
-A paced write is rejected with `invalid_params` before any byte is sent when its estimated duration, the number of segments times the delay, exceeds `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60). Time spent queued behind other writes is not counted. A write timeout partway through returns `write_aborted` with `bytes_written` set to the bytes of completed segments, which is a lower bound because the host may have accepted part of the failed segment.
+A paced write is rejected with `invalid_params` before any byte is sent when its estimated duration exceeds `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60). The estimate is the larger of the pauses between segments (the number of segments times the delay) and the time the bytes take on the wire at the connection's baud rate, with ten bits per byte. A write with no pacing is not capped. Time spent queued behind other writes is not counted. A write timeout partway through returns `write_aborted` with `bytes_written` set to the bytes of completed segments, which is a lower bound because the host may have accepted part of the failed segment.
 
 ### serial.send_file
 
@@ -216,7 +217,7 @@ Send a prepared file to the device, with the connection's pacing. Use it for lon
 - a directory, a FIFO, or a device file;
 - a file over 1 MiB.
 
-Each refusal returns `invalid_params` before any byte is sent. The server opens the file without following links and checks its type and size again on the open handle, so swapping a file for a link or FIFO between the check and the read does not help.
+Each refusal returns `invalid_params` before any byte is sent; a missing target is one of them. A file that exists but cannot be read returns `file_unreadable`. The server opens the file without following links and checks its type and size again on the open handle, so swapping a file for a link or FIFO between the check and the read does not help. A hard link or a bind mount that an operator places inside the files directory looks like a regular file there, so do not link sensitive files into it.
 
 The pacing arguments override the connection's, as on `serial.write`. Without pacing, the file goes out in 4 KiB segments. The estimated duration must fit the `SERIAL_MCP_MAX_WRITE_SECONDS` cap: it is the larger of the pauses between segments (the number of segments times the delay) and the time the bytes take on the wire at the connection's baud rate with ten bits per byte. A transfer that stops early returns `write_aborted` with `bytes_written`, as `serial.write` does.
 
@@ -275,7 +276,7 @@ Set the RTS (Request To Send) control line. Usage is device-specific.
 
 ### serial.pulse_dtr
 
-Pulse the DTR line: sets low, waits `duration_ms`, then sets high. Commonly used to reset microcontrollers.
+Pulse the DTR line: sets low, waits `duration_ms`, then sets high. Commonly used to reset microcontrollers. A pulse that began before a script run claimed the connection still sets the line high when it ends.
 
 ```json
 { "connection_id": "s1a2b3c4", "duration_ms": 100 }
@@ -285,7 +286,7 @@ Only `connection_id` is required. Default duration is 100ms.
 
 ### serial.pulse_rts
 
-Pulse the RTS line: sets low, waits `duration_ms`, then sets high. Some devices use RTS to enter bootloader mode.
+Pulse the RTS line: sets low, waits `duration_ms`, then sets high. Some devices use RTS to enter bootloader mode. A pulse that began before a script run claimed the connection still sets the line high when it ends.
 
 ```json
 { "connection_id": "s1a2b3c4", "duration_ms": 100 }
@@ -366,15 +367,15 @@ The parser reports every error with its source line. It sends no data if parsing
 
 `log` defaults to `true`. If no port log is active, the run starts one using `log_formats`.
 Without `log_formats`, it uses `SERIAL_MCP_LOG_FORMATS`, then `text`.
-An active log stays open when the script ends. Pass `log: false` to avoid starting a new log.
+A log that the run starts is closed when the run ends, so the `log_paths` in the result name closed files. A log that was already active stays open. Pass `log: false` to avoid starting a new log.
 `wait_ms` accepts an integer or numeric string from 0 to 60000. Its default is 0, which returns immediately.
 
-The response includes `run_id` and `state`. If the run finishes within `wait_ms`, the response includes the full result.
-Parse failures return `invalid_params` and an `errors` array. Each entry includes the source line, text, and message.
+The response includes `run_id` and `state`. If the run finishes within `wait_ms`, the response includes the full result. Each run also writes a result file under `SERIAL_MCP_LOG_DIR`, which the server never deletes.
+Parse failures return `invalid_params` and an `errors` array. Each entry includes the source line, text, and message. A script `path` that exists but cannot be read, or an operating-system error while the parser checks the `@send_file` paths, returns `file_unreadable`. A `@send_file` file that exists but cannot be read passes that check, and the run then ends `errored` with the reason `file_error`. If the port log cannot be started, the call returns `log_failed`. If the connection closes while the script is starting, the call returns `not_found`.
 
 `script_running` blocks `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, `serial.set_dtr`, `serial.set_rts`, `serial.pulse_dtr`, and `serial.pulse_rts`.
 `serial.log.start` and `serial.log.stop` also return `script_running` while a run owns the connection.
-Reads, connection status, log marks, and log status remain available. The server rejects another run on the claimed connection.
+Reads, connection status, log marks, and log status remain available. The server rejects another run on the claimed connection. Input from a read/write PTY mirror is not blocked; it still reaches the device during the run, between the script's writes.
 
 ### serial.script.status
 
@@ -385,7 +386,7 @@ Inspect a run by `run_id`, or inspect the latest run on a `connection_id`.
 ```
 
 Status includes the state, current source line and text, completed step count, and elapsed seconds.
-After completion, it also includes the full result, failure details, output tail, result path, and port log paths.
+After completion, it also includes the full result, failure details, output tail, result path, and port log paths. An unknown `run_id`, or a connection with no retained run, returns `not_found`.
 The server retains 20 finished results.
 
 ### serial.script.cancel
@@ -396,7 +397,7 @@ Request cancellation of an active run.
 { "run_id": "<run id>" }
 ```
 
-The handler waits up to five seconds for the runner to stop. If it remains active, the response includes `cancel_requested: true`.
+The handler waits up to five seconds for the runner to stop. If it remains active, the response includes `cancel_requested: true`. Cancelling also removes a write of the run that is still queued behind other writes. An unknown `run_id` returns `not_found`.
 The connection stays claimed until the runner returns.
 
 ### serial.script.list
@@ -520,7 +521,7 @@ Full-text search over a spec's content. Returns matching snippets with line numb
 
 ## Tracing
 
-Tools for inspecting the JSONL trace log. Tracing is enabled by default and records every tool call.
+Tools for inspecting the JSONL trace log. Tracing is enabled by default and records every tool call. The trace strips write `data`, and the inline `source` and `vars` of `serial.script.run`, from traced args unless `SERIAL_MCP_TRACE_PAYLOADS` is set.
 
 ### serial.trace.status
 

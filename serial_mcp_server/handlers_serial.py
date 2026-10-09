@@ -981,6 +981,10 @@ async def handle_flush(state: SerialState, args: dict[str, Any]) -> dict[str, An
 
     if what in ("input", "both"):
         await asyncio.to_thread(conn.ser.reset_input_buffer)
+        # A script may have claimed the connection meanwhile; nothing awaits between this check and the discard.
+        blocked = script_running_error(state, conn.connection_id)
+        if blocked is not None:
+            return blocked
         conn.buffer.clear()
     if what in ("output", "both"):
         # Queued and running writes would otherwise refill the buffer being flushed.
@@ -1035,6 +1039,7 @@ async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str
     conn.ser.dtr = False
     conn.log_slot.event("dtr", value=False)
     await asyncio.sleep(duration_ms / 1000.0)
+    # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
     conn.ser.dtr = True
     conn.log_slot.event("dtr", value=True)
     conn.last_seen_ts = time.time()
@@ -1050,6 +1055,7 @@ async def handle_pulse_rts(state: SerialState, args: dict[str, Any]) -> dict[str
     conn.ser.rts = False
     conn.log_slot.event("rts", value=False)
     await asyncio.sleep(duration_ms / 1000.0)
+    # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
     conn.ser.rts = True
     conn.log_slot.event("rts", value=True)
     conn.last_seen_ts = time.time()

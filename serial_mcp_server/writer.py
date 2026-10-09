@@ -119,6 +119,8 @@ def write_serial_payload(
             was fully sent. ``bytes_written`` counts completed segments.
     """
     if not pacing.is_paced:
+        if cancel is not None and cancel.is_set():
+            raise WriteAborted("Write cancelled.", 0)
         n = _write_segment(ser, payload, bytes_before=0)
         if on_sent is not None:
             on_sent(payload, n)

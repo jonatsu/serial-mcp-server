@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -131,6 +132,22 @@ class TestRun:
         ]
         conn.ser.write.assert_not_called()
         assert state.script_jobs.active_for_connection("s1") is None
+
+    async def test_send_file_cannot_leave_the_files_directory_and_nothing_is_sent_or_started(
+        self, connected_entry, script_env, tmp_path
+    ):
+        state, conn = connected_entry
+        (tmp_path / "outside.bin").write_bytes(b"secret")  # a real file next to the files directory
+
+        result = await handle_script_run(
+            state, {**SID, "source": "hello\n@send_file ../outside.bin\n", "log": False}
+        )
+
+        assert result["error"]["code"] == "invalid_params"
+        assert [error["line"] for error in result["errors"]] == [2]
+        assert "must name a file inside the files directory" in result["errors"][0]["message"]
+        conn.ser.write.assert_not_called()
+        assert state.script_jobs.latest_for_connection("s1") is None
 
     @pytest.mark.parametrize("args", [{}, {"source": "cmd\n", "path": "cmd.script"}])
     async def test_run_requires_exactly_one_source_or_path(self, connected_entry, script_env, args):
@@ -521,9 +538,19 @@ class TestScriptDirectory:
         template = result["template"]
 
         assert result["ok"]
-        for name, directive in DIRECTIVES.items():
+        for name in DIRECTIVES:
             assert name in template
-            assert directive.usage in template
         assert "echo" in template.lower()
         assert "@prompt" in template
         assert "@send" in template
+
+    async def test_every_directive_row_has_three_cells_even_when_usage_contains_pipes(self, serial_state):
+        template = (await handle_script_template(serial_state, {}))["template"]
+
+        rows = [line for line in template.splitlines() if line.startswith("| `")]
+        assert len(rows) == len(DIRECTIVES)
+        for row in rows:
+            cells = re.split(r"(?<!\\)\|", row.strip().strip("|"))
+            assert len(cells) == 3, row
+        by_name = {row.split("`")[1]: row for row in rows}
+        assert "`@prompt REGEX \\| @prompt --off`" in by_name["prompt"]

@@ -588,6 +588,21 @@ def test_invalid_maximum_duration_is_rejected(tmp_path: Path, monkeypatch: pytes
         make_runner("@mark start", FakePortSession(), tmp_path)
 
 
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_maximum_duration_means_the_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, blank: str
+) -> None:
+    monkeypatch.setenv("SERIAL_MCP_SCRIPT_MAX_SECONDS", blank)
+    runner, _ = make_runner("@mark start", FakePortSession(), tmp_path)
+    runner.start()
+
+    assert runner.done.wait(timeout=1.0)
+
+    result = runner.result
+    assert result is not None
+    assert result.state is RunState.PASSED
+
+
 def test_failed_thread_start_keeps_the_runner_recoverable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

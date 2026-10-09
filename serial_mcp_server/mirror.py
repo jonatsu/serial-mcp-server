@@ -338,9 +338,13 @@ class MirrorSession(ReaderThread):
                 logger.warning("Failed to create mirror symlink %s: %s", self.link_path, exc)
 
     def join(self) -> None:
-        """Join the thread, then release the PTY, symlink, and mirror index."""
-        super().join()
-        # Clean up PTY and symlink.
+        """Join the thread, then release the PTY, symlink, and mirror index, even if the join fails."""
+        try:
+            super().join()
+        finally:
+            self._release_resources()
+
+    def _release_resources(self) -> None:
         try:
             os.close(self._master_fd)
         except OSError:

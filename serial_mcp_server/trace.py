@@ -26,7 +26,8 @@ TRACE_MAX_BYTES = int(os.environ.get("SERIAL_MCP_TRACE_MAX_BYTES", "16384"))
 # Sanitize args
 # ---------------------------------------------------------------------------
 
-_PAYLOAD_KEYS = {"data"}
+# Device input and credentials: write data, and the source and variables of a script run.
+_PAYLOAD_KEYS = {"data", "source", "vars"}
 
 
 def sanitize_args(args: dict[str, Any]) -> dict[str, Any]:
@@ -38,10 +39,16 @@ def sanitize_args(args: dict[str, Any]) -> dict[str, Any]:
         if not TRACE_PAYLOADS:
             del out[key]
         else:
-            val = out[key]
-            if isinstance(val, str) and len(val) > TRACE_MAX_BYTES:
-                out[key] = val[:TRACE_MAX_BYTES] + "\u2026"
+            out[key] = _truncated(out[key])
     return out
+
+
+def _truncated(value: Any) -> Any:
+    """A string, or the JSON form of any other value, cut to ``TRACE_MAX_BYTES``; short values stay as they are."""
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    if len(text) > TRACE_MAX_BYTES:
+        return text[:TRACE_MAX_BYTES] + "\u2026"
+    return value
 
 
 # ---------------------------------------------------------------------------

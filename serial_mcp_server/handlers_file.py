@@ -86,6 +86,10 @@ async def handle_send_file(state: SerialState, args: dict[str, Any]) -> dict[str
 
     # Report the path inside the files directory, not the operator's absolute layout.
     shown_path = resolved.relative_to(root.resolve()).as_posix()
+    # A script may have claimed the connection while the file was read; nothing awaits from here to the submit.
+    blocked = script_running_error(state, conn.connection_id)
+    if blocked is not None:
+        return blocked
     conn.log_slot.event(SEND_FILE_START_EVENT, path=shown_path, size=len(payload))
     written, error = await run_write_job(
         conn,

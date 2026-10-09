@@ -31,6 +31,7 @@ from serial_mcp_server.handlers_serial import (
 from serial_mcp_server.port_stack import open_port_stack
 from serial_mcp_server.state import SerialState, stop_connections
 from serial_mcp_server.writer import Pacing, SerialWriter
+from tests.helpers import writer_goes_idle
 
 
 class TestToolRegistration:
@@ -592,6 +593,31 @@ class TestOpenResourceCleanup:
         assert serial_state.connections == {}
 
 
+class TestClaimRecheckedAfterAwait:
+    """A script that claims the connection while a tool awaits must stop that tool's later effects."""
+
+    async def test_flush_does_not_discard_the_scripts_writes(self, connected_entry):
+        state, conn = connected_entry
+        reading = threading.Event()
+        proceed = threading.Event()
+
+        def gated_reset() -> None:
+            reading.set()
+            assert proceed.wait(5), "the test never released the flush"
+
+        conn.ser.reset_input_buffer.side_effect = gated_reset
+        with patch.object(conn.writer, "discard_pending") as discard:
+            task = asyncio.create_task(handle_flush(state, {"connection_id": "s1"}))
+            assert await asyncio.to_thread(reading.wait, 5)
+            run, _owner = state.script_jobs.claim("s1", MagicMock())
+            assert run is not None
+            proceed.set()
+            result = await task
+
+        assert result["error"]["code"] == "script_running"
+        discard.assert_not_called()
+
+
 class TestFormatData:
     def test_text(self):
         r = _format_data(b"hello", "text", "utf-8")
@@ -691,6 +717,7 @@ class TestWriterIntegration:
 
     async def test_cancelling_a_running_paced_write_stops_it_between_segments(self, held_entry):
         state, conn, port = held_entry
+        # Six segments a second apart: left running, the write would take five more seconds.
         args = {"connection_id": "s1", "data": "ABCDEF", "chunk_size": 1, "chunk_delay_ms": 1000}
 
         task = asyncio.create_task(handle_write(state, args))
@@ -699,9 +726,10 @@ class TestWriterIntegration:
         port.release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
-        await asyncio.to_thread(conn.writer.stop)
-        await asyncio.to_thread(conn.writer.join)
 
+        # Only the cancellation reaches the job here; nothing stops the writer. Within half the
+        # delay between segments the job must have ended with its first segment.
+        assert await asyncio.to_thread(writer_goes_idle, conn.writer, "mcp", 0.5)
         assert port.writes == [b"A"]
 
     async def test_close_fails_a_queued_write_and_ends_the_writer_thread(self, held_entry):

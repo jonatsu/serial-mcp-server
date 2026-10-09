@@ -37,9 +37,9 @@ Only `@` in column zero begins a directive. A line with leading whitespace befor
 | `@mark` | `@mark LABEL` | Write the remaining text as a port-log mark and record it in the result. |
 | `@send_file` | `@send_file PATH` | Send a confined regular file from `SERIAL_MCP_FILES_DIR` with current pacing. |
 
-`@send`, `@sendline`, `@sendhex`, `@newline`, and `@mark` take the rest of their line without quote processing. Quotes in those lines remain literal. Other directives use POSIX shell-style argument quoting, where quotes group words. The parser substitutes variables after splitting, so spaces and quotes in values stay inside one argument.
+`@send`, `@sendline`, `@sendhex`, `@newline`, and `@mark` take the rest of their line without quote processing. Quotes in those lines remain literal. The parser strips leading and trailing whitespace from that text, so write `\x20` or `\t` for a space or tab at either end of `@send`, `@sendline`, or `@newline` text. Other directives use POSIX shell-style argument quoting, where quotes group words. The parser substitutes variables after splitting, so spaces and quotes in values stay inside one argument.
 
-The text directives `@send`, `@sendline`, and `@newline` decode escapes before variable substitution. Backslashes in variable values therefore stay literal. `@sendhex` sends raw bytes. Text writes use the connection's encoding. In those directives, `\xHH` is a Unicode code point encoded with that setting.
+The text directives `@send`, `@sendline`, and `@newline` decode escapes before variable substitution. Backslashes in variable values therefore stay literal. An escape other than `\r`, `\n`, `\t`, `\xHH`, and `\\` is a parse error. `@sendhex` sends raw bytes. Text writes use the connection's encoding. In those directives, `\xHH` is a Unicode code point encoded with that setting.
 
 `@send_file` paths must resolve to regular files inside the configured files directory. Directories, other file types, paths outside that directory, and files larger than 1 MiB are refused. Quote paths that contain spaces, as in `@send_file "images/boot image.bin"`.
 
@@ -58,7 +58,7 @@ Write variables as `{{NAME}}`. A name starts with a letter or underscore, follow
 Inside a regular expression, variable values are escaped so they match literal text rather than regular-expression syntax. For example, `@expect {{VERSION}}` with `VERSION=U-Boot 2026.10` matches that text literally.
 Patterns use Python regular-expression syntax. Inline flags, such as `(?i)`, work.
 
-Each step retains its original source line before substitution. Result step text retains `{{SERVER_IP}}`. The variable-name list contains only `SERVER_IP`, never its value. Device output is recorded as received, so echoes can still expose values in output and port logs.
+Each step retains its original source line before substitution. Result step text retains `{{SERVER_IP}}`. The variable-name list contains only `SERVER_IP`, never its value. Values still appear elsewhere: device output is recorded as received, so echoes can expose values in output and port logs; the `tx` entries of the port log hold every byte sent, including substituted values; and a variable used in an `@mark` label is stored in the result's `marks` and in the port log.
 
 ## Matching device output
 
@@ -79,6 +79,14 @@ Devices often echo input. For example, `@expect ls` after the bare command `ls` 
 The parser returns every syntax error together, with its source line. Unknown directives, malformed arguments, invalid regular expressions, undefined variables, unitless durations, and rejected `@send_file` paths produce errors. Fix them before starting a run.
 
 The script language has no shell escape or include directive. `@send_file` is its only file operation, and it is confined to the configured files directory.
+
+## Limits
+
+Pattern matching runs on the runner thread inside Python's `re` module, which holds the interpreter lock. A pattern with nested quantifiers, such as `(a+)+$`, can stall the whole server until the match finishes, and no per-run guard limits a pattern's time, whoever wrote the script. Avoid nested quantifiers.
+
+`SERIAL_MCP_SCRIPT_MAX_SECONDS` and `@fail_on` are checked between steps and when output arrives, not while a single write is in flight. A long paced `@send` or `@send_file` therefore runs to its end unless the run is cancelled, and a `@fail_on` pattern that appears during the write is noticed only afterwards. A script's writes are not subject to `SERIAL_MCP_MAX_WRITE_SECONDS`.
+
+Text that the connection's encoding cannot encode is found when its step runs, after earlier steps were sent. The run then ends `errored` with the reason `serial_error`.
 
 ## Running from the command line
 

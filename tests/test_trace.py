@@ -127,6 +127,31 @@ class TestSanitizeArgs:
         result["nested"]["a"] = 999
         assert args["nested"]["a"] == 1  # Original not mutated
 
+    def test_script_source_and_variables_are_stripped_by_default(self, monkeypatch):
+        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", False)
+        args = {
+            "connection_id": "s1",
+            "source": "@sendline login admin\nhunter2\n",
+            "vars": {"PASSWORD": "hunter2"},
+            "path": "uboot.serial",
+        }
+
+        result = sanitize_args(args)
+
+        assert result == {"connection_id": "s1", "path": "uboot.serial"}
+
+    def test_script_source_and_variables_are_kept_and_truncated_when_payloads_are_enabled(self, monkeypatch):
+        monkeypatch.setattr("serial_mcp_server.trace.TRACE_PAYLOADS", True)
+        monkeypatch.setattr("serial_mcp_server.trace.TRACE_MAX_BYTES", 20)
+
+        short = sanitize_args({"source": "@sleep 1s", "vars": {"A": "b"}})
+        long = sanitize_args({"source": "x" * 40, "vars": {"PASSWORD": "p" * 40}})
+
+        assert short == {"source": "@sleep 1s", "vars": {"A": "b"}}
+        assert long["source"] == "x" * 20 + "\u2026"
+        assert isinstance(long["vars"], str)
+        assert long["vars"] == json.dumps({"PASSWORD": "p" * 40})[:20] + "\u2026"
+
 
 # ---------------------------------------------------------------------------
 # init_trace
