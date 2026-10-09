@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from unittest.mock import patch
 
+import anyio
+import anyio.to_thread
 import pytest
 
 from serial_mcp_server import config
@@ -23,7 +24,7 @@ from serial_mcp_server.port.buffer import DEFAULT_BUFFER_BYTES, SerialBuffer
 from serial_mcp_server.port.stack import make_read_buffer
 from serial_mcp_server.portlog.formats import BUFFER_DROP_EVENT
 from serial_mcp_server.portlog.log import PortLog
-from tests.helpers import read_jsonl, reconfigure
+from tests.helpers import read_jsonl, reconfigure, start_request
 
 SID = {"connection_id": "s1"}
 
@@ -258,7 +259,9 @@ class TestStartRaces:
     async def test_two_concurrent_starts_leave_exactly_one_log(self, connected_entry, log_env):
         state, _ = connected_entry
 
-        first, second = await asyncio.gather(handle_log_start(state, SID), handle_log_start(state, SID))
+        async with anyio.create_task_group() as tg:
+            starts = [start_request(tg, handle_log_start, state, SID) for _ in range(2)]
+        first, second = [await start.outcome() for start in starts]
 
         assert sorted(r["ok"] for r in (first, second)) == [False, True]
         loser = first if not first["ok"] else second
@@ -279,6 +282,32 @@ class TestStartRaces:
             result = await handle_log_start(state, SID)
 
         assert result["error"]["code"] == "not_found"
+        assert conn.log_slot.log is None
+        assert list(log_env.iterdir()) == []
+        assert not [t for t in threading.enumerate() if t.name == "serial-portlog" and t.is_alive()]
+
+    async def test_a_start_cancelled_while_the_files_are_created_leaves_no_log(
+        self, connected_entry, log_env
+    ):
+        state, conn = connected_entry
+        real_start = PortLog.start
+        creating = threading.Event()
+        proceed = threading.Event()
+
+        def gated_start(*args, **kwargs):
+            creating.set()
+            assert proceed.wait(5), "the test never let the log start"
+            return real_start(*args, **kwargs)
+
+        with patch.object(PortLog, "start", side_effect=gated_start):
+            async with anyio.create_task_group() as tg:
+                start = start_request(tg, handle_log_start, state, SID)
+                assert await anyio.to_thread.run_sync(creating.wait, 5)
+                start.cancel()
+                proceed.set()
+                await start.outcome()
+
+        assert start.cancelled
         assert conn.log_slot.log is None
         assert list(log_env.iterdir()) == []
         assert not [t for t in threading.enumerate() if t.name == "serial-portlog" and t.is_alive()]

@@ -197,7 +197,6 @@ class TestInitTrace:
 
 
 class TestHandlersTraceDisabled:
-    @pytest.mark.asyncio
     async def test_status_disabled(self, monkeypatch):
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
         from serial_mcp_server.mcp.tools.trace import handle_trace_status
@@ -206,7 +205,6 @@ class TestHandlersTraceDisabled:
         assert result["ok"] is True
         assert result["enabled"] is False
 
-    @pytest.mark.asyncio
     async def test_tail_disabled(self, monkeypatch):
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
         from serial_mcp_server.mcp.tools.trace import handle_trace_tail
@@ -217,7 +215,6 @@ class TestHandlersTraceDisabled:
 
 
 class TestHandlersTraceEnabled:
-    @pytest.mark.asyncio
     async def test_status_enabled(self, monkeypatch):
         buf = TraceBuffer()
         buf.emit({"event": "test"})
@@ -229,7 +226,6 @@ class TestHandlersTraceEnabled:
         assert result["enabled"] is True
         assert result["event_count"] == 1
 
-    @pytest.mark.asyncio
     async def test_tail_enabled(self, monkeypatch):
         buf = TraceBuffer()
         buf.emit({"event": "test", "data": 42})

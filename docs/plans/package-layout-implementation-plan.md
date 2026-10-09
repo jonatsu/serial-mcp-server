@@ -642,4 +642,49 @@ allow, broke the independence contract.
 
 Self-review: the diff touches only the contracts in `pyproject.toml` and this record.
 
-No other unit has started.
+### Unit 11: Async Code on AnyIO
+
+Converted on 9 October 2026. Guidance applied: `python-async-patterns`, `python-testing`, and the AnyIO 4.15.1
+stable documentation. `rg '\basyncio\b' serial_mcp_server` matches nothing; `anyio>=4.11,<5` is a declared
+dependency, because `anyio_mode = "auto"` arrived in 4.11. `pytest-asyncio` is gone, and an `anyio_backend` fixture
+in `tests/conftest.py` keeps the tests on asyncio.
+
+Each call site was decided by what its thread does, as design section 8.4 now records. Reads, waits, listings, file
+reads, and parsing pass `abandon_on_cancel=True`. Opening the port, building the stack, starting a log, and
+resetting buffers wait for their thread. Closing the port, stopping a connection, closing or discarding a log, and
+the script-run cleanup go through `run_to_completion` in the new `mcp/threads.py`. `state.shutdown` abandons its
+join, and `mcp/server.py` bounds it with `move_on_after(SHUTDOWN_LIMIT_SECONDS, shield=True)`. `run_write_job` waits
+on the job's future from an abandonable worker thread and, when cancelled, cancels the future and sets the job's
+cancel event, as `asyncio.wrap_future` did implicitly. `anyio.run` starts the server.
+
+Two deviations from the plan's wording. A shielded scope alone does not make a cleanup run: `run_sync` starts with a
+checkpoint, which raises a pending cancellation before the cleanup's thread starts, so cleanups use the shielded
+`run_to_completion`. Waiting for a thread also moves the cancellation to the next checkpoint, so explicit checkpoints
+follow `open_port_stack`, `PortLog.start` in `serial.log.start`, and `PortLog.start` before `runner.start()` in
+`serial.script.run`; a cancelled request releases what it built instead of committing it. The old done-callback
+release of an abandoned `serial.open` worker is gone, because the request now waits for the worker. A finding on the
+way: AnyIO shields hold against the MCP SDK's cancellation, which goes through the request's cancel scope, but not
+against a direct `Task.cancel()`. The tests therefore cancel tool calls through `tests.helpers.start_request`, which
+runs a handler in its own cancel scope as the SDK does, and the concurrency tests use task groups. Tests that patched
+`threading.Event.wait` for every thread now use `tests.helpers.skipped_timed_waits`, because AnyIO starts worker
+threads and `Thread.start` waits on an event. The integration harness stays on `asyncio`; it is a separate MCP
+client and this unit's evidence.
+
+P1 results: 773 tests passed (769 before, plus four cancellation tests replacing two). The new cleanup test failed
+before the change, as the plan required: the cancelled request ended before the port closed. On the old
+`connection.py`, four of the five open-cleanup tests fail, including a request cancelled while `pyserial.Serial`
+opened the port, which used to leave the port to garbage collection. Removing the checkpoint in `log.py` or
+`script.py` fails its new test. `just check` clean; Bandit no issues; `just integration` passed every scenario,
+including the mirror- and status-latency checks that show the loop stays free. A stdio server with one open PTY
+port exits 0.164 s after its client closes stdin, the same as at `57320d4` (three runs each, each tree confirmed to
+import its own code).
+
+Review: an independent `code-reviewer` on Opus at medium effort approved. Its one optional finding, an unbounded
+`runner.join` inside the shield in the `serial.script.run` cleanup, is reachable only when starting the runner's
+watcher thread fails; bounding it needs a decision on releasing the claim while the runner may still run, so it is a
+follow-up. It also asked how Ctrl-C behaves. Measured at `57320d4` and here, alike: after one SIGINT the server
+stays up until stdin closes, because the SDK reads stdin in a worker thread, then exits 0 with no traceback and a
+closed port log. Not exiting on SIGINT alone predates this unit and is a follow-up. A test of a write cancelled
+while still queued, through `serial.send_file`'s log path, is also a follow-up.
+
+All eleven units are done; the final integration gate has not started.

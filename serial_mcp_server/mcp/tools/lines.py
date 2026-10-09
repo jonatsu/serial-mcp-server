@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any
 
+import anyio
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.mcp.responses import (
@@ -141,7 +141,7 @@ async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.dtr = False
     conn.log_slot.event("dtr", value=False)
-    await asyncio.sleep(duration_ms / 1000.0)
+    await anyio.sleep(duration_ms / 1000.0)
     # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
     conn.ser.dtr = True
     conn.log_slot.event("dtr", value=True)
@@ -157,7 +157,7 @@ async def handle_pulse_rts(state: SerialState, args: dict[str, Any]) -> dict[str
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.rts = False
     conn.log_slot.event("rts", value=False)
-    await asyncio.sleep(duration_ms / 1000.0)
+    await anyio.sleep(duration_ms / 1000.0)
     # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
     conn.ser.rts = True
     conn.log_slot.event("rts", value=True)

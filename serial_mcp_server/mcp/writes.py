@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from concurrent.futures import Future
 from typing import Any
+
+import anyio
+import anyio.to_thread
 
 from serial_mcp_server.mcp.responses import _err
 from serial_mcp_server.port.connection import SerialConnection
@@ -60,9 +62,12 @@ async def run_write_job(
     if on_done is not None:
         job.future.add_done_callback(lambda future: on_done(_bytes_written_by(future)))
     try:
-        return await asyncio.wrap_future(job.future), None
-    except asyncio.CancelledError:
-        job.cancel.set()
+        # A cancelled request abandons the waiting thread, and cancelling the job below ends that thread's
+        # wait: at once for a queued job, at the next segment boundary for a running one.
+        return await anyio.to_thread.run_sync(job.future.result, abandon_on_cancel=True), None
+    except anyio.get_cancelled_exc_class():
+        job.future.cancel()  # drops the job if it is still queued
+        job.cancel.set()  # stops a running job between segments
         raise
     except WriterClosed as exc:
         return 0, _err("connection_closed", str(exc))

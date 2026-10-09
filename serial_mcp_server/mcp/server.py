@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 import time
@@ -160,6 +159,9 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
 # Entry point
 # ---------------------------------------------------------------------------
 
+# How long the server waits for connections to stop when it exits; their threads finish on their own.
+SHUTDOWN_LIMIT_SECONDS = 0.25
+
 
 async def _run(settings: Settings) -> None:
     server, state = build_server(settings)
@@ -183,8 +185,10 @@ async def _run(settings: Settings) -> None:
             raise
     finally:
         try:
-            await asyncio.wait_for(asyncio.shield(state.shutdown()), timeout=0.25)
-        except (TimeoutError, asyncio.CancelledError, Exception):
+            # Shielded from the cancellation that may be ending the server; the deadline still applies.
+            with anyio.move_on_after(SHUTDOWN_LIMIT_SECONDS, shield=True):
+                await state.shutdown()
+        except Exception:
             pass
         buf = get_trace_buffer()
         if buf:
@@ -219,7 +223,7 @@ def main() -> None:
         stream=sys.stderr,
     )
     try:
-        asyncio.run(_run(settings))
+        anyio.run(_run, settings)
     except _BENIGN_SYNC:
         pass
     except BaseExceptionGroup as eg:

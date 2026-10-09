@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
@@ -11,6 +10,8 @@ from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import anyio.to_thread
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
@@ -143,7 +144,7 @@ class ScriptJobs:
 class SerialState:
     """Shared connection and script state used by all tool handlers.
 
-    Connection registry mutations happen on the asyncio event loop. ScriptJobs
+    Connection registry mutations happen on the event loop thread. ScriptJobs
     uses a lock because its runner watchers finish on background threads.
     Reader threads synchronize their buffer and serial-port access separately.
     """
@@ -181,8 +182,12 @@ class SerialState:
         return self.connections.pop(connection_id)
 
     async def shutdown(self) -> None:
-        """Cancel script runs, then stop all readers, writers, and open serial ports."""
+        """Cancel script runs, then stop all readers, writers, and open serial ports.
+
+        The joins are abandoned when the caller's scope is cancelled, so a shutdown deadline can end the
+        wait; the thread still finishes stopping the connections.
+        """
         self.script_jobs.cancel_all()
         conns = list(self.connections.values())
         self.connections.clear()
-        await asyncio.to_thread(stop_connections, conns)
+        await anyio.to_thread.run_sync(stop_connections, conns, abandon_on_cancel=True)

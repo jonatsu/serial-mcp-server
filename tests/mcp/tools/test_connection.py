@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from unittest.mock import MagicMock, patch
 
+import anyio
 import pytest
 
 from serial_mcp_server.mcp.state import SerialState
@@ -22,6 +22,7 @@ from serial_mcp_server.mcp.tools.io import handle_readline, handle_write
 from serial_mcp_server.port.connection import stop_connections
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.stack import open_port_stack
+from tests.helpers import skipped_timed_waits
 
 
 class TestToolRegistration:
@@ -263,13 +264,15 @@ class TestOpenResourceCleanup:
         mock_reader.join.assert_called_once()
         mock_ser.close.assert_called_once()
 
-    async def test_cancelled_open_releases_the_stack_the_worker_finishes_building(
+    # The MCP SDK cancels a request through the request's AnyIO cancel scope, so these tests cancel the same way.
+    # A task cancelled directly with Task.cancel(), outside any cancel scope, goes through shielded scopes.
+
+    async def test_cancelled_open_waits_for_the_stack_then_releases_it(
         self, serial_state, mock_serial, mock_reader
     ):
         worker_started = threading.Event()
         proceed = threading.Event()
-        stopped = threading.Event()
-        stopped_connections = []
+        events: list[str] = []
 
         def blocked_open(ser, **kwargs):
             worker_started.set()
@@ -278,8 +281,14 @@ class TestOpenResourceCleanup:
 
         def recording_stop(conns):
             stop_connections(conns)
-            stopped_connections.extend(conns)
-            stopped.set()
+            events.append("stack stopped")
+
+        request_scope = anyio.CancelScope()
+
+        async def request() -> None:
+            with request_scope:
+                await handle_open(serial_state, {"port": "/dev/ttyUSB0"})
+            events.append("request ended")
 
         with (
             patch("serial_mcp_server.mcp.tools.connection.pyserial.Serial", return_value=mock_serial),
@@ -287,16 +296,16 @@ class TestOpenResourceCleanup:
             patch("serial_mcp_server.mcp.tools.connection.open_port_stack", side_effect=blocked_open),
             patch("serial_mcp_server.mcp.tools.connection.stop_connections", side_effect=recording_stop),
         ):
-            task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
-            assert await asyncio.to_thread(worker_started.wait, 5)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            proceed.set()
-            assert await asyncio.to_thread(stopped.wait, 5)
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(request)
+                assert await anyio.to_thread.run_sync(worker_started.wait, 5)
+                request_scope.cancel()
+                await anyio.sleep(0.05)
+                assert events == [], "the request must wait for the worker it started"
+                proceed.set()
 
-        (conn,) = stopped_connections
-        assert not conn.writer.alive
+        assert events == ["stack stopped", "request ended"]
+        assert request_scope.cancelled_caught
         mock_reader.signal_stop.assert_called_once()
         mock_serial.close.assert_called_once()
         assert serial_state.connections == {}
@@ -304,29 +313,97 @@ class TestOpenResourceCleanup:
     async def test_cancelled_open_closes_the_port_when_the_worker_fails(self, serial_state, mock_serial):
         worker_started = threading.Event()
         proceed = threading.Event()
-        closed = threading.Event()
-        mock_serial.close.side_effect = closed.set
+        events: list[str] = []
+        mock_serial.close.side_effect = lambda: events.append("port closed")
 
         def failing_open(_ser, **_kwargs):
             worker_started.set()
             assert proceed.wait(5), "the test never let the worker proceed"
             raise OSError("the stack could not be built")
 
+        request_scope = anyio.CancelScope()
+
+        async def request() -> None:
+            with pytest.raises(OSError, match="could not be built"), request_scope:
+                await handle_open(serial_state, {"port": "/dev/ttyUSB0"})
+            events.append("request ended")
+
         with (
             patch("serial_mcp_server.mcp.tools.connection.pyserial.Serial", return_value=mock_serial),
             patch("serial_mcp_server.mcp.tools.connection.open_port_stack", side_effect=failing_open),
             patch("serial_mcp_server.mcp.tools.connection.stop_connections") as stop,
         ):
-            task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
-            assert await asyncio.to_thread(worker_started.wait, 5)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            proceed.set()
-            assert await asyncio.to_thread(closed.wait, 5)
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(request)
+                assert await anyio.to_thread.run_sync(worker_started.wait, 5)
+                request_scope.cancel()
+                proceed.set()
 
-        mock_serial.close.assert_called_once()
+        assert events == ["port closed", "request ended"]
         stop.assert_not_called()
+        assert serial_state.connections == {}
+
+    async def test_open_cancelled_during_its_cleanup_still_closes_the_port_before_it_ends(
+        self, serial_state, mock_serial
+    ):
+        closing = threading.Event()
+        release_close = threading.Event()
+        events: list[str] = []
+
+        def slow_close() -> None:
+            closing.set()
+            assert release_close.wait(5), "the test never released the close"
+            events.append("port closed")
+
+        mock_serial.close.side_effect = slow_close
+        request_scope = anyio.CancelScope()
+
+        async def request() -> None:
+            with pytest.raises(OSError, match="no stack"), request_scope:
+                await handle_open(serial_state, {"port": "/dev/ttyUSB0"})
+            events.append("request ended")
+
+        with (
+            patch("serial_mcp_server.mcp.tools.connection.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.connection.open_port_stack", side_effect=OSError("no stack")),
+        ):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(request)
+                assert await anyio.to_thread.run_sync(closing.wait, 5)
+                request_scope.cancel()
+                await anyio.sleep(0.05)  # let the cancellation reach the cleanup's await
+                release_close.set()
+
+        assert events == ["port closed", "request ended"]
+
+    async def test_cancelled_open_closes_a_port_whose_stack_never_started(self, serial_state, mock_serial):
+        opening = threading.Event()
+        proceed = threading.Event()
+
+        def slow_serial(**_kwargs):
+            opening.set()
+            assert proceed.wait(5), "the test never let the port open"
+            return mock_serial
+
+        request_scope = anyio.CancelScope()
+
+        async def request() -> None:
+            with request_scope:
+                await handle_open(serial_state, {"port": "/dev/ttyUSB0"})
+
+        with (
+            patch("serial_mcp_server.mcp.tools.connection.pyserial.Serial", side_effect=slow_serial),
+            patch("serial_mcp_server.mcp.tools.connection.open_port_stack") as build,
+        ):
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(request)
+                assert await anyio.to_thread.run_sync(opening.wait, 5)
+                request_scope.cancel()
+                proceed.set()
+
+        assert request_scope.cancelled_caught
+        build.assert_not_called()
+        mock_serial.close.assert_called_once()
         assert serial_state.connections == {}
 
 
@@ -336,7 +413,7 @@ class TestConfigure:
         conn.ser.write.side_effect = len
 
         result = await handle_configure(state, {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1})
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             await handle_write(state, {"connection_id": "s1", "data": "ABCDE"})
 
         assert result["config"]["chunk_size"] == 2
@@ -347,8 +424,8 @@ class TestConfigure:
         conn.ser.write.side_effect = len
 
         await handle_configure(state, {"connection_id": "s1", "chunk_size": 2, "chunk_delay_ms": 1})
-        with patch.object(threading.Event, "wait", return_value=False):
-            await asyncio.wrap_future(conn.writer.submit(b"ABC", source="mirror").future)
+        with skipped_timed_waits():
+            await anyio.to_thread.run_sync(conn.writer.submit(b"ABC", source="mirror").future.result)
 
         assert [call.args[0] for call in conn.ser.write.call_args_list] == [b"AB", b"C"]
 

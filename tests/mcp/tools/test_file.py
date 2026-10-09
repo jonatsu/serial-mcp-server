@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import threading
 from unittest.mock import MagicMock, patch
 
+import anyio
+import anyio.to_thread
 import pytest
 import serial as pyserial
 
@@ -16,7 +17,7 @@ from serial_mcp_server.mcp.tools.file import HANDLERS, MAX_SEND_FILE_BYTES, TOOL
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.portlog.log import PortLog
 from serial_mcp_server.portlog.request import LogRequest
-from tests.helpers import read_jsonl, reconfigure, writer_goes_idle
+from tests.helpers import read_jsonl, reconfigure, skipped_timed_waits, start_request, writer_goes_idle
 
 SID = {"connection_id": "s1"}
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX symlinks and FIFOs")
@@ -52,7 +53,7 @@ class TestSending:
         conn.ser.write.side_effect = len
         (files / "env.txt").write_bytes(b"setenv a b\n\xff\x00end")
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             result = await handle_send_file(
                 state, {**SID, "path": "env.txt", "chunk_size": 6, "chunk_delay_ms": 1}
             )
@@ -80,7 +81,7 @@ class TestSending:
         conn.writer.pacing = Pacing(inter_char_delay_ms=1)
         (files / "x").write_bytes(b"abc")
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             await handle_send_file(state, {**SID, "path": "x"})
 
         assert written(conn) == [b"a", b"b", b"c"]
@@ -211,7 +212,7 @@ class TestFailures:
         (files / "f").write_bytes(b"ABCDEFGH")
         conn.ser.write.side_effect = [2, 2, pyserial.SerialTimeoutException("timeout")]
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             result = await handle_send_file(state, {**SID, "path": "f", "chunk_size": 2, "chunk_delay_ms": 1})
 
         assert result["error"]["code"] == "write_aborted"
@@ -237,7 +238,7 @@ class TestPortLog:
         log = PortLog.start(LogRequest(("jsonl",), tmp_path / "logs"), "utf-8")
         conn.log_slot.set(log)
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             await handle_send_file(state, {**SID, "path": "env.txt", "chunk_size": 2, "chunk_delay_ms": 1})
         conn.log_slot.close_log()
 
@@ -344,12 +345,13 @@ class TestClaimRecheckedAfterTheFileRead:
             return real_read(*args)
 
         with patch("serial_mcp_server.mcp.tools.file.read_confined_file", side_effect=gated_read):
-            task = asyncio.create_task(handle_send_file(state, {**SID, "path": "a.txt"}))
-            assert await asyncio.to_thread(reading.wait, 5)
-            run, _owner = state.script_jobs.claim("s1", MagicMock())
-            assert run is not None
-            proceed.set()
-            result = await task
+            async with anyio.create_task_group() as tg:
+                send = start_request(tg, handle_send_file, state, {**SID, "path": "a.txt"})
+                assert await anyio.to_thread.run_sync(reading.wait, 5)
+                run, _owner = state.script_jobs.claim("s1", MagicMock())
+                assert run is not None
+                proceed.set()
+                result = await send.outcome()
 
         assert result["error"]["code"] == "script_running"
         conn.ser.write.assert_not_called()
@@ -359,8 +361,6 @@ class TestCancelledTransfer:
     async def test_the_end_event_follows_the_last_tx_entry_and_counts_the_bytes_sent(
         self, connected_entry, files, tmp_path
     ):
-        import asyncio
-
         from serial_mcp_server.port.writer import SerialWriter
 
         state, conn = connected_entry
@@ -374,18 +374,21 @@ class TestCancelledTransfer:
         log = PortLog.start(LogRequest(("jsonl",), tmp_path / "logs"), "utf-8")
         conn.log_slot.set(log)
 
-        task = asyncio.create_task(
-            handle_send_file(state, {**SID, "path": "long", "chunk_size": 2, "chunk_delay_ms": 1000})
-        )
-        assert await asyncio.to_thread(port.entered.wait, 2)  # the first segment is in the port's write
-        task.cancel()
-        await asyncio.sleep(0)
-        port.release.set()
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        async with anyio.create_task_group() as tg:
+            send = start_request(
+                tg, handle_send_file, state, {**SID, "path": "long", "chunk_size": 2, "chunk_delay_ms": 1000}
+            )
+            assert await anyio.to_thread.run_sync(
+                port.entered.wait, 2
+            )  # the first segment is in the port's write
+            send.cancel()
+            await anyio.wait_all_tasks_blocked()
+            port.release.set()
+            await send.outcome()
+        assert send.cancelled
         # Only the cancellation reaches the job: nothing stops the writer. The transfer's other
         # three segments are a second apart, so the job must end well inside that.
-        assert await asyncio.to_thread(writer_goes_idle, conn.writer, "mcp", 0.5)
+        assert await anyio.to_thread.run_sync(writer_goes_idle, conn.writer, "mcp", 0.5)
         conn.log_slot.close_log()
 
         entries = read_jsonl(log.files["jsonl"])
@@ -393,5 +396,5 @@ class TestCancelledTransfer:
         assert sequence == ["send_file_start", "tx:AB", "send_file_end", "close"]
         assert entries[2]["bytes_written"] == 2
         assert port.writes == [b"AB"]
-        await asyncio.to_thread(conn.writer.stop)
-        await asyncio.to_thread(conn.writer.join)
+        await anyio.to_thread.run_sync(conn.writer.stop)
+        await anyio.to_thread.run_sync(conn.writer.join)

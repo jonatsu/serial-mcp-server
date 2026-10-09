@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import threading
 import time
 from unittest.mock import patch
 
+import anyio
+import anyio.to_thread
 import pytest
 
 from serial_mcp_server import config
@@ -29,7 +30,7 @@ from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.portlog import formats as log_formats
 from serial_mcp_server.portlog.log import PortLog, PortLogSlot
 from serial_mcp_server.portlog.request import LogRequest
-from tests.helpers import read_jsonl, reconfigure
+from tests.helpers import read_jsonl, reconfigure, skipped_timed_waits
 from tests.port.test_mirror import _PipePort
 
 WAIT_S = 2.0
@@ -218,7 +219,7 @@ class TestTransmitTap:
     async def test_paced_write_logs_one_tx_entry_per_segment_in_order(self, logged):
         logged.conn.ser.write.side_effect = len
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             await handle_write(
                 logged.state, {"connection_id": "s1", "data": "ABCDE", "chunk_size": 2, "chunk_delay_ms": 1}
             )
@@ -230,9 +231,9 @@ class TestTransmitTap:
     async def test_mirror_forward_logs_with_the_mirror_source(self, logged):
         logged.conn.ser.write.side_effect = len
 
-        with patch.object(threading.Event, "wait", return_value=False):
+        with skipped_timed_waits():
             job = logged.conn.writer.submit(b"abc", Pacing(chunk_size=2, chunk_delay_ms=1), source="mirror")
-            await asyncio.wrap_future(job.future)
+            await anyio.to_thread.run_sync(job.future.result)
 
         tx = [e for e in logged.entries() if e.get("dir") == "tx"]
         assert [(e["text"], e["source"]) for e in tx] == [("ab", "mirror"), ("c", "mirror")]
