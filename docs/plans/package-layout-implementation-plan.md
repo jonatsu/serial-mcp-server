@@ -548,4 +548,15 @@ Self-review: the diff changes only imports, patch targets, and moved code. 746 t
 with three contracts kept. `just integration` exited 0; its scenario 5 found the same result structure from
 `serial.script.run` and `serial_mcp_script`.
 
+### Unit 6: The `specs/` Package
+
+Moved on 9 October 2026. `specs.py` became `specs/store.py`, and `specs/frontmatter.py` took the front-matter
+pattern, `parse_frontmatter`, `validate_spec_meta`, and `compute_spec_id`. `handlers_spec.py` calls `store`.
+Tests moved to `tests/specs/` (`test_store.py`, `test_frontmatter.py`, and `samples.py` with the two spec texts
+both use); the data-root tests, which test configuration since unit 1, moved to `tests/test_config.py`. A fourth
+forbidden contract keeps `specs` from importing the port, the port log, the script engine, and the MCP modules.
+
+Self-review: the diff changes only imports and moved code. 746 tests passed; `just check` clean, with four
+contracts kept.
+
 No other unit has started.

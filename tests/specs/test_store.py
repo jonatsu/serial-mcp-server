@@ -1,4 +1,4 @@
-"""Tests for serial_mcp_server.specs — no serial hardware required."""
+"""Tests for serial_mcp_server.specs.store — the spec index and the spec tool handlers."""
 
 from __future__ import annotations
 
@@ -11,50 +11,19 @@ from serial_mcp_server import config
 from serial_mcp_server.config import Settings
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.specs import (
-    compute_spec_id,
+from serial_mcp_server.specs.store import (
     get_template,
     list_specs,
-    parse_frontmatter,
     read_spec,
     register_spec,
     search_spec,
-    validate_spec_meta,
 )
 from serial_mcp_server.state import SerialState
+from tests.specs.samples import MINIMAL_SPEC, VALID_SPEC
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-VALID_SPEC = """\
----
-kind: serial-protocol
-name: "Test Device"
----
-
-# Test Device Protocol
-
-## Overview
-
-A test device spec.
-
-## Commands
-
-### Read Sensor
-
-- **Write to**: `1234`
-- **Format**: `[0x01]`
-"""
-
-MINIMAL_SPEC = """\
----
-kind: serial-protocol
-name: "Minimal"
----
-
-# Minimal Spec
-"""
 
 
 def _write_spec(tmp_path: Path, content: str, name: str = "test-device.md") -> Path:
@@ -73,104 +42,6 @@ def _spec_root(tmp_path: Path) -> Path:
 
 def _settings(tmp_path: Path) -> Settings:
     return config.load({"SERIAL_MCP_SPEC_ROOT": str(_spec_root(tmp_path))})
-
-
-# ---------------------------------------------------------------------------
-# Directory resolution
-# ---------------------------------------------------------------------------
-
-
-class TestDataRoot:
-    def test_env_var(self, tmp_path):
-        target = tmp_path / "custom_specs"
-        assert config.load({"SERIAL_MCP_SPEC_ROOT": str(target)}).data_root == target
-
-    def test_walk_up_serial_mcp(self, monkeypatch, tmp_path):
-        # Create .serial_mcp in a parent
-        serial_mcp_dir = tmp_path / ".serial_mcp"
-        serial_mcp_dir.mkdir()
-        child = tmp_path / "a" / "b"
-        child.mkdir(parents=True)
-        monkeypatch.chdir(child)
-        assert config.load({}).data_root == serial_mcp_dir
-
-    def test_walk_up_git(self, monkeypatch, tmp_path):
-        # Create .git in a parent
-        git_dir = tmp_path / ".git"
-        git_dir.mkdir()
-        child = tmp_path / "sub"
-        child.mkdir()
-        monkeypatch.chdir(child)
-        result = config.load({}).data_root
-        assert result == tmp_path / ".serial_mcp"
-
-    def test_cwd_fallback(self, monkeypatch, tmp_path):
-        monkeypatch.chdir(tmp_path)
-        result = config.load({}).data_root
-        assert result == tmp_path / ".serial_mcp"
-
-
-# ---------------------------------------------------------------------------
-# Frontmatter parsing
-# ---------------------------------------------------------------------------
-
-
-class TestParseFrontmatter:
-    def test_valid(self):
-        meta, body = parse_frontmatter(VALID_SPEC)
-        assert meta["kind"] == "serial-protocol"
-        assert meta["name"] == "Test Device"
-        assert "# Test Device Protocol" in body
-
-    def test_missing(self):
-        content = "# No frontmatter here\n\nJust markdown."
-        meta, body = parse_frontmatter(content)
-        assert meta == {}
-        assert body == content
-
-    def test_invalid_yaml(self):
-        content = "---\n[invalid yaml:: {\n---\nBody\n"
-        meta, body = parse_frontmatter(content)
-        assert meta == {}
-        assert body == content
-
-    def test_non_dict_yaml(self):
-        content = "---\n- just\n- a\n- list\n---\nBody\n"
-        meta, body = parse_frontmatter(content)
-        assert meta == {}
-        assert body == content
-
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-
-class TestValidateSpecMeta:
-    def test_valid(self):
-        assert validate_spec_meta({"kind": "serial-protocol", "name": "Foo"}) == []
-
-    def test_missing_kind(self):
-        errors = validate_spec_meta({"name": "Foo"})
-        assert len(errors) == 1
-        assert "kind" in errors[0]
-
-    def test_wrong_kind(self):
-        errors = validate_spec_meta({"kind": "other", "name": "Foo"})
-        assert len(errors) == 1
-
-    def test_missing_name(self):
-        errors = validate_spec_meta({"kind": "serial-protocol"})
-        assert len(errors) == 1
-        assert "name" in errors[0]
-
-    def test_empty_name(self):
-        errors = validate_spec_meta({"kind": "serial-protocol", "name": ""})
-        assert len(errors) == 1
-
-    def test_multiple_errors(self):
-        errors = validate_spec_meta({})
-        assert len(errors) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -353,28 +224,6 @@ class TestGetTemplate:
         template = get_template("SensorTag")
         assert "SensorTag" in template
         assert 'name: "SensorTag Protocol"' in template
-
-
-# ---------------------------------------------------------------------------
-# Spec ID
-# ---------------------------------------------------------------------------
-
-
-class TestComputeSpecId:
-    def test_deterministic(self, tmp_path):
-        p = tmp_path / "test.md"
-        p.touch()
-        id1 = compute_spec_id(p)
-        id2 = compute_spec_id(p)
-        assert id1 == id2
-        assert len(id1) == 16
-
-    def test_different_paths(self, tmp_path):
-        p1 = tmp_path / "a.md"
-        p2 = tmp_path / "b.md"
-        p1.touch()
-        p2.touch()
-        assert compute_spec_id(p1) != compute_spec_id(p2)
 
 
 # ---------------------------------------------------------------------------
