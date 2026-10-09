@@ -130,10 +130,10 @@ serial_mcp_server/
 
 ```mermaid
 flowchart TB
+    api[plugin_api.py] --> boundary
     subgraph boundary [Boundary]
         mcp[mcp/]
         cli[cli.py]
-        api[plugin_api.py]
     end
     subgraph engine [Engine]
         script[script/]
@@ -154,9 +154,10 @@ flowchart TB
     port --> foundation
 ```
 
-A module may import from its own layer and from any layer below it, never from a layer above. `cli.py` and
-`plugin_api.py` must not import each other, and `cli.py` must not import `mcp/`. An `import-linter` `layers`
-contract in `pyproject.toml` enforces this order, and `just check` runs it, so a violating import fails the check.
+A module may import from its own layer and from any layer below it, never from a layer above. `plugin_api.py`
+sits above `mcp/`, because it re-exports MCP handlers and state for plugins. `cli.py` and `plugin_api.py` must not
+import each other, and `cli.py` must not import `mcp/`. An `import-linter` `layers` contract in `pyproject.toml`
+enforces this order, and `just check` and CI run it, so a violating import fails the check.
 
 ### 5.3 Where Today's Code Goes
 
@@ -202,8 +203,12 @@ log fields. A `ConfigError` exits 2, as an unusable input does today. The CLI pa
 
 ### 8.1 Configuration Model
 
-`Settings` is a frozen dataclass with one field per variable. `config.load(environ=os.environ)` builds it; tests
-call `Settings(...)` or `config.load({...})` with a mapping instead of changing the process environment. No module
+`Settings` is a frozen `pydantic-settings` model with one field per variable. `pydantic-settings` already arrives
+through the MCP SDK, and it validates every field on construction and reports all failures in one error, which is
+the behavior decision L4 asks for. `config.load(environ=os.environ)` takes the `SERIAL_MCP_*` entries of a
+mapping, drops blank values, and builds the model from them; the model reads no other source, so tests call
+`config.load({...})` with a mapping instead of changing the process environment. `load` turns a validation error
+into `ConfigError`, naming each failure by its variable rather than its field. No module
 outside `config.py` reads `os.environ`; a test in the suite searches the package for `os.environ` and `getenv`
 outside `config.py` and fails on a match.
 
@@ -228,8 +233,9 @@ outside `config.py` and fails on a match.
 | `SERIAL_MCP_TRACE_PAYLOADS`      | `trace_payloads`         | boolean; off                                      |
 | `SERIAL_MCP_TRACE_MAX_BYTES`     | `trace_max_bytes`        | positive integer; 16384                           |
 
-An unset or blank variable means its default. Every boolean accepts `1`, `true`, `yes`, `on` and `0`, `false`, `no`,
-`off`, in any case. Any other value of any variable is invalid, and `load` collects all invalid variables before it
+An unset or blank variable means its default. Every boolean accepts Pydantic's forms, among them `1`, `true`, `yes`,
+`on` and `0`, `false`, `no`, `off`, in any case. Choice values, such as `SERIAL_MCP_MIRROR`, are matched in any case,
+as today. Any other value of any variable is invalid, and `load` collects all invalid variables before it
 raises, so one start reports every mistake.
 
 These rules change observable behavior, and the CHANGELOG lists each change (decisions L3 and L4):
@@ -244,6 +250,8 @@ These rules change observable behavior, and the CHANGELOG lists each change (dec
   `SERIAL_MCP_MAX_CONNECTIONS` or `SERIAL_MCP_TRACE_MAX_BYTES` stops the start with a message instead of a traceback.
 - An invalid `SERIAL_MCP_MAX_WRITE_SECONDS`, `SERIAL_MCP_SCRIPT_MAX_SECONDS`, or log variable stops the start instead
   of failing each call that uses it with `invalid_params`.
+- `serial_mcp_script` loads the same settings, so it also stops on an invalid variable that only the server uses,
+  such as `SERIAL_MCP_MIRROR`.
 
 ### 8.2 Plugin Interface
 
@@ -293,7 +301,7 @@ into a move.
 | --- | ---------------------------------------------------------------------------------------- | --------------- | ----------------------------- |
 | L1  | Subpackages by capability: `port`, `portlog`, `script`, `specs`, `mcp`.                    | User decision   | The flat layout: concerns cannot be found. Packages by kind (`models/`, `utils/`): they collect unrelated code. |
 | L2  | No `src/` level.                                                                          | User decision   | `src/` layout: adds the extra directory level the user rejected; its benefit, testing the installed package, comes cheaper from a CI job that builds the wheel and runs the tests against it. |
-| L3  | One `config.py` with a frozen `Settings`, read once at start and passed down.              | User decision   | Accessor functions that read the environment on each call: keeps today's semantics, but every consumer still depends on process state, and invalid values still surface late, at the call. |
+| L3  | One `config.py` with a frozen `pydantic-settings` model, read once at start and passed down. | User decision   | Accessor functions that read the environment on each call: keeps today's semantics, but every consumer still depends on process state, and invalid values still surface late, at the call. A hand-written dataclass parser: duplicates validation that a library already in the dependency tree provides. |
 | L4  | Invalid configuration stops the start with one message listing every invalid variable.    | User decision   | Warn and fall back: an operator's typo silently changes behavior, as `SERIAL_MCP_TRACE=off` does today. |
 | L5  | `plugin_api.py` is the only supported plugin import; old paths are not kept.               | User decision   | Compatibility modules at the old paths: recreate the flat top level this design removes, for a 0.x package whose only known plugin is the demo. |
 | L6  | An `import-linter` `layers` contract enforces section 5.2.                                | Recommended     | Review only: the interpreter and type checker accept a layer violation. |
