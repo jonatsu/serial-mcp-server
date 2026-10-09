@@ -12,7 +12,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from serial_mcp_server.mcp.tools.connection import handle_close, handle_configure, handle_connection_status
 from serial_mcp_server.mcp.tools.file import handle_send_file
+from serial_mcp_server.mcp.tools.io import handle_flush, handle_read, handle_write
+from serial_mcp_server.mcp.tools.lines import (
+    handle_pulse_dtr,
+    handle_pulse_rts,
+    handle_set_dtr,
+    handle_set_rts,
+)
 from serial_mcp_server.mcp.tools.log import (
     handle_log_mark,
     handle_log_start,
@@ -27,18 +35,6 @@ from serial_mcp_server.mcp.tools.script import (
     handle_script_run,
     handle_script_status,
     handle_script_template,
-)
-from serial_mcp_server.mcp.tools.serial import (
-    handle_close,
-    handle_configure,
-    handle_connection_status,
-    handle_flush,
-    handle_pulse_dtr,
-    handle_pulse_rts,
-    handle_read,
-    handle_set_dtr,
-    handle_set_rts,
-    handle_write,
 )
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.writer import SerialWriter

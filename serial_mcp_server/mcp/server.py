@@ -19,12 +19,14 @@ from serial_mcp_server.config import ConfigError, Settings
 from serial_mcp_server.mcp.plugins import PluginManager
 from serial_mcp_server.mcp.responses import _err, _result_text
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools import connection as connection_tools
 from serial_mcp_server.mcp.tools import file as file_tools
 from serial_mcp_server.mcp.tools import introspection as introspection_tools
+from serial_mcp_server.mcp.tools import io as io_tools
+from serial_mcp_server.mcp.tools import lines as lines_tools
 from serial_mcp_server.mcp.tools import log as log_tools
 from serial_mcp_server.mcp.tools import plugin as plugin_tools
 from serial_mcp_server.mcp.tools import script as script_tools
-from serial_mcp_server.mcp.tools import serial as serial_tools
 from serial_mcp_server.mcp.tools import spec as spec_tools
 from serial_mcp_server.mcp.tools import trace as trace_tools
 from serial_mcp_server.mcp.trace import get_trace_buffer, init_trace
@@ -53,7 +55,9 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
     server = Server("serial-mcp-server")
 
     tools: list[Tool] = (
-        serial_tools.TOOLS
+        connection_tools.TOOLS
+        + io_tools.TOOLS
+        + lines_tools.TOOLS
         + introspection_tools.TOOLS
         + file_tools.TOOLS
         + log_tools.TOOLS
@@ -63,7 +67,9 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
         + plugin_tools.TOOLS
     )
     handlers: dict[str, Any] = {
-        **serial_tools.HANDLERS,
+        **connection_tools.HANDLERS,
+        **io_tools.HANDLERS,
+        **lines_tools.HANDLERS,
         **introspection_tools.HANDLERS,
         **file_tools.HANDLERS,
         **log_tools.HANDLERS,

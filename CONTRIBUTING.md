@@ -43,9 +43,11 @@ HANDLERS: dict[str, Callable] = {  # Maps tool name → async handler function
 In `mcp/server.py`, these are merged inside `build_server()`:
 
 ```python
-tools = serial_tools.TOOLS + introspection_tools.TOOLS + file_tools.TOOLS + log_tools.TOOLS + ...
-handlers = {**serial_tools.HANDLERS, **introspection_tools.HANDLERS, **file_tools.HANDLERS, ...}
+tools = connection_tools.TOOLS + io_tools.TOOLS + lines_tools.TOOLS + introspection_tools.TOOLS + ...
+handlers = {**connection_tools.HANDLERS, **io_tools.HANDLERS, **lines_tools.HANDLERS, ...}
 ```
+
+The concatenation order is the order `tools/list` reports, so a new module goes where its tools should appear.
 
 Plugin handlers are added via `mcp/tools/plugin.make_handlers()`, which returns closures that capture the `PluginManager` and `Server` instances.
 

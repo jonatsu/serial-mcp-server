@@ -12,7 +12,7 @@ from collections.abc import Callable
 
 import pytest
 
-from serial_mcp_server.mcp.tools.serial import handle_read
+from serial_mcp_server.mcp.tools.io import handle_read
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.mirror import MirrorSession
 from serial_mcp_server.port.reader import ReaderThread
