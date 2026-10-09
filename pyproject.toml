@@ -72,6 +72,7 @@ ignore = [
 "tests/*" = ["S101", "S108", "RUF059"]  # asserts, /tmp paths, unused unpacked vars are fine in tests
 "tools/*" = ["S603", "S607"]  # subprocess calls in CLI tools use controlled input
 "examples/*" = ["S105", "S311", "S603", "S607"]  # demo devices: fake passwords, pseudo-random sensor data, subprocess
+"tests/integration/*" = ["S105", "S603", "S607"]  # end-to-end harness: fake token env name and script password, subprocess calls with fixed argv
 
 [tool.ruff.lint.isort]
 known-first-party = ["serial_mcp_server"]

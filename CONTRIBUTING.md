@@ -94,3 +94,23 @@ python -m pytest tests/test_plugins.py -v
 # Run a specific test
 python -m pytest tests/test_plugins.py::TestPluginManager::test_load_adds_tools_and_handlers -v
 ```
+
+### Integration harness
+
+`tests/integration/` holds a slow end-to-end harness. It drives real processes: the demo device (`examples/demo-device/pty_server.py`), the MCP server over stdio, the `serial_mcp_script` CLI, and real pseudo-terminals. It checks that:
+
+- a 4 KiB paste into a mirror terminal at 8 ms per character does not delay device output in `serial.read`, also with a burst paste while the writer is busy with a paced write;
+- the jsonl, text, lines, and raw port logs agree on the received bytes and line boundaries;
+- `serial.send_file` with chunk pacing shows up as paced tx segments between start and end events;
+- a script passes through `serial.script.run`, and the same script passes through `serial_mcp_script` with result files of the same structure;
+- a script with a wrong expected answer fails at that line, and the port log holds the device's output;
+- a server started without the logging variables creates no log files outside script runs;
+- a script with a catastrophic regular expression ends the run `errored` at the pattern time limit, through the server and through `serial_mcp_script`, while the server keeps answering.
+
+Run it from the repository root:
+
+```bash
+just integration
+```
+
+It takes about 90 seconds and exits 0 only when every scenario passes. It needs Linux, because it reads `/proc` to find its processes, and it uses pseudo-terminals. It starts real processes, and it removes its temporary files and processes when it ends (`--keep-work` keeps the files). It is not part of `pytest` or CI.
