@@ -29,13 +29,13 @@ from serial_mcp_server.port.pacing import (
 )
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.port.writer import WriteAborted, WriterClosed
-from serial_mcp_server.portlog import resolve_log_request
-from serial_mcp_server.portlog_formats import (
+from serial_mcp_server.portlog.formats import (
     CONFIGURE_EVENT,
     LOG_FORMATS_SCHEMA,
     LOG_TEXT_TIMESTAMPS_SCHEMA,
     is_text_encoding,
 )
+from serial_mcp_server.portlog.request import resolve_log_request
 from serial_mcp_server.state import SCRIPT_CANCEL_WAIT_SECONDS, SerialState
 
 logger = logging.getLogger("serial_mcp_server")

@@ -21,8 +21,8 @@ from serial_mcp_server.handlers_log import (
 from serial_mcp_server.handlers_serial import handle_connection_status, handle_open
 from serial_mcp_server.port.buffer import DEFAULT_BUFFER_BYTES, SerialBuffer
 from serial_mcp_server.port.stack import make_read_buffer
-from serial_mcp_server.portlog import PortLog
-from serial_mcp_server.portlog_formats import BUFFER_DROP_EVENT
+from serial_mcp_server.portlog.formats import BUFFER_DROP_EVENT
+from serial_mcp_server.portlog.log import PortLog
 from tests.helpers import read_jsonl, reconfigure
 
 SID = {"connection_id": "s1"}

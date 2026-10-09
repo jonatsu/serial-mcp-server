@@ -77,6 +77,27 @@ forbidden_modules = [
     "serial_mcp_server.handlers_trace",
 ]
 
+[[tool.importlinter.contracts]]
+name = "portlog/ imports nothing from port/, the script engine, or the MCP server"
+type = "forbidden"
+source_modules = ["serial_mcp_server.portlog"]
+forbidden_modules = [
+    "serial_mcp_server.port",
+    "serial_mcp_server.script",
+    "serial_mcp_server.state",
+    "serial_mcp_server.server",
+    "serial_mcp_server.helpers",
+    "serial_mcp_server.script_cli",
+    "serial_mcp_server.handlers_file",
+    "serial_mcp_server.handlers_introspection",
+    "serial_mcp_server.handlers_log",
+    "serial_mcp_server.handlers_plugin",
+    "serial_mcp_server.handlers_script",
+    "serial_mcp_server.handlers_serial",
+    "serial_mcp_server.handlers_spec",
+    "serial_mcp_server.handlers_trace",
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 110

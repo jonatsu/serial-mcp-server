@@ -18,7 +18,7 @@ from typing import Any
 import serial as pyserial
 
 from serial_mcp_server.port.pacing import NO_PACING, Pacing
-from serial_mcp_server.portlog import PortLogSlot
+from serial_mcp_server.portlog.log import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
 

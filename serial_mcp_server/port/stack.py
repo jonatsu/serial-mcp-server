@@ -17,8 +17,9 @@ from serial_mcp_server.port.mirror import create_reader
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.portlog import LogRequest, PortLog, PortLogSlot
-from serial_mcp_server.portlog_formats import BUFFER_DROP_EVENT, OPEN_EVENT
+from serial_mcp_server.portlog.formats import BUFFER_DROP_EVENT, OPEN_EVENT
+from serial_mcp_server.portlog.log import PortLog, PortLogSlot
+from serial_mcp_server.portlog.request import LogRequest
 
 logger = logging.getLogger("serial_mcp_server")
 

@@ -21,7 +21,7 @@ from serial_mcp_server.config import (
     TextTimestampMode,
     env_name,
 )
-from serial_mcp_server.portlog_formats import FORMATS, TEXT_TIMESTAMP_MODES
+from serial_mcp_server.portlog.formats import FORMATS, TEXT_TIMESTAMP_MODES
 
 PACKAGE_DIR = Path(serial_mcp_server.__file__).parent
 CONFIG_MODULE = PACKAGE_DIR / "config.py"
