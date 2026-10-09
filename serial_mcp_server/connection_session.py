@@ -38,6 +38,8 @@ class ConnectionSession:
         # wake periodically to forward the run's cancel event to the writer job.
         while True:
             if cancel.is_set():
+                if job.future.cancel():  # still queued: the writer skips it, so none of it is written
+                    raise WriteAborted("Write cancelled before it started.", 0)
                 job.cancel.set()
             try:
                 return job.future.result(timeout=_WRITE_WAIT_SECONDS)

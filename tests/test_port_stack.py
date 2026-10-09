@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from serial_mcp_server import mirror
 from serial_mcp_server.mirror import ReaderThread, SerialBuffer
 from serial_mcp_server.port_stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.portlog import LogRequest
@@ -157,3 +159,37 @@ def test_a_thread_that_cannot_start_does_not_mask_the_error_or_skip_the_log_clos
     assert [event["event"] for event in only_log_events(tmp_path)][-1] == "close"
     assert _threads("serial-portlog") <= before_logs
     assert _threads("serial-writer") <= before_writers
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the PTY mirror is Unix-only")
+def test_a_mirror_reader_that_cannot_start_releases_its_pty_symlink_and_index(mock_serial, tmp_path):
+    mock_serial.baudrate = 115200
+    link_base = str(tmp_path / "mirror")
+    real_start = threading.Thread.start
+
+    def start(self: threading.Thread) -> None:
+        if self.name == "serial-reader":
+            raise RuntimeError("can't start new thread")
+        real_start(self)
+
+    with patch.object(threading.Thread, "start", start), pytest.raises(RuntimeError, match="can't start"):
+        open_port_stack(
+            mock_serial,
+            port="/dev/ttyUSB0",
+            baudrate=115200,
+            bytesize=8,
+            parity="N",
+            stopbits=1,
+            timeout=0.2,
+            write_timeout=0.2,
+            encoding="utf-8",
+            newline="\r\n",
+            pacing=NO_PACING,
+            log_request=None,
+            connection_id="s1",
+            mirror_mode="ro",
+            mirror_link=link_base,
+        )
+
+    assert not os.path.lexists(f"{link_base}0")
+    assert mirror._mirror_indices_in_use == set()

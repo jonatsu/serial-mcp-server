@@ -224,7 +224,7 @@ serial port → reader thread ─┬→ SerialBuffer
 writer thread → serial port ─┴→ tx tap ─┴→ queue → disk thread → log files
 ```
 
-The reader thread records each received chunk once, before it reaches the buffer, whether or not anything reads. The writer thread records each segment after the port accepts it, so a paced write appears with its real timing. A single disk thread writes the files, so a slow disk never blocks receiving or sending. If the queue holds 8 MiB, new entries are dropped and counted, and the next entry is preceded by a marker with the count. A log is therefore complete unless it says otherwise.
+The reader thread records each received chunk once, before it reaches the buffer, whether or not anything reads. The writer thread records each segment after the port accepts it, so a paced write appears with its real timing. A single disk thread writes the files, so a slow disk never blocks receiving or sending. If the queue holds 8 MiB, new entries are dropped and counted. The `jsonl` and `lines` files record a `log_overflow` event with the count, and the `text` file records a marker line. The `raw` file records nothing, so check the `dropped_bytes` that `serial.log.status` reports. A log is complete only when `dropped_bytes` is zero.
 
 ---
 
@@ -247,7 +247,7 @@ The output matcher feeds the runner's `@expect`, prompt, and failure-pattern che
 
 The `serial_mcp_script` command shares this engine and runs without the MCP server, so a CI job can run a script with no agent.
 
-While a script runs, it owns its connection's writes and control lines. The server rejects `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, the DTR and RTS tools, and `serial.log.start` and `serial.log.stop` on that connection with `script_running`, so an agent cannot interleave bytes with the script. Reads, status, and log marks still work, and `serial.close` cancels the run before it stops the reader and writer.
+While a script runs, it owns its connection's writes and control lines. The server rejects `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, the DTR and RTS tools, and `serial.log.start` and `serial.log.stop` on that connection with `script_running`, so an agent cannot interleave bytes with the script. Input from a read/write PTY mirror is not blocked, so an operator can still send bytes to the device during a run. Reads, status, and log marks still work, and `serial.close` cancels the run before it stops the reader and writer.
 
 ## The agent's decision flow
 

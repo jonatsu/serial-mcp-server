@@ -401,14 +401,17 @@ def test_send_file_cannot_leave_the_files_dir(device, tmp_path):
     files = tmp_path / "files"
     files.mkdir()
     (tmp_path / "secret.txt").write_text("secret\r\n", encoding="utf-8")
-    script = write_script(tmp_path, "@send_file ../secret.txt\n")
+    logs = tmp_path / "logs"
+    script = write_script(tmp_path, "@sendline hello\n@send_file ../secret.txt\n")
 
-    done = run_cli(script, "--port", device.path, "--files-dir", files, "--log-dir", tmp_path / "logs")
+    done = run_cli(script, "--port", device.path, "--files-dir", files, "--log-dir", logs)
 
     assert done.returncode == EXIT_ERROR
     assert "Traceback" not in done.stderr
-    assert "line 1" in done.stderr
-    assert device.lines == []
+    assert "line 2" in done.stderr
+    assert "must name a file inside the files directory" in done.stderr
+    assert device.lines == []  # the step before the bad @send_file never ran
+    assert not logs.exists()  # the command stopped before it opened the port
 
 
 def test_baud_reaches_the_recorded_connection(device, tmp_path):

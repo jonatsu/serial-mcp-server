@@ -240,8 +240,8 @@ class ScriptRunner:
 
     @staticmethod
     def _read_max_seconds() -> float:
-        raw = os.environ.get(_MAX_SECONDS_ENV)
-        if raw is None:
+        raw = os.environ.get(_MAX_SECONDS_ENV, "").strip()
+        if not raw:  # unset or blank means the default, as for SERIAL_MCP_MAX_WRITE_SECONDS
             return _DEFAULT_MAX_SECONDS
         try:
             seconds = float(raw)

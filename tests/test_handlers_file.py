@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 import threading
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import serial as pyserial
@@ -14,7 +15,7 @@ from serial_mcp_server import paths
 from serial_mcp_server.handlers_file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
 from serial_mcp_server.portlog import LogRequest, PortLog
 from serial_mcp_server.writer import Pacing
-from tests.helpers import read_jsonl
+from tests.helpers import read_jsonl, writer_goes_idle
 
 SID = {"connection_id": "s1"}
 POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX symlinks and FIFOs")
@@ -331,6 +332,33 @@ class _HeldPort:
         pass
 
 
+class TestClaimRecheckedAfterTheFileRead:
+    async def test_a_script_claiming_the_connection_during_the_read_stops_the_send(
+        self, connected_entry, files
+    ):
+        state, conn = connected_entry
+        (files / "a.txt").write_bytes(b"hello")
+        reading = threading.Event()
+        proceed = threading.Event()
+        real_read = paths.read_confined_file
+
+        def gated_read(*args):
+            reading.set()
+            assert proceed.wait(5), "the test never released the read"
+            return real_read(*args)
+
+        with patch("serial_mcp_server.handlers_file.read_confined_file", side_effect=gated_read):
+            task = asyncio.create_task(handle_send_file(state, {**SID, "path": "a.txt"}))
+            assert await asyncio.to_thread(reading.wait, 5)
+            run, _owner = state.script_jobs.claim("s1", MagicMock())
+            assert run is not None
+            proceed.set()
+            result = await task
+
+        assert result["error"]["code"] == "script_running"
+        conn.ser.write.assert_not_called()
+
+
 class TestCancelledTransfer:
     async def test_the_end_event_follows_the_last_tx_entry_and_counts_the_bytes_sent(
         self, connected_entry, files, tmp_path
@@ -359,8 +387,9 @@ class TestCancelledTransfer:
         port.release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
-        await asyncio.to_thread(conn.writer.stop)
-        await asyncio.to_thread(conn.writer.join)
+        # Only the cancellation reaches the job: nothing stops the writer. The transfer's other
+        # three segments are a second apart, so the job must end well inside that.
+        assert await asyncio.to_thread(writer_goes_idle, conn.writer, "mcp", 0.5)
         conn.log_slot.close_log()
 
         entries = read_jsonl(log.files["jsonl"])
@@ -368,3 +397,5 @@ class TestCancelledTransfer:
         assert sequence == ["send_file_start", "tx:AB", "send_file_end", "close"]
         assert entries[2]["bytes_written"] == 2
         assert port.writes == [b"AB"]
+        await asyncio.to_thread(conn.writer.stop)
+        await asyncio.to_thread(conn.writer.join)

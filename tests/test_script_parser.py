@@ -135,12 +135,16 @@ def test_parser_reports_all_syntax_errors_in_source_order(files_dir: Path):
     assert [error.text for error in caught.value.errors] == source.splitlines()
 
 
-def test_send_file_outside_the_files_directory_is_rejected(files_dir: Path):
-    with pytest.raises(ScriptSyntaxError) as caught:
-        parse("@send_file ../outside.bin", {}, files_dir)
+def test_send_file_outside_the_files_directory_is_rejected_even_when_the_file_exists(tmp_path: Path):
+    files = tmp_path / "files"
+    files.mkdir()
+    (tmp_path / "outside.bin").write_bytes(b"secret")
 
-    assert caught.value.errors[0].line == 1
-    assert "line 1" in str(caught.value)
+    with pytest.raises(ScriptSyntaxError) as caught:
+        parse("version\n@send_file ../outside.bin", {}, files)
+
+    assert [error.line for error in caught.value.errors] == [2]
+    assert "must name a file inside the files directory" in caught.value.errors[0].message
 
 
 def test_send_file_step_keeps_the_resolved_confined_path(files_dir: Path):
@@ -162,6 +166,45 @@ def test_invalid_variable_names_are_rejected_with_the_rule(files_dir: Path):
 def test_a_variable_name_may_not_start_with_a_digit(files_dir: Path):
     with pytest.raises(ValueError, match="Invalid variable name '1BAD'"):
         parse("", {"1BAD": "value"}, files_dir)
+
+
+def test_hex_escape_in_text_decodes_to_the_code_point(files_dir: Path):
+    assert parse(r"@send A\x41\x7f", {}, files_dir).steps[0].payload == "AA\x7f"
+
+
+def test_tab_escape_in_text_decodes_to_a_tab(files_dir: Path):
+    assert parse(r"@send a\tb", {}, files_dir).steps[0].payload == "a\tb"
+
+
+def test_unknown_escape_is_a_parse_error_naming_the_escape(files_dir: Path):
+    with pytest.raises(ScriptSyntaxError) as caught:
+        parse(r"@send a\qb", {}, files_dir)
+
+    assert [(error.line, "unknown escape \\q" in error.message) for error in caught.value.errors] == [
+        (1, True)
+    ]
+
+
+def test_trailing_backslash_is_a_parse_error(files_dir: Path):
+    with pytest.raises(ScriptSyntaxError) as caught:
+        parse("@send abc\\", {}, files_dir)
+
+    assert "a backslash cannot end the text" in caught.value.errors[0].message
+
+
+def test_crlf_line_ends_are_removed_and_numbered_like_lf(files_dir: Path):
+    script = parse("@send one\r\n@send two\r\n", {}, files_dir)
+
+    assert [(step.line, step.payload, step.text) for step in script.steps] == [
+        (1, "one", "@send one"),
+        (2, "two", "@send two"),
+    ]
+
+
+def test_description_is_the_first_comment_without_its_marker(files_dir: Path):
+    script = parse("@send x\n#   U-Boot smoke test  \n# second comment\n", {}, files_dir)
+
+    assert script.description == "U-Boot smoke test"
 
 
 def test_documented_directive_names_match_the_parser_table():

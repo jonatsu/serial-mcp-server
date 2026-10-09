@@ -405,9 +405,14 @@ async def handle_script_list(_state: SerialState, _args: dict[str, Any]) -> dict
     return _ok(scripts=scripts, count=len(scripts))
 
 
+def _table_cell(text: str) -> str:
+    """Escape pipes, which would otherwise split a Markdown table cell (a code span does not protect them)."""
+    return text.replace("|", "\\|")
+
+
 def _script_template() -> str:
     directives = [
-        f"| `{directive.name}` | `{directive.usage}` | {directive.summary} |"
+        f"| `{directive.name}` | `{_table_cell(directive.usage)}` | {_table_cell(directive.summary)} |"
         for directive in DIRECTIVES.values()
     ]
     reference = "\n".join(directives)

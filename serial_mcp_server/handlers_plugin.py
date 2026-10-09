@@ -29,8 +29,8 @@ from serial_mcp_server.helpers import _ok, _err  # _ok(key=val) / _err("code", "
 from serial_mcp_server.state import SerialState
 
 # Import core handlers to interact with the device.
-# IMPORTANT: always use these instead of conn.ser directly — a background
-# thread owns the serial port for reads, and writes need a lock.
+# IMPORTANT: always use these instead of conn.ser directly — a reader thread owns the
+# serial port for reads, and a writer thread queues and paces every write.
 from serial_mcp_server.handlers_serial import (
     handle_write,      # send data to the device
     handle_read,       # read raw bytes
