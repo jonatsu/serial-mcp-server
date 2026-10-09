@@ -208,7 +208,7 @@ def test_description_is_the_first_comment_without_its_marker(files_dir: Path):
 
 
 def test_documented_directive_names_match_the_parser_table():
-    documentation = Path(__file__).parents[1] / "docs" / "scripts.md"
+    documentation = Path(__file__).parents[2] / "docs" / "scripts.md"
     directive_table = documentation.read_text(encoding="utf-8").split("## Directives\n", 1)[1]
     directive_table = directive_table.split("\n## ", 1)[0]
     documented = re.findall(r"^\| `@([a-z_]+)` \|", directive_table, re.MULTILINE)

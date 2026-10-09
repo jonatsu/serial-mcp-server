@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from serial_mcp_server.connection_session import ConnectionSession
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.pacing import NO_PACING, Pacing
 from serial_mcp_server.port.writer import SerialWriter, WriteAborted
+from serial_mcp_server.script.connection_session import ConnectionSession
 
 WAIT_S = 5.0
 

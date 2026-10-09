@@ -36,7 +36,8 @@ from serial_mcp_server.portlog.formats import (
     is_text_encoding,
 )
 from serial_mcp_server.portlog.request import resolve_log_request
-from serial_mcp_server.state import SCRIPT_CANCEL_WAIT_SECONDS, SerialState
+from serial_mcp_server.script.runner import SCRIPT_CANCEL_WAIT_SECONDS
+from serial_mcp_server.state import SerialState
 
 logger = logging.getLogger("serial_mcp_server")
 
