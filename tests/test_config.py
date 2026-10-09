@@ -230,3 +230,33 @@ def test_the_server_exits_2_and_names_every_invalid_variable(tmp_path):
     assert "SERIAL_MCP_MIRROR" in done.stderr
     assert "SERIAL_MCP_LOG_LEVEL" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+class TestDataRoot:
+    def test_env_var(self, tmp_path):
+        target = tmp_path / "custom_specs"
+        assert config.load({"SERIAL_MCP_SPEC_ROOT": str(target)}).data_root == target
+
+    def test_walk_up_serial_mcp(self, monkeypatch, tmp_path):
+        # Create .serial_mcp in a parent
+        serial_mcp_dir = tmp_path / ".serial_mcp"
+        serial_mcp_dir.mkdir()
+        child = tmp_path / "a" / "b"
+        child.mkdir(parents=True)
+        monkeypatch.chdir(child)
+        assert config.load({}).data_root == serial_mcp_dir
+
+    def test_walk_up_git(self, monkeypatch, tmp_path):
+        # Create .git in a parent
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+        child = tmp_path / "sub"
+        child.mkdir()
+        monkeypatch.chdir(child)
+        result = config.load({}).data_root
+        assert result == tmp_path / ".serial_mcp"
+
+    def test_cwd_fallback(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        result = config.load({}).data_root
+        assert result == tmp_path / ".serial_mcp"
