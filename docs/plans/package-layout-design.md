@@ -115,6 +115,7 @@ serial_mcp_server/
     ├── state.py         # SerialState, ScriptJobs, ScriptRun
     ├── responses.py     # ok, err, result text, argument coercion, script_running_error
     ├── writes.py        # run_write_job and the write-duration check
+    ├── threads.py       # run_to_completion: a blocking cleanup that a cancellation cannot skip
     ├── plugins.py       # plugin discovery, loading, and the manager
     ├── trace.py         # tool-call tracing
     └── tools/
@@ -194,10 +195,11 @@ handler reads `state.settings` rather than the environment.
 
 ### 6.2 Command-Line Run
 
-`cli.main` parses its arguments, calls `config.load()`, and overrides the loaded values with its flags:
-`--log-dir` replaces `log_dir`, `--files-dir` replaces `files_dir`, and `--log-format` and `--no-log` replace the
-log fields. A `ConfigError` exits 2, as an unusable input does today. The CLI passes the resulting `Settings` to
-`open_port_stack` and to `ScriptRunner`.
+`cli.main` parses its arguments, calls `config.load()`, and overrides two loaded values with `model_copy`:
+`--log-dir` replaces `log_dir`, and `--files-dir` replaces `files_dir`. `--log-format` goes to `build_log_request`
+with those settings, and `--no-log` drops the log request. A `ConfigError` exits 2, as an unusable input does today.
+The engine and the port stack take plain values, not `Settings`: the CLI passes the log request and its port
+arguments to `open_port_stack`, with the mirror off, and `settings.script_max_seconds` to `ScriptRunner`.
 
 ## 8. Crosscutting Concepts
 
