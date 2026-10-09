@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 import serial as pyserial
 
-from serial_mcp_server import script_cli
+from serial_mcp_server import cli
 from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl
 
@@ -35,13 +35,13 @@ EXIT_PASSED = 0
 EXIT_FAILED = 1
 EXIT_ERROR = 2
 EXIT_INTERRUPTED = 130
-CLI = [sys.executable, "-m", "serial_mcp_server.script_cli"]
+CLI = [sys.executable, "-m", "serial_mcp_server.cli"]
 # A child that inherits SIGINT as ignored (a background job) never sees Ctrl-C, so restore Python's handler.
 SIGINT_CLI = [
     sys.executable,
     "-c",
     "import signal, sys; signal.signal(signal.SIGINT, signal.default_int_handler); "
-    "from serial_mcp_server.script_cli import main; sys.exit(main())",
+    "from serial_mcp_server.cli import main; sys.exit(main())",
 ]
 PROCESS_TIMEOUT_SECONDS = 30
 
@@ -454,8 +454,8 @@ def test_a_stack_that_cannot_start_its_log_closes_the_port(device, tmp_path):
     blocker.write_text("not a directory", encoding="utf-8")
     ser = pyserial.Serial(device.path)
     try:
-        with pytest.raises(script_cli._CliError, match="Could not start the port log"):
-            script_cli._open_stack(ser, LogRequest(("text",), blocker / "logs"))
+        with pytest.raises(cli._CliError, match="Could not start the port log"):
+            cli._open_stack(ser, LogRequest(("text",), blocker / "logs"))
 
         assert not ser.is_open
     finally:
@@ -518,9 +518,9 @@ def test_an_unexpected_exception_exits_two_with_its_traceback(tmp_path, monkeypa
     def explode(*_args, **_kwargs):
         raise RuntimeError("parser exploded")
 
-    monkeypatch.setattr(script_cli, "parse", explode)
+    monkeypatch.setattr(cli, "parse", explode)
 
-    status = script_cli.main([str(script), "--port", "/dev/null"])
+    status = cli.main([str(script), "--port", "/dev/null"])
 
     assert status == EXIT_ERROR
     err = capsys.readouterr().err
@@ -536,10 +536,10 @@ def test_a_second_interrupt_does_not_skip_releasing_the_connection(monkeypatch):
         if len(calls) == 1:
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(script_cli, "stop_connections", interrupted_once)
+    monkeypatch.setattr(cli, "stop_connections", interrupted_once)
     conn = object()
 
-    script_cli._release(conn)
+    cli._release(conn)
 
     assert calls == [[conn], [conn]]
 
@@ -560,13 +560,13 @@ def test_a_second_interrupt_does_not_skip_waiting_for_the_cancelled_run():
 
     runner = Runner()
 
-    script_cli._cancel_run(runner)
+    cli._cancel_run(runner)
 
     assert runner.cancelled
     assert runner.joins == 2
 
 
-@pytest.mark.parametrize("module", ["serial_mcp_server.script_cli", "serial_mcp_server.port.stack"])
+@pytest.mark.parametrize("module", ["serial_mcp_server.cli", "serial_mcp_server.port.stack"])
 def test_importing_the_cli_path_leaves_mcp_out(module):
     probe = (
         f"import sys, {module}; "

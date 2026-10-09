@@ -20,6 +20,7 @@ serial_mcp_server/
 ├── confined_files.py    # read a file only inside an operator-chosen directory
 ├── private_files.py     # create owner-only files with collision-free names
 ├── plugin_api.py        # the only module plugins import
+├── cli.py               # the serial_mcp_script command; imports nothing from mcp/
 ├── port/                # one open port: connection, stack, buffer, reader, mirror, pacing, writer
 ├── portlog/             # the port log: log, request, formats
 ├── script/              # the script engine: parser, matcher, runner, results, connection adapter

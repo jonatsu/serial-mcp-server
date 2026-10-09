@@ -582,7 +582,7 @@ async def check_script_fail(srv: Any, device: Device, work: Path) -> Check:
 
 def cli_command() -> list[str]:
     entry = Path(sys.executable).with_name("serial_mcp_script")
-    return [str(entry)] if entry.exists() else [sys.executable, "-m", "serial_mcp_server.script_cli"]
+    return [str(entry)] if entry.exists() else [sys.executable, "-m", "serial_mcp_server.cli"]
 
 
 def clean_env() -> dict[str, str]:
