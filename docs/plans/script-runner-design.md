@@ -87,7 +87,7 @@ The spec root is the `.serial_mcp/` directory that `resolve_spec_root()` in `ser
 | Reproducible result   | Linear scripts with explicit timeouts; expect semantics that consume output through each match (section 8.2). |
 | Safe to hand over     | Parse and validate the whole script before sending a byte; no shell or include; confined directories.        |
 | Diagnosable failure   | Each step records its outcome; a failure keeps the line, the reason, and the last 2 KiB of unmatched output.  |
-| Same engine twice     | The engine depends on a `PortSession` interface, not on MCP; the MCP layer and the CLI each implement it.    |
+| Same engine twice     | The engine depends on a `PortSession` interface, not on MCP; the MCP tools and the CLI share one adapter.   |
 | Server stays live     | Each run executes on its own thread; MCP tools only start, inspect, and signal it.                          |
 
 ## 5. Building Block View
@@ -158,7 +158,7 @@ port log is active.
 | Tool                     | Inputs                                                                                                   | Returns                                                                       | Annotations                         |
 | ------------------------ | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------- |
 | `serial.script.run`      | `connection_id`; one of `path` or `source`; `vars`; `log` (default true); `log_formats`; `wait_ms`      | `run_id`, `state`; the full result when the run ends within `wait_ms`         | destructive, open-world             |
-| `serial.script.status`   | `run_id`, or `connection_id` for its latest run                                                          | State, current line and its text, step counts, elapsed time, failure, output tail, result and log paths | read-only |
+| `serial.script.status`   | `run_id`, or `connection_id` for its latest run                                                          | State, current line and its text, step counts, elapsed time; after the run ends, also failure, output tail, result and log paths | read-only |
 | `serial.script.cancel`   | `run_id`                                                                                                 | Final state after the runner stops                                            | destructive                         |
 | `serial.script.list`     | none                                                                                                     | Scripts in the scripts directory with size and their first comment line       | read-only                           |
 | `serial.script.template` | none                                                                                                     | The syntax reference and a skeleton script, like `serial.spec.template`       | read-only                           |
@@ -196,8 +196,9 @@ sequenceDiagram
         R->>S: write line
         R->>M: expect prompt or pattern
     end
-    R->>S: log_event(script_end), unsubscribe, stop port log it started
-    R->>J: store result, write result file, release claim
+    R->>S: log_event(script_end), unsubscribe
+    R->>J: store result, write result file
+    J->>S: stop port log it started, release claim
     A->>T: serial.script.status(run_id)
     T-->>A: passed, result path, log paths
 ```
@@ -209,16 +210,17 @@ sequenceDiagram
 4. The runner starts a port log in the default formats when `log` is true and the connection has none, subscribes
    its `OutputMatcher`, and writes a `script_start` event with the script name and its SHA-256.
 5. Each step runs in order (section 8.1). Output that arrived before the subscription is not visible to the run.
-6. After the last step, the runner writes `script_end`, removes the subscription, stops the port log only if it
-   started it, writes the result file, and releases the claim.
+6. After the last step, the runner writes `script_end`, removes the subscription, and writes the result file. The
+   job registry then stops the port log, only if the run started it, and releases the claim.
 
 ### 6.2 A Failing Expect
 
 For `@expect "Bytes transferred" --timeout 60s`, the runner waits on the matcher and searches its window after
 each wake. Sixty seconds pass without a match. The step's outcome becomes `timeout`, the run's state becomes `failed`, and the failure records
 the line number, the step text, the reason, and the last 2 KiB of unmatched output. Remaining steps do not run.
-Teardown proceeds as in 6.1. A fail pattern that matches during any step ends the run the same way with the reason
-`fail_pattern` and the matched text.
+Teardown proceeds as in 6.1. A fail pattern that matches during a wait or between steps ends the run the same way
+with the reason `fail_pattern` and the matched text. It is not checked while one write is in flight (section 11,
+risk 5).
 
 ### 6.3 Cancel
 
@@ -255,8 +257,10 @@ serial_mcp_script tests/uboot-smoke.serial --port /dev/ttyUSB0 --baud 115200 \
 
 `script_cli` opens the port, builds the reader, `SerialWriter`, and port log, adapts them with `ConnectionSession`, and
 starts the runner, then waits for it on the main thread. Progress lines go to stderr. On completion it writes the result file
-and exits with 0 for passed, 1 for failed, 2 for errored or for a usage or parse error, and 130 when interrupted
-by SIGINT, which cancels the run first.
+and exits with 0 for passed, 1 for failed, 2 for an errored run or unusable input (a usage or parse error, a port
+that cannot be opened, an existing `--result` file, a run that ends cancelled without an interrupt, or an unexpected
+error), and 130 when interrupted by SIGINT, which cancels the run first. SIGTERM is not handled: it ends the
+command at once and writes no result file.
 
 ## 7. Deployment View
 
@@ -278,8 +282,8 @@ A script is UTF-8 text. The parser reads it line by line and strips the line ter
 | blank or whitespace    | Ignored.                                                                                                  |
 | `# text`               | Comment, after optional leading whitespace.                                                               |
 | `@@text`               | A bare line whose content starts with `@`: sends `@text`.                                                 |
-| `@name args`           | A directive. Arguments are split with `shlex` in POSIX mode, so quotes group words.                       |
-| anything else          | A bare line: sent exactly as written, followed by the script's newline, then the prompt wait if one is set. |
+| `@name args`           | A directive, only when `@` is in column zero. Most directives split their arguments with `shlex` in POSIX mode, so quotes group words; `@send`, `@sendline`, `@sendhex`, `@newline`, and `@mark` take the rest of the line, trimmed, with no quote processing. |
+| anything else          | A bare line: sent as written, leading whitespace included (an indented `@expect` is sent as text), followed by the script's newline, then the prompt wait if one is set. |
 
 The first comment line of a file is its description in `serial.script.list`.
 
@@ -287,8 +291,8 @@ Directives:
 
 | Directive                                   | Effect                                                                                                  |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `@send TEXT`                                | Send TEXT with escapes `\r`, `\n`, `\t`, `\xHH`, `\\` decoded, and no newline.                           |
-| `@sendline TEXT`                            | As `@send`, then the newline and the prompt wait. For lines that need quoting or escapes.              |
+| `@send TEXT`                                | Send the rest of the line with escapes `\r`, `\n`, `\t`, `\xHH`, `\\` decoded, and no newline. `\xHH` is Unicode code point HH, encoded with the connection's encoding; any other escape is a parse error. |
+| `@sendline TEXT`                            | As `@send`, then the newline and the prompt wait. For lines that start with `#` or `@`, or need escapes. |
 | `@sendhex HEX`                              | Send raw bytes given in hex; spaces are allowed.                                                       |
 | `@expect REGEX [--timeout D]`               | Wait for REGEX in output after the cursor, then move the cursor past the match (section 8.2).          |
 | `@prompt REGEX` / `@prompt --off`           | After each bare line and `@sendline`, wait for REGEX with the current timeout, consuming it.           |
@@ -299,8 +303,8 @@ Directives:
 | `@dtr on\|off`, `@rts on\|off`              | Set a control line.                                                                                    |
 | `@pulse dtr\|rts D`                         | Set the line low for D, then high, as `serial.pulse_dtr` does.                                         |
 | `@pacing off`, `@pacing char D`, `@pacing chunk N D` | Pacing for the script's later writes. Without it, the connection's pacing applies.            |
-| `@newline TEXT`                             | Newline for later bare lines, with escapes decoded. Initially the connection's newline.                |
-| `@mark LABEL`                               | Write a `mark` event to the port log and record it in the result.                                      |
+| `@newline TEXT`                             | Newline for later bare lines, with escapes decoded; the rest of the line. Initially the connection's newline. |
+| `@mark LABEL`                               | Write a `mark` event to the port log and record it in the result; the label is the rest of the line.   |
 | `@send_file PATH`                           | Send a file from the files directory with the current pacing, as `serial.send_file` does.              |
 
 A duration D is a number with a unit: `ms`, `s`, or `m`. A bare number is a syntax error, because a missing unit
@@ -308,9 +312,11 @@ is ambiguous. Settings made by `@pacing`, `@newline`, `@timeout`, `@prompt`, and
 ends and never change the connection's configuration.
 
 Variables are written `{{NAME}}`, where NAME is a letter or underscore followed by letters, digits, or
-underscores. The parser replaces them in bare lines and directive arguments before splitting arguments. Inside a
-REGEX argument, the value is inserted with `re.escape`, so it matches literally. An undefined name is a parse
-error. `${...}` is left alone, because U-Boot and shells use it themselves (decision D2).
+underscores. The parser replaces them in bare lines and directive arguments after splitting arguments, so a value
+with spaces or quotes stays one argument. The text directives decode escapes before substitution, so a backslash
+in a value stays literal. Inside a REGEX argument, the value is inserted with `re.escape`, so it matches
+literally. An undefined name is a parse error. `${...}` is left alone, because U-Boot and shells use it themselves
+(decision D2).
 
 An example:
 
@@ -372,10 +378,11 @@ stateDiagram-v2
 ```
 
 A parse error never creates a run; the tool or command reports it directly. A run longer than
-`SERIAL_MCP_SCRIPT_MAX_SECONDS` (default 3600) fails with the reason `max_duration`.
+`SERIAL_MCP_SCRIPT_MAX_SECONDS` (default 3600) fails with the reason `max_duration`. The limit is checked between
+steps and while the runner waits, not while one write is in flight (section 11, risk 5).
 
 The result file is `serial-mcp-script-<DDMMYYYY>-<HHMM>[-n].json` in the log directory, numbered like port logs.
-It holds a schema version, the script path or `inline`, its SHA-256, the variable names, the connection's
+It holds a schema version, the script name (the path the tool was given, the file name the command was given, or `inline`), its SHA-256, the variable names, the connection's
 configuration, UTC start and end times, the state and reason, one record
 per executed step (line, text, kind, start offset, duration, outcome, and matched text for expects), marks, the
 failure detail, and the port log paths. `serial.script.status` returns the same structure. The registry keeps
@@ -418,15 +425,22 @@ The numeric limits in this document (1 MiB window, 256 KiB inline source, 2 KiB 
 
 ## 11. Risks and Technical Debt
 
-1. A pattern with catastrophic backtracking can hold the runner thread inside `re`, where cancel cannot reach it.
-   The window bound limits the input size but not the time. Accepted for a local tool; revisit if scripts come
-   from untrusted sources.
+1. A pattern with catastrophic backtracking holds the runner thread inside `re`, where cancel cannot reach it.
+   `re` does not release the interpreter lock, so it also stalls every other thread in the server (the event
+   loop, readers, cancel, and close) until the match ends. The window bound limits the input size but not the
+   time. Accepted for a local tool and stated in `docs/scripts.md`; revisit with a regex engine that has a timeout
+   if scripts come from untrusted sources.
 2. Operator input through a read/write mirror reaches the device mid-run and can change the outcome. It is logged
    with source `mirror`, which makes it visible in the port log, but the result does not flag it.
 3. A failed run leaves the device where the failure happened, because there is no cleanup block. A `@finally`
    section is deferred; a CI job can run a separate reset script.
 4. A device that echoes with different line endings or colors can defeat a pattern written against the plain
    text. Authors see the received text in the failure output.
+5. A write that is already in flight runs to its end: the stop event ends it between segments, but
+   `SERIAL_MCP_SCRIPT_MAX_SECONDS` and fail patterns are checked only when it returns, and a script's writes skip
+   `SERIAL_MCP_MAX_WRITE_SECONDS`. A long paced `@send_file` can therefore outlast the run's maximum duration. Text
+   that the connection's encoding cannot encode is found when its step runs, because `parse` takes no encoding.
+   Accepted and stated in `docs/scripts.md`.
 
 ## 12. Glossary
 
@@ -452,7 +466,8 @@ Obligations that need particular scrutiny in review and tests:
 
 - Nothing reaches the device before the whole script parses and validates (section 6.1, step 1).
 - The claim is released on every exit path: pass, fail, error, cancel, close, and an exception in the runner.
-- Every runner wait ends on the stop event, and cancel completes within one pacing segment or matcher wake.
+- Every runner wait ends on the stop event, and cancel completes within one pacing segment or matcher wake; a write
+  still queued behind other writes is removed when the run is cancelled.
 - No pattern is evaluated on the reader thread.
 - Expect consumption follows section 8.2, including chunk-split fail patterns and the window bound.
 - Variable values never appear in the variable list or step text of results and status output.
