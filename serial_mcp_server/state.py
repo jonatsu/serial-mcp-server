@@ -15,9 +15,9 @@ from pathlib import Path
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
 from serial_mcp_server.port.connection import SerialConnection, stop_connections
-from serial_mcp_server.script.runner import RunResult, ScriptRunner
+from serial_mcp_server.script.results import RunResult
+from serial_mcp_server.script.runner import ScriptRunner
 
-SCRIPT_CANCEL_WAIT_SECONDS = 5.0
 logger = logging.getLogger("serial_mcp_server")
 
 

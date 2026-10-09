@@ -13,7 +13,6 @@ from typing import Any
 from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.confined_files import read_confined_file
-from serial_mcp_server.connection_session import ConnectionSession
 from serial_mcp_server.helpers import _coerce_bool, _err, _ok
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
@@ -21,8 +20,10 @@ from serial_mcp_server.portlog.formats import CLOSE_EVENT, LOG_FORMATS_SCHEMA, O
 from serial_mcp_server.portlog.log import PortLog
 from serial_mcp_server.portlog.request import build_log_request
 from serial_mcp_server.script import DIRECTIVES, ScriptSyntaxError, parse
-from serial_mcp_server.script.runner import RunMetadata, ScriptRunner
-from serial_mcp_server.state import SCRIPT_CANCEL_WAIT_SECONDS, ScriptRun, SerialState
+from serial_mcp_server.script.connection_session import ConnectionSession
+from serial_mcp_server.script.results import RunMetadata
+from serial_mcp_server.script.runner import SCRIPT_CANCEL_WAIT_SECONDS, ScriptRunner
+from serial_mcp_server.state import ScriptRun, SerialState
 
 logger = logging.getLogger("serial_mcp_server")
 

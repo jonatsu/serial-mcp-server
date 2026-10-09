@@ -534,4 +534,18 @@ contract keeps `portlog` from importing `port`, the script engine, and the MCP m
 Self-review: the diff changes only imports, patch targets, and moved code. 746 tests passed; `just check` clean,
 with both contracts kept.
 
+### Unit 5: The Script Engine's Results and Adapter
+
+Moved on 9 October 2026. `script/results.py` holds the run states and result types, `utc_now`, and two functions
+that replace the runner's file methods: `open_result_file` creates the file and `write_result_file` writes it; the
+runner records the path between the two calls, as before. Deviation: `_build_result` stays in the runner, because it
+only assembles a `RunResult` from the runner's own state; design section 5.3 follows. `connection_session.py` moved
+to `script/`, and `SCRIPT_CANCEL_WAIT_SECONDS` to `script/runner.py`. Tests moved to `tests/script/`; two patch
+targets (`_utc_now` became `utc_now`) and one repository-relative path in `test_parser.py` changed. A third
+forbidden contract keeps `script` from importing `state`, `server`, `helpers`, `script_cli`, and the handlers.
+
+Self-review: the diff changes only imports, patch targets, and moved code. 746 tests passed; `just check` clean,
+with three contracts kept. `just integration` exited 0; its scenario 5 found the same result structure from
+`serial.script.run` and `serial_mcp_script`.
+
 No other unit has started.

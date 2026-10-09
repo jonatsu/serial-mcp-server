@@ -23,14 +23,8 @@ from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.script import Script, parse
 from serial_mcp_server.script import runner as script_runner
 from serial_mcp_server.script.matcher import OutputMatcher
-from serial_mcp_server.script.runner import (
-    PATTERN_TIMEOUT_SECONDS,
-    RunMetadata,
-    RunResult,
-    RunState,
-    RunStatus,
-    ScriptRunner,
-)
+from serial_mcp_server.script.results import RunMetadata, RunResult, RunState, RunStatus
+from serial_mcp_server.script.runner import PATTERN_TIMEOUT_SECONDS, ScriptRunner
 
 EXAMPLE_SCRIPT = r"""# U-Boot smoke test
 @timeout 10s
@@ -216,7 +210,7 @@ def test_result_file_keeps_metadata_and_numbers_name_collisions(
     result_directory = tmp_path / "logs"
     result_directory.mkdir()
     (result_directory / f"{base}.json").write_text("occupied", encoding="utf-8")
-    monkeypatch.setattr(script_runner, "_utc_now", lambda: fixed_start)
+    monkeypatch.setattr(script_runner, "utc_now", lambda: fixed_start)
     log_path = result_directory / "serial-mcp-log.txt"
     session = FakePortSession()
     session.set_log_paths((log_path,))
@@ -254,7 +248,7 @@ def test_first_result_file_uses_unnumbered_base_name(tmp_path: Path, monkeypatch
     fixed_start = datetime(2026, 10, 8, 14, 5, tzinfo=UTC)
     local_start = fixed_start.astimezone()
     expected_path = tmp_path / "logs" / f"serial-mcp-script-{local_start:%d%m%Y-%H%M}.json"
-    monkeypatch.setattr(script_runner, "_utc_now", lambda: fixed_start)
+    monkeypatch.setattr(script_runner, "utc_now", lambda: fixed_start)
     runner, _ = make_runner("@mark done", FakePortSession(), expected_path.parent)
 
     runner.start()

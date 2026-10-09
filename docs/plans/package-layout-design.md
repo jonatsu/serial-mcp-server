@@ -179,7 +179,7 @@ enforces this order, and `just check` and CI run it, so a violating import fails
 | `trace.py`                     | `mcp/trace.py`, with its settings from `config.py`.                                                       |
 | `plugins.py`                   | `mcp/plugins.py`, with its policy from `config.py`.                                                       |
 | `connection_session.py`        | `script/connection_session.py`.                                                                           |
-| `script/runner.py`             | `RunState`, `RunMetadata`, `RunStatus`, `StepResult`, `RunFailure`, `RunResult`, and result-file writing to `script/results.py`; execution stays. |
+| `script/runner.py`             | `RunState`, `RunMetadata`, `RunStatus`, `StepResult`, `RunFailure`, `RunResult`, and creating and writing the result file to `script/results.py`; execution, and assembling a `RunResult` from the runner's own state, stay. |
 | `script_cli.py`                | `cli.py`.                                                                                                 |
 
 ## 6. Runtime View
