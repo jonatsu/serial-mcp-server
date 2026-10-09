@@ -66,7 +66,8 @@ dependency direction explicit and checkable.
 ## 3. Context and Scope
 
 In scope: the module and package structure of `serial_mcp_server/`, one configuration module, a stable plugin
-interface, the layering check, and the test layout that mirrors the package. Out of scope: tool names and schemas,
+interface, the layering check, the test layout that mirrors the package, and moving the async code to `anyio`.
+Out of scope: tool names and schemas,
 script language, log formats, result structure, and new features. The deferred items of the two existing plans stay
 deferred; consolidating them is a separate task.
 
@@ -262,6 +263,30 @@ Tests that set `SERIAL_MCP_*` variables with `monkeypatch.setenv` build a `Setti
 test count the same, except the tests that this design adds: the `config.load` cases of section 8.1, the
 no-`os.environ` search, and the layering contract.
 
+### 8.4 Async Code on AnyIO
+
+The server's own async code uses `anyio`, the library the MCP SDK runs on, instead of raw `asyncio`. Today it makes
+about 45 `asyncio` calls: 32 `to_thread`, and the rest cancellation and waiting (`shield`, `ensure_future`,
+`wrap_future`, `wait_for`, `CancelledError`, `sleep`, and one `asyncio.run`). Each maps as follows:
+
+| Today                                          | With AnyIO                                                              |
+| ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `asyncio.to_thread(f, ...)`                    | `anyio.to_thread.run_sync(f, ...)`                                      |
+| `asyncio.shield` with a done-callback cleanup  | the cleanup inside `with anyio.CancelScope(shield=True):`               |
+| `asyncio.wait_for(x, t)`                       | `with anyio.fail_after(t):` or `anyio.move_on_after(t)`                |
+| `asyncio.wrap_future` on a writer job future   | waiting on the job's completion from a worker thread, cancellable by its scope |
+| `asyncio.CancelledError`                       | `anyio.get_cancelled_exc_class()`                                       |
+| `asyncio.run(_run())`                          | `anyio.run(_run)`                                                       |
+
+The shielded scope also closes a known gap: today a cancellation that lands in the same loop iteration can skip
+the port-closing cleanup of `serial.open` (implementation plan, Unit 12 record). `anyio` becomes a declared
+dependency, because the server imports it directly. The tests move from `pytest-asyncio` to the pytest plugin that
+`anyio` ships, so tests and server share one event-loop policy. Worker threads stay as they are: the reader,
+writer, port log, and script runner are threads, and only the async boundary changes.
+
+This step changes cancellation behavior, so it follows the moves of section 5.3 as its own commits, never mixed
+into a move.
+
 ## 9. Architecture Decisions
 
 | ID  | Decision                                                                                 | Status          | Rejected alternatives and why |
@@ -273,6 +298,7 @@ no-`os.environ` search, and the layering contract.
 | L5  | `plugin_api.py` is the only supported plugin import; old paths are not kept.               | Provisional (Q3) | Compatibility modules at the old paths: recreate the flat top level this design removes, for a 0.x package whose only known plugin is the demo. |
 | L6  | An `import-linter` `layers` contract enforces section 5.2.                                | Recommended     | Review only: the interpreter and type checker accept a layer violation. |
 | L7  | `cli.py` and `plugin_api.py` are top-level modules, not packages.                         | Recommended     | `cli/` and `plugins/` packages: each would hold one module. |
+| L8  | Async code uses `anyio`, declared as a dependency (section 8.4).                           | User decision   | Raw `asyncio`: a second set of cancellation rules beside the SDK's, and no shielded scopes or structured timeouts. |
 
 ## 10. Quality Requirements
 
@@ -310,7 +336,7 @@ the modules section 5.1 names.
 
 The plan should order the moves so that each commit leaves the suite green: configuration first, because later
 moves pass `Settings` instead of reading the environment; then `port/`, `portlog/`, the private and confined file
-modules, `script/`, `specs/`, `mcp/`, `cli.py`, and `plugin_api.py`; and the layering contract last, once the tree
-matches section 5.1. Obligations that need scrutiny: no tool's schema, result, or error code changes; every
+modules, `script/`, `specs/`, `mcp/`, `cli.py`, and `plugin_api.py`; the layering contract once the tree matches section 5.1; and the switch to
+`anyio` (section 8.4) last, after the moves. Obligations that need scrutiny: no tool's schema, result, or error code changes; every
 `SERIAL_MCP_*` read goes through `config.py`; the engine still imports nothing from `mcp`; and the CLI and the MCP
 server still produce the same result structure for the same run.
