@@ -1,4 +1,4 @@
-"""Unit tests for serial_mcp_server.state."""
+"""Unit tests for serial_mcp_server.mcp.state."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from serial_mcp_server import config
+from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.port.connection import SerialConnection, stop_connections
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.state import SerialState
 
 
 class TestSerialState:

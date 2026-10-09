@@ -13,7 +13,7 @@ import pytest
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
-from serial_mcp_server.handlers_serial import (
+from serial_mcp_server.mcp.tools.serial import (
     handle_close,
     handle_configure,
     handle_connection_status,
@@ -54,7 +54,7 @@ def log_env(settings: Settings):
 async def open_port(state, mock_serial, mock_reader, **args):
     """Run handle_open with the serial layer faked; return (result, create_reader mock)."""
     with (
-        patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+        patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
         patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
     ):
         result = await handle_open(state, {"port": "/dev/ttyUSB0", **args})
@@ -120,7 +120,7 @@ class TestOpenSettings:
         self, serial_state, mock_serial, mock_reader
     ):
         with patch(
-            "serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial
+            "serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial
         ) as serial_cls:
             result = await handle_open(serial_state, {"port": "/dev/ttyUSB0", "log_formats": ["xml"]})
 
@@ -315,7 +315,7 @@ class TestReceiveTap:
 
 class TestOpenSchemaAndFailures:
     def test_log_arguments_are_top_level_properties_of_serial_open(self):
-        from serial_mcp_server.handlers_serial import TOOLS
+        from serial_mcp_server.mcp.tools.serial import TOOLS
 
         schema = next(t for t in TOOLS if t.name == "serial.open").inputSchema["properties"]
 
@@ -328,7 +328,7 @@ class TestOpenSchemaAndFailures:
         self, serial_state, mock_serial, mock_reader, encoding
     ):
         with patch(
-            "serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial
+            "serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial
         ) as serial_cls:
             result = await handle_open(
                 serial_state, {"port": "/dev/ttyUSB0", "log": True, "encoding": encoding}
@@ -344,7 +344,7 @@ class TestOpenSchemaAndFailures:
         mock_reader.start.side_effect = lambda: slots[0].rx(b"banner")  # a device that talks at once
 
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
             patch(
                 "serial_mcp_server.port.stack.create_reader",
                 side_effect=lambda *a, log_slot, **k: slots.append(log_slot) or mock_reader,
@@ -361,7 +361,7 @@ class TestOpenSchemaAndFailures:
     ):
         before = _log_threads()
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
             patch("serial_mcp_server.port.stack.create_reader", side_effect=OSError("no ptys")),
             pytest.raises(OSError, match="no ptys"),
         ):
@@ -418,7 +418,7 @@ class TestOpenFormatsAndTimestamps:
 
     async def test_invalid_timestamp_mode_is_rejected_before_the_port_opens(self, serial_state, mock_serial):
         with patch(
-            "serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial
+            "serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial
         ) as serial_cls:
             result = await handle_open(
                 serial_state, {"port": "/dev/ttyUSB0", "log": True, "log_text_timestamps": "fast"}

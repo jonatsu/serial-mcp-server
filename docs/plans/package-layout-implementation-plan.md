@@ -559,4 +559,33 @@ forbidden contract keeps `specs` from importing the port, the port log, the scri
 Self-review: the diff changes only imports and moved code. 746 tests passed; `just check` clean, with four
 contracts kept.
 
+### Unit 7: The `mcp/` Package and the Plugin Interface
+
+Moved on 9 October 2026. `server.py`, `state.py`, `trace.py`, and `plugins.py` moved into `mcp/`, `helpers.py`
+became `mcp/responses.py`, each `handlers_<name>.py` became `mcp/tools/<name>.py`, and `mcp/writes.py` took
+`duration_error`, `_bytes_written_by`, and `run_write_job`. `__main__.py` and the `serial_mcp` entry point call
+`serial_mcp_server.mcp.server:main`. `plugin_api.py` re-exports `ok`, `err`, `SerialState`, `Tool`, and the four
+serial read and write handlers; the plugin template and the demo plugin import from it alone, and the CHANGELOG
+records the breaking change. Tests moved to `tests/mcp/` and `tests/mcp/tools/`; the spec tool tests left
+`tests/specs/test_store.py` for `tests/mcp/tools/test_spec.py`, with shared helpers in `tests/specs/samples.py`.
+
+Two earlier defects surfaced here. Unit 3's import rewrite (`2fc8aa5`) had also rewritten the import block inside
+the plugin template's text, so a generated plugin did not compile; the new template replaces it, and a new test
+loads a generated plugin and runs its tool. The forbidden contracts still named `state`, `server`, `helpers`, and
+the handler modules, which no longer existed, and import-linter keeps such a contract without checking anything;
+the contracts now name `mcp`, `plugin_api`, and `script_cli`, and `tests/test_import_contracts.py` fails when a
+contract names a missing module (checked by renaming one).
+
+P1 results: 781 tests passed (the new plugin interface, shadowing, and contract tests); `just check` clean with six
+contracts kept, three of which a temporary `port/writer.py` import of `mcp.state` broke; Bandit no issues; the
+extended no-`mcp` probe failed when `script_cli.py` imported `mcp.responses` and passed without it. A server started
+from a worktree at `2a13952` and one started from this tree returned identical `tools/list` JSON over stdio: 38
+tools, in the same order. `just integration` failed once in scenario 8b, because the catastrophic pattern
+`(a|aa)+$` could match the `a` characters of a partial read; the harness fix (`8d91fcf`) uses `(a|aa)+c`, which
+cannot match, and two further runs passed every scenario.
+
+Review: an independent `code-reviewer` approved, with three optional notes. A stale comment was fixed. The
+contract test was said to miss a renamed module; the rename check above shows it does not. `mcp/writes.py` has no
+direct tests of its `WriterClosed`, `WriteAborted`, and cancel branches, as before the move; left as a follow-up.
+
 No other unit has started.

@@ -12,9 +12,26 @@ pip install -e ".[test]"
 python -m pytest tests/ -v
 ```
 
+## Package layout
+
+```text
+serial_mcp_server/
+├── config.py            # Settings: every SERIAL_MCP_* variable, read once at start
+├── confined_files.py    # read a file only inside an operator-chosen directory
+├── private_files.py     # create owner-only files with collision-free names
+├── plugin_api.py        # the only module plugins import
+├── port/                # one open port: connection, stack, buffer, reader, mirror, pacing, writer
+├── portlog/             # the port log: log, request, formats
+├── script/              # the script engine: parser, matcher, runner, results, connection adapter
+├── specs/               # protocol specs: front matter and the spec store
+└── mcp/                 # the MCP server: server, state, responses, writes, plugins, trace, tools/
+```
+
+Dependencies point one way: `plugin_api` above `mcp/` and the command-line runner, then `script/` and `specs/`, then `port/`, then `portlog/`, then the top-level foundation modules. `just check` and CI run `lint-imports`, which fails on an import against that order; the contracts are in `pyproject.toml`. Tests mirror the package: the tests of `port/writer.py` are in `tests/port/test_writer.py`. The [package layout design](docs/plans/package-layout-design.md) explains the structure.
+
 ## How tools are registered
 
-Each `handlers_*.py` file exports:
+Each module in `serial_mcp_server/mcp/tools/` exports:
 
 ```python
 TOOLS: list[Tool] = [...]          # Tool definitions with names, descriptions, schemas
@@ -23,14 +40,14 @@ HANDLERS: dict[str, Callable] = {  # Maps tool name → async handler function
 }
 ```
 
-In `server.py`, these are merged inside `build_server()`:
+In `mcp/server.py`, these are merged inside `build_server()`:
 
 ```python
-tools = handlers_serial.TOOLS + handlers_introspection.TOOLS + handlers_spec.TOOLS + handlers_trace.TOOLS + handlers_plugin.TOOLS
-handlers = {**handlers_serial.HANDLERS, **handlers_introspection.HANDLERS, **handlers_spec.HANDLERS, **handlers_trace.HANDLERS}
+tools = serial_tools.TOOLS + introspection_tools.TOOLS + file_tools.TOOLS + log_tools.TOOLS + ...
+handlers = {**serial_tools.HANDLERS, **introspection_tools.HANDLERS, **file_tools.HANDLERS, ...}
 ```
 
-Plugin handlers are added via `handlers_plugin.make_handlers()`, which returns closures that capture the `PluginManager` and `Server` instances.
+Plugin handlers are added via `mcp/tools/plugin.make_handlers()`, which returns closures that capture the `PluginManager` and `Server` instances.
 
 ## Handler pattern
 
@@ -42,17 +59,17 @@ async def handle_something(state: SerialState, args: dict[str, Any]) -> dict[str
 
 - `state` — shared serial state (connections), and `state.settings`, the server's configuration
 - `args` — parsed tool arguments from the MCP client
-- Returns `_ok(key=value)` on success or `_err(code, message)` on failure
+- Returns `_ok(key=value)` on success or `_err(code, message)` on failure, from `serial_mcp_server.mcp.responses`
 
 ## Configuration
 
 `serial_mcp_server/config.py` is the only module that reads the environment. `config.load()` reads every `SERIAL_MCP_*` variable once at start into a frozen `Settings`, and an invalid value stops the start with a message that names every invalid variable. Handlers read `state.settings`; other code takes the values it needs as parameters. To add a variable, add a field to `Settings` with its default and validation, document it in the README's variable table, and pass the value to the code that uses it. A test fails if any other module reads `os.environ`. In tests, build settings with `config.load({...})`, or change one value of a test's state with `tests.helpers.reconfigure`, instead of setting environment variables.
 
-The dispatcher in `server.py` catches common exceptions (KeyError, SerialException, TimeoutError, etc.) and converts them to error responses automatically.
+The dispatcher in `mcp/server.py` catches common exceptions (KeyError, SerialException, TimeoutError, etc.) and converts them to error responses automatically.
 
 ## Adding a new tool
 
-1. Add the `Tool(...)` definition to the appropriate `handlers_*.py` `TOOLS` list
+1. Add the `Tool(...)` definition to the appropriate `mcp/tools/*.py` `TOOLS` list
 2. Write the handler function following the signature above
 3. Add the mapping to the `HANDLERS` dict
 4. Add tests in the corresponding `test_*.py`
@@ -68,7 +85,9 @@ Tool names follow the convention `serial.<action>` for core tools (e.g., `serial
 
 **Name collisions:** If a plugin tool name collides with any existing tool (core or other plugin), loading fails with `ValueError`.
 
-**Policy:** `SERIAL_MCP_PLUGINS` env var is parsed into `(enabled, allowlist)`. The `PluginManager` checks this before every `load()` call. `load_all()` skips entirely when disabled.
+**Plugin imports:** plugins import only from `serial_mcp_server.plugin_api`, which re-exports `ok`, `err`, `SerialState`, `Tool`, and the serial read and write handlers. Its `__all__` changes only with a CHANGELOG entry; the template that `serial.plugin.template` returns and the demo plugin follow it.
+
+**Policy:** `SERIAL_MCP_PLUGINS` is parsed into `Settings.plugins`, a `PluginPolicy` of `enabled` and `allowlist`. The `PluginManager` checks this before every `load()` call. `load_all()` skips entirely when disabled.
 
 **Hot reload:** `reload(name)` calls `unload(name)` then `load(path)`. Unload filters the TOOLS list in-place and pops handler keys. The old module is deleted from `sys.modules`.
 
@@ -93,10 +112,10 @@ All tests run without serial hardware. They use `MagicMock` for pyserial objects
 python -m pytest tests/ -v
 
 # Run a specific test file
-python -m pytest tests/test_plugins.py -v
+python -m pytest tests/mcp/test_plugins.py -v
 
 # Run a specific test
-python -m pytest tests/test_plugins.py::TestPluginManager::test_load_adds_tools_and_handlers -v
+python -m pytest tests/mcp/test_plugins.py::TestPluginManager::test_load_adds_tools_and_handlers -v
 ```
 
 ### Integration harness

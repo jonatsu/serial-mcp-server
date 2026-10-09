@@ -12,14 +12,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from serial_mcp_server.handlers_file import handle_send_file
-from serial_mcp_server.handlers_log import (
+from serial_mcp_server.mcp.tools.file import handle_send_file
+from serial_mcp_server.mcp.tools.log import (
     handle_log_mark,
     handle_log_start,
     handle_log_status,
     handle_log_stop,
 )
-from serial_mcp_server.handlers_script import (
+from serial_mcp_server.mcp.tools.script import (
     HANDLERS,
     TOOLS,
     handle_script_cancel,
@@ -28,7 +28,7 @@ from serial_mcp_server.handlers_script import (
     handle_script_status,
     handle_script_template,
 )
-from serial_mcp_server.handlers_serial import (
+from serial_mcp_server.mcp.tools.serial import (
     handle_close,
     handle_configure,
     handle_connection_status,

@@ -38,7 +38,7 @@ Issues = "https://github.com/jonatsu/serial-mcp-server/issues"
 Changelog = "https://github.com/jonatsu/serial-mcp-server/blob/main/CHANGELOG.md"
 
 [project.scripts]
-serial_mcp = "serial_mcp_server.server:main"
+serial_mcp = "serial_mcp_server.mcp.server:main"
 serial_mcp_script = "serial_mcp_server.script_cli:main"
 
 [tool.pytest.ini_options]
@@ -58,23 +58,15 @@ root_package = "serial_mcp_server"
 # Layers of docs/plans/package-layout-design.md section 5.2. Each package refactor unit extends these
 # contracts; the final unit replaces them with one layers contract.
 [[tool.importlinter.contracts]]
-name = "port/ imports nothing from the script engine or the MCP server"
+name = "port/ imports nothing from the script engine, the specs, or the MCP server"
 type = "forbidden"
 source_modules = ["serial_mcp_server.port"]
 forbidden_modules = [
     "serial_mcp_server.script",
-    "serial_mcp_server.state",
-    "serial_mcp_server.server",
-    "serial_mcp_server.helpers",
+    "serial_mcp_server.specs",
+    "serial_mcp_server.mcp",
+    "serial_mcp_server.plugin_api",
     "serial_mcp_server.script_cli",
-    "serial_mcp_server.handlers_file",
-    "serial_mcp_server.handlers_introspection",
-    "serial_mcp_server.handlers_log",
-    "serial_mcp_server.handlers_plugin",
-    "serial_mcp_server.handlers_script",
-    "serial_mcp_server.handlers_serial",
-    "serial_mcp_server.handlers_spec",
-    "serial_mcp_server.handlers_trace",
 ]
 
 [[tool.importlinter.contracts]]
@@ -84,18 +76,10 @@ source_modules = ["serial_mcp_server.portlog"]
 forbidden_modules = [
     "serial_mcp_server.port",
     "serial_mcp_server.script",
-    "serial_mcp_server.state",
-    "serial_mcp_server.server",
-    "serial_mcp_server.helpers",
+    "serial_mcp_server.specs",
+    "serial_mcp_server.mcp",
+    "serial_mcp_server.plugin_api",
     "serial_mcp_server.script_cli",
-    "serial_mcp_server.handlers_file",
-    "serial_mcp_server.handlers_introspection",
-    "serial_mcp_server.handlers_log",
-    "serial_mcp_server.handlers_plugin",
-    "serial_mcp_server.handlers_script",
-    "serial_mcp_server.handlers_serial",
-    "serial_mcp_server.handlers_spec",
-    "serial_mcp_server.handlers_trace",
 ]
 
 [[tool.importlinter.contracts]]
@@ -103,18 +87,9 @@ name = "script/ imports nothing from the MCP server or the command-line runner"
 type = "forbidden"
 source_modules = ["serial_mcp_server.script"]
 forbidden_modules = [
-    "serial_mcp_server.state",
-    "serial_mcp_server.server",
-    "serial_mcp_server.helpers",
+    "serial_mcp_server.mcp",
+    "serial_mcp_server.plugin_api",
     "serial_mcp_server.script_cli",
-    "serial_mcp_server.handlers_file",
-    "serial_mcp_server.handlers_introspection",
-    "serial_mcp_server.handlers_log",
-    "serial_mcp_server.handlers_plugin",
-    "serial_mcp_server.handlers_script",
-    "serial_mcp_server.handlers_serial",
-    "serial_mcp_server.handlers_spec",
-    "serial_mcp_server.handlers_trace",
 ]
 
 [[tool.importlinter.contracts]]
@@ -125,18 +100,27 @@ forbidden_modules = [
     "serial_mcp_server.port",
     "serial_mcp_server.portlog",
     "serial_mcp_server.script",
-    "serial_mcp_server.state",
-    "serial_mcp_server.server",
-    "serial_mcp_server.helpers",
+    "serial_mcp_server.mcp",
+    "serial_mcp_server.plugin_api",
     "serial_mcp_server.script_cli",
-    "serial_mcp_server.handlers_file",
-    "serial_mcp_server.handlers_introspection",
-    "serial_mcp_server.handlers_log",
-    "serial_mcp_server.handlers_plugin",
-    "serial_mcp_server.handlers_script",
-    "serial_mcp_server.handlers_serial",
-    "serial_mcp_server.handlers_spec",
-    "serial_mcp_server.handlers_trace",
+]
+
+[[tool.importlinter.contracts]]
+name = "mcp/ imports neither the plugin interface above it nor the command-line runner"
+type = "forbidden"
+source_modules = ["serial_mcp_server.mcp"]
+forbidden_modules = [
+    "serial_mcp_server.plugin_api",
+    "serial_mcp_server.script_cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "the command-line runner imports nothing from the MCP server"
+type = "forbidden"
+source_modules = ["serial_mcp_server.script_cli"]
+forbidden_modules = [
+    "serial_mcp_server.mcp",
+    "serial_mcp_server.plugin_api",
 ]
 
 [tool.ruff]

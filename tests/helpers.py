@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from serial_mcp_server.state import SerialState
+from serial_mcp_server.mcp.state import SerialState
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

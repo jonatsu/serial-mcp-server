@@ -1,4 +1,4 @@
-"""Tests for serial_mcp_server.trace — no serial hardware required."""
+"""Tests for serial_mcp_server.mcp.trace — no serial hardware required."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from serial_mcp_server import config
-from serial_mcp_server.trace import TraceBuffer, get_trace_buffer, init_trace, sanitize_args
+from serial_mcp_server.mcp.trace import TraceBuffer, get_trace_buffer, init_trace, sanitize_args
 
 # ---------------------------------------------------------------------------
 # TraceBuffer basics
@@ -153,7 +153,7 @@ class TestSanitizeArgs:
 class TestInitTrace:
     @pytest.fixture(autouse=True)
     def no_buffer_left_behind(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
+        monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
         yield
         buf = get_trace_buffer()
         if buf is not None:
@@ -199,8 +199,8 @@ class TestInitTrace:
 class TestHandlersTraceDisabled:
     @pytest.mark.asyncio
     async def test_status_disabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
-        from serial_mcp_server.handlers_trace import handle_trace_status
+        monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
+        from serial_mcp_server.mcp.tools.trace import handle_trace_status
 
         result = await handle_trace_status(None, {})
         assert result["ok"] is True
@@ -208,8 +208,8 @@ class TestHandlersTraceDisabled:
 
     @pytest.mark.asyncio
     async def test_tail_disabled(self, monkeypatch):
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", None)
-        from serial_mcp_server.handlers_trace import handle_trace_tail
+        monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
+        from serial_mcp_server.mcp.tools.trace import handle_trace_tail
 
         result = await handle_trace_tail(None, {})
         assert result["ok"] is True
@@ -221,8 +221,8 @@ class TestHandlersTraceEnabled:
     async def test_status_enabled(self, monkeypatch):
         buf = TraceBuffer()
         buf.emit({"event": "test"})
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", buf)
-        from serial_mcp_server.handlers_trace import handle_trace_status
+        monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", buf)
+        from serial_mcp_server.mcp.tools.trace import handle_trace_status
 
         result = await handle_trace_status(None, {})
         assert result["ok"] is True
@@ -233,8 +233,8 @@ class TestHandlersTraceEnabled:
     async def test_tail_enabled(self, monkeypatch):
         buf = TraceBuffer()
         buf.emit({"event": "test", "data": 42})
-        monkeypatch.setattr("serial_mcp_server.trace._buffer", buf)
-        from serial_mcp_server.handlers_trace import handle_trace_tail
+        monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", buf)
+        from serial_mcp_server.mcp.tools.trace import handle_trace_tail
 
         result = await handle_trace_tail(None, {"n": 10})
         assert result["ok"] is True

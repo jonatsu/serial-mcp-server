@@ -7,7 +7,8 @@ from typing import Any
 
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import _err, _ok, script_running_error
+from serial_mcp_server.mcp.responses import _err, _ok, script_running_error
+from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog.formats import (
@@ -19,7 +20,6 @@ from serial_mcp_server.portlog.formats import (
 )
 from serial_mcp_server.portlog.log import PortLog
 from serial_mcp_server.portlog.request import build_log_request
-from serial_mcp_server.state import SerialState
 
 # ---------------------------------------------------------------------------
 # Tool definitions
