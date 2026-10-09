@@ -121,7 +121,12 @@ class TestAcceptedForms:
     def test_an_explicit_mirror_link_wins(self, tmp_path):
         settings = load(SERIAL_MCP_MIRROR="rw", SERIAL_MCP_MIRROR_LINK=str(tmp_path / "tty"))
 
-        assert settings.mirror_link == tmp_path / "tty"
+        assert settings.mirror_link == str(tmp_path / "tty")
+
+    @pytest.mark.skipif(os.name == "nt", reason="the mirror is off on Windows")
+    def test_the_mirror_link_is_a_prefix_kept_as_written(self):
+        # The mirror appends a number, so /tmp/pty/ names links /tmp/pty/0, /tmp/pty/1, and so on.
+        assert load(SERIAL_MCP_MIRROR="ro", SERIAL_MCP_MIRROR_LINK="/tmp/pty/").mirror_link == "/tmp/pty/"
 
     def test_numbers(self):
         settings = load(
@@ -172,6 +177,10 @@ class TestRejectedForms:
 
     def test_critical_is_a_log_level(self):
         assert load(SERIAL_MCP_LOG_LEVEL="critical").log_level == "CRITICAL"
+
+    @pytest.mark.parametrize(("alias", "level"), [("warn", "WARNING"), ("FATAL", "CRITICAL")])
+    def test_the_logging_modules_aliases_are_log_levels(self, alias, level):
+        assert load(SERIAL_MCP_LOG_LEVEL=alias).log_level == level
 
     def test_one_error_names_every_invalid_variable(self):
         with pytest.raises(ConfigError) as raised:

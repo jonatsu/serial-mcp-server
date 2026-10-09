@@ -357,7 +357,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         log_request=log_request,
         connection_id=state.generate_id(),
         mirror_mode=state.settings.mirror,
-        mirror_link=str(state.settings.mirror_link) if state.settings.mirror_link else None,
+        mirror_link=state.settings.mirror_link,
     )
     try:
         conn = await anyio.to_thread.run_sync(build_stack)

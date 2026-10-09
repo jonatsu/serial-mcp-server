@@ -23,13 +23,15 @@ ENV_PREFIX = "SERIAL_MCP_"
 DATA_DIR_NAME = ".serial_mcp"
 DEFAULT_SCRIPT_MAX_SECONDS = 3600.0
 # A documented, overridable default (SERIAL_MCP_MIRROR_LINK), not a temporary file.
-DEFAULT_MIRROR_LINK = Path("/tmp/serial-mcp")  # noqa: S108  # nosec B108
+DEFAULT_MIRROR_LINK = "/tmp/serial-mcp"  # noqa: S108  # nosec B108
 
 # The port log and the format modules own these names; tests/test_config.py keeps the two lists equal.
 LogFormatName = Literal["text", "jsonl", "lines", "raw"]
 TextTimestampMode = Literal["off", "elapsed", "system"]
 MirrorMode = Literal["off", "ro", "rw"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+# Names the logging module also accepts, which SERIAL_MCP_LOG_LEVEL took before it was validated.
+_LOG_LEVEL_ALIASES = {"WARN": "WARNING", "FATAL": "CRITICAL"}
 
 # Variables whose name is not ENV_PREFIX plus the upper-cased field name.
 _ENV_NAMES = {
@@ -106,7 +108,8 @@ class Settings(BaseSettings):
     max_write_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
     script_max_seconds: float = Field(default=DEFAULT_SCRIPT_MAX_SECONDS, gt=0, allow_inf_nan=False)
     mirror: MirrorMode = "off"
-    mirror_link: Path | None = None
+    # A prefix, not a path: the mirror appends a number, so a trailing slash puts the links in a directory.
+    mirror_link: str | None = None
     plugins: PluginPolicy = PluginPolicy()
     tool_separator: str = Field(default=".", min_length=1)
     trace_enabled: bool = True
@@ -161,7 +164,10 @@ class Settings(BaseSettings):
     @field_validator("log_level", mode="before")
     @classmethod
     def _upper(cls, value: Any) -> Any:
-        return value.strip().upper() if isinstance(value, str) else value
+        if not isinstance(value, str):
+            return value
+        level = value.strip().upper()
+        return _LOG_LEVEL_ALIASES.get(level, level)
 
     @field_validator("plugins", mode="before")
     @classmethod
