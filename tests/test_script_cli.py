@@ -21,7 +21,7 @@ import pytest
 import serial as pyserial
 
 from serial_mcp_server import script_cli
-from serial_mcp_server.portlog import LogRequest
+from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY and POSIX signals are Unix-only")

@@ -10,17 +10,11 @@ from itertools import count
 
 import pytest
 
-from serial_mcp_server import config, portlog, portlog_formats
-from serial_mcp_server.config import ConfigError, Settings
-from serial_mcp_server.portlog import (
-    LogRequest,
-    PortLog,
-    PortLogSlot,
-    build_log_request,
-    open_log_files,
-    resolve_log_request,
-)
-from serial_mcp_server.portlog_formats import FORMATS, JsonlWriter, TextWriter, WriterOptions
+from serial_mcp_server.portlog import formats as log_formats
+from serial_mcp_server.portlog import log as port_log
+from serial_mcp_server.portlog.formats import FORMATS, JsonlWriter, TextWriter, WriterOptions
+from serial_mcp_server.portlog.log import PortLog, PortLogSlot, open_log_files
+from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl
 
 WAIT_S = 2.0
@@ -28,82 +22,8 @@ NOW = datetime(2026, 10, 8, 14, 5, 30)  # naive local time, as the file name use
 POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="needs POSIX file modes and symlinks")
 
 
-def configured(tmp_path, **environ: str) -> Settings:
-    """Settings as the server loads them from *environ*, with the data root under tmp_path/spec."""
-    return config.load({"SERIAL_MCP_SPEC_ROOT": str(tmp_path / "spec"), **environ})
-
-
 def start_log(tmp_path, formats=("text",)) -> PortLog:
     return PortLog.start(LogRequest(tuple(formats), tmp_path / "logs"), "utf-8", NOW)
-
-
-class TestResolveLogRequest:
-    def test_off_by_default(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), None) is None
-
-    @pytest.mark.parametrize("value", ["1", "true", "YES"])
-    def test_environment_enables_logging_in_text_format(self, tmp_path, value):
-        request = resolve_log_request(configured(tmp_path, SERIAL_MCP_LOG=value), None)
-
-        assert request is not None
-        assert request.formats == ("text",)
-
-    def test_environment_formats_apply_when_logging_is_enabled(self, tmp_path):
-        settings = configured(tmp_path, SERIAL_MCP_LOG="1", SERIAL_MCP_LOG_FORMATS="text, jsonl")
-        assert resolve_log_request(settings, None).formats == ("text", "jsonl")
-
-    def test_environment_formats_alone_do_not_enable_logging(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path, SERIAL_MCP_LOG_FORMATS="jsonl"), None) is None
-
-    def test_false_overrides_the_environment(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path, SERIAL_MCP_LOG="1"), False) is None
-
-    def test_false_overrides_formats(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), False, ["jsonl"]) is None
-
-    def test_true_works_with_the_environment_unset(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), True).formats == ("text",)
-
-    def test_formats_alone_enable_logging(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), None, ["jsonl"]).formats == ("jsonl",)
-
-    def test_argument_formats_override_environment_formats(self, tmp_path):
-        settings = configured(tmp_path, SERIAL_MCP_LOG_FORMATS="jsonl")
-        assert resolve_log_request(settings, True, ["text"]).formats == ("text",)
-
-    def test_formats_accept_a_comma_separated_string_and_drop_duplicates(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), True, "jsonl, text,jsonl").formats == (
-            "jsonl",
-            "text",
-        )
-
-    @pytest.mark.parametrize("bad", [["nope"], [], "", [1], 5, ["text", "xml"]])
-    def test_invalid_formats_are_rejected(self, tmp_path, bad):
-        with pytest.raises(ValueError, match="log_formats"):
-            resolve_log_request(configured(tmp_path), True, bad)
-
-    def test_invalid_environment_formats_name_the_variable(self, tmp_path):
-        with pytest.raises(ConfigError, match="SERIAL_MCP_LOG_FORMATS"):
-            configured(tmp_path, SERIAL_MCP_LOG="1", SERIAL_MCP_LOG_FORMATS="nope")
-
-    def test_directory_defaults_to_logs_under_the_spec_root(self, tmp_path):
-        assert resolve_log_request(configured(tmp_path), True).directory == tmp_path / "spec" / "logs"
-
-    def test_directory_comes_from_the_environment(self, tmp_path):
-        settings = configured(tmp_path, SERIAL_MCP_LOG_DIR=str(tmp_path / "elsewhere"))
-        assert resolve_log_request(settings, True).directory == tmp_path / "elsewhere"
-
-
-class TestBuildLogRequestOrigin:
-    def test_an_unknown_format_names_log_formats_by_default(self, tmp_path):
-        with pytest.raises(ValueError, match="'bogus' in log_formats"):
-            build_log_request(configured(tmp_path), ["bogus"])
-
-    def test_a_caller_can_name_its_own_option_in_the_error(self, tmp_path):
-        with pytest.raises(ValueError, match="'bogus' in --log-format") as raised:
-            build_log_request(configured(tmp_path), ["bogus"], formats_origin="--log-format")
-
-        assert "log_formats" not in str(raised.value)
 
 
 class TestOpenLogFiles:
@@ -171,7 +91,7 @@ class TestOpenLogFiles:
         assert opened["text"][0].name.endswith("-1.txt")
 
     def test_losing_the_name_race_removes_the_files_opened_and_retries(self, tmp_path, monkeypatch):
-        real = portlog.open_exclusive
+        real = port_log.open_exclusive
         calls = count()
 
         def racing(path):
@@ -180,7 +100,7 @@ class TestOpenLogFiles:
                 raise FileExistsError(path)
             return real(path)
 
-        monkeypatch.setattr(portlog, "open_exclusive", racing)
+        monkeypatch.setattr(port_log, "open_exclusive", racing)
 
         opened = open_log_files(tmp_path, ("text", "jsonl"), NOW)
         self.close_all(opened)
@@ -454,7 +374,7 @@ class TestEncodings:
         [("utf-8", True), ("latin-1", True), ("hex", False), ("nope", False), (5, False), (None, False)],
     )
     def test_only_text_codecs_are_accepted(self, name, valid):
-        assert portlog_formats.is_text_encoding(name) is valid
+        assert log_formats.is_text_encoding(name) is valid
 
     def test_bytes_to_bytes_codec_falls_back_to_utf8_instead_of_dropping_the_log(self, tmp_path):
         path = tmp_path / "x.jsonl"

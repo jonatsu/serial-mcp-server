@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any, Protocol
 
 from serial_mcp_server.port.buffer import SerialBuffer
-from serial_mcp_server.portlog import PortLogSlot
+from serial_mcp_server.portlog.log import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
 

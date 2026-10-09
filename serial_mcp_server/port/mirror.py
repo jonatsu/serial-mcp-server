@@ -17,7 +17,7 @@ from typing import Any
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.port.writer import SOURCE_MIRROR, SerialWriter, WriterClosed
-from serial_mcp_server.portlog import PortLogSlot
+from serial_mcp_server.portlog.log import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
 

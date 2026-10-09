@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from serial_mcp_server import config, portlog_formats
+from serial_mcp_server import config
 from serial_mcp_server.config import Settings
 from serial_mcp_server.handlers_serial import (
     handle_close,
@@ -29,7 +29,9 @@ from serial_mcp_server.port.mirror import MirrorSession
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.portlog import LogRequest, PortLog, PortLogSlot
+from serial_mcp_server.portlog import formats as log_formats
+from serial_mcp_server.portlog.log import PortLog, PortLogSlot
+from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl, reconfigure
 from tests.port.test_mirror import _PipePort
 
@@ -319,7 +321,7 @@ class TestOpenSchemaAndFailures:
 
         assert {"log", "log_formats"} <= set(schema)
         assert set(schema["newline"]) == {"type", "default", "description"}
-        assert schema["log_formats"]["items"]["enum"] == list(portlog_formats.FORMATS)
+        assert schema["log_formats"]["items"]["enum"] == list(log_formats.FORMATS)
 
     @pytest.mark.parametrize("encoding", ["no-such-codec", "hex", 5])
     async def test_unusable_encoding_is_rejected_before_the_port_opens(

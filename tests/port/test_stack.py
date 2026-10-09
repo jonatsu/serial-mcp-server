@@ -16,7 +16,7 @@ from serial_mcp_server.port.connection import stop_connections
 from serial_mcp_server.port.pacing import NO_PACING
 from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
-from serial_mcp_server.portlog import LogRequest
+from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl
 
 

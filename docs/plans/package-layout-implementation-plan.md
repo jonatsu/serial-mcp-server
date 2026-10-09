@@ -521,4 +521,17 @@ Self-review: the diff changes only imports, patch targets, and moved code. 746 t
 `just check` clean, including the contract. A temporary import of `serial_mcp_server.state` in `port/writer.py`
 broke the contract and named the import, and removing it restored it.
 
+### Unit 4: The `portlog/` Package
+
+Moved on 9 October 2026. `portlog.py` became `portlog/log.py` (moved through a temporary name, because the package
+directory takes its name) and `portlog_formats.py` became `portlog/formats.py`; `portlog/request.py` took
+`LogRequest`, `parse_formats`, `resolve_log_request`, `build_log_request`, and the timestamp-mode parsing.
+`open_log_files` stays in `log.py`, beside `PortLog.start`, its only caller. Tests moved to `tests/portlog/`
+(`test_log.py`, `test_request.py`, `test_formats.py`, `test_integration.py`); they import the modules as
+`port_log` and `log_formats`, because their local variables are named `log` and `formats`. A second forbidden
+contract keeps `portlog` from importing `port`, the script engine, and the MCP modules.
+
+Self-review: the diff changes only imports, patch targets, and moved code. 746 tests passed; `just check` clean,
+with both contracts kept.
+
 No other unit has started.

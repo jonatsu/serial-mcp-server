@@ -14,7 +14,8 @@ import serial as pyserial
 from serial_mcp_server import confined_files
 from serial_mcp_server.handlers_file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
 from serial_mcp_server.port.pacing import Pacing
-from serial_mcp_server.portlog import LogRequest, PortLog
+from serial_mcp_server.portlog.log import PortLog
+from serial_mcp_server.portlog.request import LogRequest
 from tests.helpers import read_jsonl, reconfigure, writer_goes_idle
 
 SID = {"connection_id": "s1"}

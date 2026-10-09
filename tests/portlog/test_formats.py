@@ -11,8 +11,7 @@ import pytest
 
 from serial_mcp_server import config
 from serial_mcp_server.config import ConfigError, Settings
-from serial_mcp_server.portlog import LogRequest, PortLog, resolve_log_request
-from serial_mcp_server.portlog_formats import (
+from serial_mcp_server.portlog.formats import (
     KIND_EVENT,
     KIND_OVERFLOW,
     KIND_RX,
@@ -23,6 +22,8 @@ from serial_mcp_server.portlog_formats import (
     TextWriter,
     WriterOptions,
 )
+from serial_mcp_server.portlog.log import PortLog
+from serial_mcp_server.portlog.request import LogRequest, resolve_log_request
 from tests.helpers import read_jsonl
 
 WALL = datetime(2026, 10, 8, 12, 0, 0, tzinfo=UTC)
