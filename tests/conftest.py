@@ -8,10 +8,10 @@ import pytest
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
+from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.state import SerialState
 
 
 @pytest.fixture()

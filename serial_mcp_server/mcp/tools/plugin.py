@@ -13,9 +13,9 @@ from typing import Any
 from mcp.server import Server
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import _err, _ok
-from serial_mcp_server.plugins import PluginManager
-from serial_mcp_server.state import SerialState
+from serial_mcp_server.mcp.plugins import PluginManager
+from serial_mcp_server.mcp.responses import _err, _ok
+from serial_mcp_server.mcp.state import SerialState
 
 
 def _plugin_template(device_name: str | None = None) -> str:
@@ -23,15 +23,19 @@ def _plugin_template(device_name: str | None = None) -> str:
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
     return f'''"""Plugin for {name}."""
 
-from mcp.types import Tool
-
-from serial_mcp_server.helpers import _ok, _err  # _ok(key=val) / _err("code", "message")
-from serial_mcp_server.state import SerialState
-
-# Import core handlers to interact with the device.
-# IMPORTANT: always use these instead of conn.ser directly — a reader thread owns the
+# Import only from serial_mcp_server.plugin_api: it is the stable surface for plugins.
+# Use the serial handlers instead of conn.ser directly — a reader thread owns the
 # serial port for reads, and a writer thread queues and paces every write.
-from serial_mcp_server.handlers_serial import # read one line (up to newline)     handle_read_until, # read raw bytes     handle_readline, # read until a delimiter string, # send data to the device     handle_read, handle_write
+from serial_mcp_server.plugin_api import (
+    SerialState,
+    Tool,
+    err,  # err("code", "message")
+    handle_read,  # read raw bytes
+    handle_read_until,  # read until a delimiter string
+    handle_readline,  # read one line (up to newline)
+    handle_write,  # send data to the device
+    ok,  # ok(key=val)
+)
 
 # Optional metadata — helps the agent match this plugin to a device.
 # All fields are optional. Use what makes sense for your device.
@@ -70,9 +74,9 @@ async def handle_example(state: SerialState, args: dict) -> dict:
     #   }})
     #   text = resp["data"]
     #
-    # Return errors with: return _err("error_code", "Human-readable message")
-    # Return success with: return _ok(key1=val1, key2=val2)
-    return _ok(message="Hello from {slug} plugin!")
+    # Return errors with: return err("error_code", "Human-readable message")
+    # Return success with: return ok(key1=val1, key2=val2)
+    return ok(message="Hello from {slug} plugin!")
 
 
 HANDLERS = {{

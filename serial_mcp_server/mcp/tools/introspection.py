@@ -6,8 +6,8 @@ from typing import Any
 
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import _ok
-from serial_mcp_server.state import SerialState
+from serial_mcp_server.mcp.responses import _ok
+from serial_mcp_server.mcp.state import SerialState
 
 # ---------------------------------------------------------------------------
 # Tool definitions

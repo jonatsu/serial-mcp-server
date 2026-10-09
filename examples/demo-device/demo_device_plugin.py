@@ -2,11 +2,7 @@
 
 import json
 
-from mcp.types import Tool
-
-from serial_mcp_server.handlers_serial import handle_read_until, handle_write
-from serial_mcp_server.helpers import _ok
-from serial_mcp_server.state import SerialState
+from serial_mcp_server.plugin_api import SerialState, Tool, handle_read_until, handle_write, ok
 
 META = {
     "description": "DemoDevice device plugin — version, status, config, echo, ping, sampling, logging, auth",
@@ -210,31 +206,31 @@ TOOLS = [
 
 async def handle_version(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "version")
-    return _ok(version=text)
+    return ok(version=text)
 
 
 async def handle_status(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "status")
     try:
         data = json.loads(text)
-        return _ok(**data)
+        return ok(**data)
     except json.JSONDecodeError:
-        return _ok(raw=text)
+        return ok(raw=text)
 
 
 async def handle_ping(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "ping")
-    return _ok(response=text)
+    return ok(response=text)
 
 
 async def handle_echo(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], f"echo {args['text']}")
-    return _ok(echo=text)
+    return ok(echo=text)
 
 
 async def handle_uptime(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "uptime")
-    return _ok(uptime=text)
+    return ok(uptime=text)
 
 
 async def handle_config_get(state: SerialState, args: dict) -> dict:
@@ -244,48 +240,48 @@ async def handle_config_get(state: SerialState, args: dict) -> dict:
     try:
         data = json.loads(text)
         if isinstance(data, dict):
-            return _ok(**data)
-        return _ok(value=data)
+            return ok(**data)
+        return ok(value=data)
     except json.JSONDecodeError:
-        return _ok(raw=text)
+        return ok(raw=text)
 
 
 async def handle_config_set(state: SerialState, args: dict) -> dict:
     cmd = f"config set {args['key']} {args['value']}"
     text = await _send_cmd(state, args["connection_id"], cmd)
-    return _ok(response=text)
+    return ok(response=text)
 
 
 async def handle_sample(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], f"sample {args['count']}", timeout_ms=10000)
-    return _ok(raw=text)
+    return ok(raw=text)
 
 
 async def handle_log_start(state: SerialState, args: dict) -> dict:
     interval = args.get("interval_ms")
     cmd = f"log start {interval}" if interval else "log start"
     text = await _send_cmd(state, args["connection_id"], cmd)
-    return _ok(response=text)
+    return ok(response=text)
 
 
 async def handle_log_stop(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "log stop")
-    return _ok(response=text)
+    return ok(response=text)
 
 
 async def handle_auth(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], f"auth {args['password']}")
-    return _ok(response=text)
+    return ok(response=text)
 
 
 async def handle_secret(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "secret")
-    return _ok(secret=text)
+    return ok(secret=text)
 
 
 async def handle_reboot(state: SerialState, args: dict) -> dict:
     text = await _send_cmd(state, args["connection_id"], "reboot")
-    return _ok(response=text)
+    return ok(response=text)
 
 
 HANDLERS = {

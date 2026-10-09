@@ -262,8 +262,8 @@ Plugin modules keep their shape: `TOOLS`, `HANDLERS`, and handlers taking `(stat
 `serial.plugin.template` generates, the demo plugin, and the plugin documentation import from `plugin_api` only.
 Names in `plugin_api.__all__` change only with a CHANGELOG entry.
 
-Plugins that import the old module paths stop loading (decision L5). The loader reports the failing import in
-`serial.plugin.list` as it reports any load error today, and the CHANGELOG states the replacement imports.
+Plugins that import the old module paths stop loading (decision L5). The server logs the failing import at start,
+`serial.plugin.load` returns it as `plugin_error`, and the CHANGELOG states the replacement imports.
 
 ### 8.3 Tests
 

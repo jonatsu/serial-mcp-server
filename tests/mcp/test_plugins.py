@@ -1,4 +1,4 @@
-"""Tests for serial_mcp_server.plugins — no serial hardware required."""
+"""Tests for serial_mcp_server.mcp.plugins — no serial hardware required."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from mcp.types import Tool
 
 from serial_mcp_server import config
 from serial_mcp_server.config import PluginPolicy
-from serial_mcp_server.plugins import PluginManager, discover_plugins, load_plugin
+from serial_mcp_server.mcp.plugins import PluginManager, discover_plugins, load_plugin
 
 # ---------------------------------------------------------------------------
 # Helpers — write plugin files into tmp_path
@@ -364,14 +364,14 @@ HANDLERS = {"test.hello": _h}
 
 
 # ---------------------------------------------------------------------------
-# handlers_plugin (list handler)
+# mcp/tools/plugin (list handler)
 # ---------------------------------------------------------------------------
 
 
 class TestPluginListHandler:
     @pytest.mark.asyncio
     async def test_returns_loaded_plugins(self, tmp_path: Path) -> None:
-        from serial_mcp_server.handlers_plugin import make_handlers
+        from serial_mcp_server.mcp.tools.plugin import make_handlers
 
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
@@ -393,7 +393,7 @@ class TestPluginListHandler:
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_none_loaded(self, tmp_path: Path) -> None:
-        from serial_mcp_server.handlers_plugin import make_handlers
+        from serial_mcp_server.mcp.tools.plugin import make_handlers
 
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
@@ -529,11 +529,11 @@ class TestPluginManagerPolicy:
 
 
 class TestPluginHandlers:
-    """Tests for handler functions in serial_mcp_server.handlers_plugin."""
+    """Tests for handler functions in serial_mcp_server.mcp.tools.plugin."""
 
     def _setup(self, tmp_path: Path) -> tuple[Any, dict[str, Any]]:
         """Create a PluginManager with make_handlers. Returns (plugin_handlers, manager)."""
-        from serial_mcp_server.handlers_plugin import make_handlers
+        from serial_mcp_server.mcp.tools.plugin import make_handlers
 
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
@@ -630,7 +630,7 @@ class TestPluginHandlers:
 
     @pytest.mark.asyncio
     async def test_list_when_plugins_disabled(self, tmp_path: Path) -> None:
-        from serial_mcp_server.handlers_plugin import make_handlers
+        from serial_mcp_server.mcp.tools.plugin import make_handlers
 
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()
@@ -648,7 +648,7 @@ class TestPluginHandlers:
 
     @pytest.mark.asyncio
     async def test_list_shows_policy_with_allowlist(self, tmp_path: Path) -> None:
-        from serial_mcp_server.handlers_plugin import make_handlers
+        from serial_mcp_server.mcp.tools.plugin import make_handlers
 
         plugins_dir = tmp_path / "plugins"
         plugins_dir.mkdir()

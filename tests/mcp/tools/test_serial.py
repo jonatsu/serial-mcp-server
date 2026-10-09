@@ -1,4 +1,4 @@
-"""Tests for serial tool handlers in serial_mcp_server.handlers_serial."""
+"""Tests for serial tool handlers in serial_mcp_server.mcp.tools.serial."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import serial as pyserial
 
 from serial_mcp_server import config
 from serial_mcp_server.config import ConfigError
-from serial_mcp_server.handlers_serial import (
+from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools.serial import (
     HANDLERS,
     TOOLS,
     _format_data,
@@ -34,7 +35,6 @@ from serial_mcp_server.port.connection import stop_connections
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.stack import open_port_stack
 from serial_mcp_server.port.writer import SerialWriter
-from serial_mcp_server.state import SerialState
 from tests.helpers import reconfigure, writer_goes_idle
 
 
@@ -64,7 +64,7 @@ class TestListPorts:
         mock_port.location = "1-1"
 
         with patch(
-            "serial_mcp_server.handlers_serial.serial.tools.list_ports.comports", return_value=[mock_port]
+            "serial_mcp_server.mcp.tools.serial.serial.tools.list_ports.comports", return_value=[mock_port]
         ):
             result = await handle_list_ports(state, {})
         assert result["ok"]
@@ -76,7 +76,7 @@ class TestListPorts:
 
     async def test_list_ports_empty(self):
         state = SerialState()
-        with patch("serial_mcp_server.handlers_serial.serial.tools.list_ports.comports", return_value=[]):
+        with patch("serial_mcp_server.mcp.tools.serial.serial.tools.list_ports.comports", return_value=[]):
             result = await handle_list_ports(state, {})
         assert result["ok"]
         assert result["count"] == 0
@@ -90,7 +90,7 @@ class TestOpen:
         mock_reader = MagicMock()
         mock_reader.mirror_info.return_value = None
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_ser),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
@@ -110,7 +110,7 @@ class TestOpen:
             "mode": "ro",
         }
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_ser),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result = await handle_open(state, {"port": "/dev/ttyUSB0"})
@@ -132,7 +132,7 @@ class TestOpen:
 
     async def test_open_with_character_pacing(self, serial_state, mock_serial, mock_reader):
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
@@ -146,7 +146,7 @@ class TestOpen:
 
     async def test_open_with_chunk_pacing(self, serial_state, mock_serial, mock_reader):
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader) as make_reader,
         ):
             result = await handle_open(
@@ -200,7 +200,7 @@ class TestOpen:
         mock_reader = MagicMock()
         mock_reader.mirror_info.return_value = None
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_ser),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
         ):
             result1 = await handle_open(state, {"port": "/dev/ttyUSB0"})
@@ -522,7 +522,7 @@ class TestOpenResourceCleanup:
         mock_reader = MagicMock()
         mock_reader.mirror_info.return_value = None
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_ser),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_ser),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
             pytest.raises(RuntimeError),
         ):
@@ -550,10 +550,10 @@ class TestOpenResourceCleanup:
             stopped.set()
 
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
             patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
-            patch("serial_mcp_server.handlers_serial.open_port_stack", side_effect=blocked_open),
-            patch("serial_mcp_server.handlers_serial.stop_connections", side_effect=recording_stop),
+            patch("serial_mcp_server.mcp.tools.serial.open_port_stack", side_effect=blocked_open),
+            patch("serial_mcp_server.mcp.tools.serial.stop_connections", side_effect=recording_stop),
         ):
             task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
             assert await asyncio.to_thread(worker_started.wait, 5)
@@ -581,9 +581,9 @@ class TestOpenResourceCleanup:
             raise OSError("the stack could not be built")
 
         with (
-            patch("serial_mcp_server.handlers_serial.pyserial.Serial", return_value=mock_serial),
-            patch("serial_mcp_server.handlers_serial.open_port_stack", side_effect=failing_open),
-            patch("serial_mcp_server.handlers_serial.stop_connections") as stop,
+            patch("serial_mcp_server.mcp.tools.serial.pyserial.Serial", return_value=mock_serial),
+            patch("serial_mcp_server.mcp.tools.serial.open_port_stack", side_effect=failing_open),
+            patch("serial_mcp_server.mcp.tools.serial.stop_connections") as stop,
         ):
             task = asyncio.create_task(handle_open(serial_state, {"port": "/dev/ttyUSB0"}))
             assert await asyncio.to_thread(worker_started.wait, 5)

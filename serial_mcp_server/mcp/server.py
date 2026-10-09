@@ -14,22 +14,20 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from serial_mcp_server import (
-    config,
-    handlers_file,
-    handlers_introspection,
-    handlers_log,
-    handlers_plugin,
-    handlers_script,
-    handlers_serial,
-    handlers_spec,
-    handlers_trace,
-)
+from serial_mcp_server import config
 from serial_mcp_server.config import ConfigError, Settings
-from serial_mcp_server.helpers import _err, _result_text
-from serial_mcp_server.plugins import PluginManager
-from serial_mcp_server.state import SerialState
-from serial_mcp_server.trace import get_trace_buffer, init_trace
+from serial_mcp_server.mcp.plugins import PluginManager
+from serial_mcp_server.mcp.responses import _err, _result_text
+from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools import file as file_tools
+from serial_mcp_server.mcp.tools import introspection as introspection_tools
+from serial_mcp_server.mcp.tools import log as log_tools
+from serial_mcp_server.mcp.tools import plugin as plugin_tools
+from serial_mcp_server.mcp.tools import script as script_tools
+from serial_mcp_server.mcp.tools import serial as serial_tools
+from serial_mcp_server.mcp.tools import spec as spec_tools
+from serial_mcp_server.mcp.tools import trace as trace_tools
+from serial_mcp_server.mcp.trace import get_trace_buffer, init_trace
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -55,23 +53,23 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
     server = Server("serial-mcp-server")
 
     tools: list[Tool] = (
-        handlers_serial.TOOLS
-        + handlers_introspection.TOOLS
-        + handlers_file.TOOLS
-        + handlers_log.TOOLS
-        + handlers_script.TOOLS
-        + handlers_spec.TOOLS
-        + handlers_trace.TOOLS
-        + handlers_plugin.TOOLS
+        serial_tools.TOOLS
+        + introspection_tools.TOOLS
+        + file_tools.TOOLS
+        + log_tools.TOOLS
+        + script_tools.TOOLS
+        + spec_tools.TOOLS
+        + trace_tools.TOOLS
+        + plugin_tools.TOOLS
     )
     handlers: dict[str, Any] = {
-        **handlers_serial.HANDLERS,
-        **handlers_introspection.HANDLERS,
-        **handlers_file.HANDLERS,
-        **handlers_log.HANDLERS,
-        **handlers_script.HANDLERS,
-        **handlers_spec.HANDLERS,
-        **handlers_trace.HANDLERS,
+        **serial_tools.HANDLERS,
+        **introspection_tools.HANDLERS,
+        **file_tools.HANDLERS,
+        **log_tools.HANDLERS,
+        **script_tools.HANDLERS,
+        **spec_tools.HANDLERS,
+        **trace_tools.HANDLERS,
     }
 
     # --- Plugin system ---
@@ -84,7 +82,7 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
         tool_separator=settings.tool_separator,
     )
     manager.load_all()
-    handlers.update(handlers_plugin.make_handlers(manager, server))
+    handlers.update(plugin_tools.make_handlers(manager, server))
 
     # Rename tool names / handler keys for clients that reject dots.
     _apply_tool_separator(tools, handlers, settings.tool_separator)

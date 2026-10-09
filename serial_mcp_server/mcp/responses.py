@@ -6,7 +6,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from serial_mcp_server.state import SerialState
+    from serial_mcp_server.mcp.state import SerialState
 
 from mcp.types import TextContent
 

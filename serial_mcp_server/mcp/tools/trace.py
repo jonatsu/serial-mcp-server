@@ -6,9 +6,9 @@ from typing import Any
 
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import _ok
-from serial_mcp_server.state import SerialState
-from serial_mcp_server.trace import get_trace_buffer
+from serial_mcp_server.mcp.responses import _ok
+from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.trace import get_trace_buffer
 
 # ---------------------------------------------------------------------------
 # Tool definitions

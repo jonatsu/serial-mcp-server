@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from serial_mcp_server.handlers_introspection import (
+from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools.introspection import (
     HANDLERS,
     TOOLS,
     handle_connections_list,
 )
-from serial_mcp_server.state import SerialState
 
 
 class TestToolRegistration:

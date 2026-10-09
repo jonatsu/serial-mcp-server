@@ -548,7 +548,7 @@ Returns `{ "ok": true, "events": [{ "ts": "...", "event": "tool_call_start", "to
 
 ## Plugins
 
-Tools for managing user plugins. Plugins live in `.serial_mcp/plugins/` and can add device-specific tools without modifying the core server. Requires `SERIAL_MCP_PLUGINS` env var to be set.
+Tools for managing user plugins. Plugins live in `.serial_mcp/plugins/` and can add device-specific tools without modifying the core server. Requires `SERIAL_MCP_PLUGINS` env var to be set. A plugin imports only from `serial_mcp_server.plugin_api`: `ok` and `err` build responses, `SerialState` and `Tool` type the handlers and tools, and `handle_write`, `handle_read`, `handle_readline`, and `handle_read_until` reach the device.
 
 ### serial.plugin.template
 

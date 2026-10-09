@@ -12,7 +12,7 @@ import pytest
 import serial as pyserial
 
 from serial_mcp_server import confined_files
-from serial_mcp_server.handlers_file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
+from serial_mcp_server.mcp.tools.file import HANDLERS, MAX_SEND_FILE_BYTES, TOOLS, handle_send_file
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.portlog.log import PortLog
 from serial_mcp_server.portlog.request import LogRequest
@@ -343,7 +343,7 @@ class TestClaimRecheckedAfterTheFileRead:
             assert proceed.wait(5), "the test never released the read"
             return real_read(*args)
 
-        with patch("serial_mcp_server.handlers_file.read_confined_file", side_effect=gated_read):
+        with patch("serial_mcp_server.mcp.tools.file.read_confined_file", side_effect=gated_read):
             task = asyncio.create_task(handle_send_file(state, {**SID, "path": "a.txt"}))
             assert await asyncio.to_thread(reading.wait, 5)
             run, _owner = state.script_jobs.claim("s1", MagicMock())

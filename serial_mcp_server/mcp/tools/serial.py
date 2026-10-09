@@ -6,20 +6,20 @@ import asyncio
 import base64
 import logging
 import time
-from collections.abc import Callable
-from concurrent.futures import Future
 from typing import Any
 
 import serial as pyserial
 import serial.tools.list_ports
 from mcp.types import Tool, ToolAnnotations
 
-from serial_mcp_server.helpers import (
+from serial_mcp_server.mcp.responses import (
     _coerce_bool,
     _err,
     _ok,
     script_running_error,
 )
+from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.writes import duration_error, run_write_job
 from serial_mcp_server.port.connection import SerialConnection, stop_connections
 from serial_mcp_server.port.pacing import (
     MAX_PACING_DELAY_MS,
@@ -28,7 +28,6 @@ from serial_mcp_server.port.pacing import (
     paced_transfer_seconds,
 )
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
-from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.portlog.formats import (
     CONFIGURE_EVENT,
     LOG_FORMATS_SCHEMA,
@@ -37,7 +36,6 @@ from serial_mcp_server.portlog.formats import (
 )
 from serial_mcp_server.portlog.request import resolve_log_request
 from serial_mcp_server.script.runner import SCRIPT_CANCEL_WAIT_SECONDS
-from serial_mcp_server.state import SerialState
 
 logger = logging.getLogger("serial_mcp_server")
 
@@ -116,63 +114,6 @@ def parse_write_pacing(args: dict[str, Any], default: Pacing = NO_PACING) -> Pac
     if inter_char_delay_ms and chunk_size:
         raise ValueError("inter_char_delay_ms cannot be combined with chunk pacing.")
     return Pacing(inter_char_delay_ms, chunk_size, chunk_delay_ms)
-
-
-def duration_error(estimate_seconds: float, cap: float) -> dict[str, Any] | None:
-    """Return an error when an estimated transfer time exceeds the server-wide *cap*, in seconds."""
-    if estimate_seconds <= 0:
-        return None
-    if estimate_seconds <= cap:
-        return None
-    return _err(
-        "invalid_params",
-        f"Estimated write time {estimate_seconds:.1f} s exceeds the {cap:g} s cap "
-        "(SERIAL_MCP_MAX_WRITE_SECONDS). Send less data per call or reduce the pacing delay.",
-    )
-
-
-def _bytes_written_by(future: Future[int]) -> int:
-    if future.cancelled():
-        return 0
-    error = future.exception()
-    if isinstance(error, WriteAborted):
-        return error.bytes_written
-    return 0 if error is not None else future.result()
-
-
-async def run_write_job(
-    conn: SerialConnection,
-    payload: bytes,
-    pacing: Pacing,
-    on_done: Callable[[int], None] | None = None,
-) -> tuple[int, dict[str, Any] | None]:
-    """Queue *payload* on the connection's writer and wait for it.
-
-    *on_done* is called exactly once with the bytes written, after the writer has stopped
-    touching the port, so anything it logs follows the write's own port-log entries. It runs
-    on the writer's thread, or on the caller's when the write never started.
-
-    Returns:
-        The bytes written and an error response, which is None on success. A cancelled request
-        stops the write between segments and re-raises.
-    """
-    try:
-        job = conn.writer.submit(payload, pacing)
-    except WriterClosed as exc:
-        if on_done is not None:
-            on_done(0)
-        return 0, _err("connection_closed", str(exc))
-    if on_done is not None:
-        job.future.add_done_callback(lambda future: on_done(_bytes_written_by(future)))
-    try:
-        return await asyncio.wrap_future(job.future), None
-    except asyncio.CancelledError:
-        job.cancel.set()
-        raise
-    except WriterClosed as exc:
-        return 0, _err("connection_closed", str(exc))
-    except WriteAborted as exc:
-        return exc.bytes_written, {**_err("write_aborted", str(exc)), "bytes_written": exc.bytes_written}
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ import json
 
 from mcp.types import ListToolsRequest
 
-from serial_mcp_server.helpers import _err, _ok, _result_text
+from serial_mcp_server.mcp.responses import _err, _ok, _result_text
 
 EXPECTED_TOOL_HINTS = {
     "serial.list_ports": {"readOnlyHint": True, "openWorldHint": True},
@@ -76,7 +76,7 @@ class TestResultFormat:
 
 class TestBuildServer:
     def test_build_server_returns_server_and_state(self, settings):
-        from serial_mcp_server.server import build_server
+        from serial_mcp_server.mcp.server import build_server
 
         server, state = build_server(settings)
         assert server is not None
@@ -84,7 +84,7 @@ class TestBuildServer:
         assert hasattr(state, "connections")
 
     async def test_client_visible_tools_have_expected_annotations(self, settings):
-        from serial_mcp_server.server import build_server
+        from serial_mcp_server.mcp.server import build_server
 
         server, _state = build_server(settings)
         result = await server.request_handlers[ListToolsRequest](None)
@@ -97,7 +97,7 @@ class TestBuildServer:
             assert actual.items() >= expected.items()
 
     async def test_tool_annotations_are_serialized_for_mcp_clients(self, settings):
-        from serial_mcp_server.server import build_server
+        from serial_mcp_server.mcp.server import build_server
 
         server, _state = build_server(settings)
         result = await server.request_handlers[ListToolsRequest](None)
