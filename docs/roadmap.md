@@ -128,3 +128,24 @@ No test cancels a write that is still queued behind another, through the `serial
 
 `run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner, would\
 need them moved down; nothing needs that today.
+
+## From the Documentation and Release Work
+
+These came up on 10 October 2026, while the tool text, the hooks, and the release workflow were reworked.
+
+### A corrupt spec index
+
+When `.serial_mcp/specs/index.json` cannot be parsed, the server treats it as empty, and the next
+`serial.spec.register` rewrites it with one entry, so every other registration is lost without a warning. Refusing
+to register over a corrupt index, or keeping a backup, would prevent that.
+
+### Upstream registry metadata
+
+`server.json` and the `mcp-name` comment in the README describe upstream's MCP registry entry and PyPI package at
+0.1.3, and list five of the variables. Releases from this repository go to GitHub only, so the file is unused here;
+it needs updating or removing before anything publishes to the registry.
+
+### A check that every variable is documented
+
+`docs/configuration.md` lists the variables by hand. A test that compares the `Settings` fields with the table would
+catch a variable added without documentation.
