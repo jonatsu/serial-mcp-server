@@ -1,5 +1,9 @@
 # Script Runner Design
 
+Archived on 10 October 2026. The design is implemented and merged into `main`, and the code is now the authority.
+[docs/scripts.md](../../scripts.md) describes the script language for users. The risks and deferred items in
+section 11 moved to the [roadmap](../../roadmap.md), which is where they are tracked.
+
 Status: accepted by the user on 8 October 2026, after plan-critic review. Once implemented, the code wins and this
 design is updated to match.
 Design basis: the accepted request to "input files, like text files that are interpreted as commands to make for

@@ -1,5 +1,9 @@
 # Write Pacing, Port Logging, and Script Input Implementation Plan
 
+Archived on 10 October 2026. All twelve units are merged into `main`, and the code and the user documentation
+now describe the behavior. The open items and deferred work recorded below moved to the [roadmap](../../roadmap.md),
+which is where they are tracked; this plan is kept as the record of how the work was done.
+
 Status: accepted by the user on 8 October 2026, after plan-critic review. Units 1 to 12 are implemented on `feat/pacing-logging-scripts`; the Execution Record holds each unit's results, and merging waits for the user.
 Amendments after acceptance, each following a user decision recorded in the Execution Record (units 8 to 11): the P4 reviewer wording, the preface of the Script Runner Units (the user waived a dedicated security review), and the Final Integration bullets and reviewer paragraph. Unit 8's Changes paragraph was later corrected to the as-built order of argument splitting and substitution.
 Basis: `main` at `bceb725` (feat(mcp): require SDK 1.30 and annotate tools), the pacing review of commits `690b8a6`
