@@ -1,7 +1,9 @@
 # Agent Instructions
 
 An MCP server that lets agents drive serial devices. [CONTRIBUTING.md](CONTRIBUTING.md) holds the conventions; this\
-file lists what must not be missed.
+file lists what must not be missed. Before editing a file, read each `.agents/rules/` rule whose `paths` matches it:\
+CHANGELOG entries, tests, plans and the roadmap, and code comments. Claude Code loads them itself through\
+`.claude/rules`.
 
 ## Before you commit
 
