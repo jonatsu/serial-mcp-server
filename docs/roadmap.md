@@ -101,14 +101,6 @@ These came from the [package layout plan](plans/package-layout-implementation-pl
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running.
 
-### Direct tests of `mcp/writes.py`
-
-The `WriterClosed`, `WriteAborted`, and cancel branches of `run_write_job` are tested only through the tools.
-
-### A test of a write cancelled while still queued
-
-No test cancels a write that is still queued behind another, through the `serial.send_file` log path.
-
 ### The integration harness on AnyIO
 
 `tests/integration/` still uses `asyncio` directly. It is a separate MCP client, so this is consistency only.
