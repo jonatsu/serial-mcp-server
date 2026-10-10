@@ -5,9 +5,13 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)\
 ![Serial](https://img.shields.io/badge/Serial-RS232%2FUART-green)
 
-A stateful serial port Model Context Protocol (MCP) server for developer tooling and AI agents. Works out of the box\
-with Claude Code, VS Code with Copilot, and any MCP-compatible runtime. Communicates over **stdio** and uses\
-[pyserial](https://github.com/pyserial/pyserial) for cross-platform serial on macOS, Windows, and Linux.
+`serial-mcp-server` is a stateful serial port Model Context Protocol (MCP) server using `stdio` transport for\
+developer tooling and AI agents. Works out of the box with Claude Code, VS Code with Copilot, and any\
+MCP-compatible runtime. The server uses [pyserial](https://github.com/pyserial/pyserial) for cross-platform\
+serial compatibility with macOS, Windows, and Linux.
+
+This fork is based on Enrico Santagati's original [es617/serial-mcp-server](https://github.com/es617/serial-mcp-server)\
+implementation.
 
 > **Example:** Let Claude Code list available serial ports, connect to your microcontroller, reset it via DTR, and read\
 > the boot banner from your hardware.
@@ -57,21 +61,44 @@ commands into a terminal for every step.
 
 ---
 
-## Quickstart (Claude Code)
+## Quickstart
+
+Install the server from this repository, or from a wheel on its GitHub releases page:
 
 ```bash
-# Install from this repository (or a wheel from its GitHub releases page)
 pip install git+https://github.com/jonatsu/serial-mcp-server.git
-
-# Register the MCP server with Claude Code
-claude mcp add serial -- serial_mcp
 ```
 
 The `serial-mcp-server` package on PyPI is the upstream project,\
 [es617/serial-mcp-server](https://github.com/es617/serial-mcp-server), which does not have the features of this fork\
 yet.
 
-Then in Claude Code, try:
+Then register it with your MCP client. The server is a standard stdio MCP server: the client starts the `serial_mcp`\
+command and talks to it over stdin and stdout. With Claude Code, run:
+
+```bash
+claude mcp add serial -- serial_mcp
+```
+
+Most other clients read a JSON file with an `mcpServers` object, such as `.mcp.json` in a project for Claude Code,\
+`.cursor/mcp.json` for Cursor, or `.gemini/settings.json` for Gemini CLI. Add this entry:
+
+```json
+{
+  "mcpServers": {
+    "serial": {
+      "command": "serial_mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+[Set up other MCP clients](#set-up-other-mcp-clients) lists where each client keeps the file and the clients that use\
+another shape.
+
+Then ask the agent, for example:
 
 > "List available serial ports and connect to the one on /dev/ttyUSB0 at 115200 baud."
 
@@ -120,10 +147,25 @@ You can start with raw serial tools, then move up the stack as your device proto
 
 ---
 
-> MCP is a protocol — this server works with any MCP-compatible client. Below are setup instructions for the most\
-> common ones.
+## Set up other MCP clients
 
-## Add to Claude Code
+Every client starts the same command, `serial_mcp`, and passes `SERIAL_MCP_*` variables through its `env` setting. Most\
+keep the server in a JSON file with the `mcpServers` shape from the [Quickstart](#quickstart):
+
+| Client | File | Shape |
+| -- | -- | -- |
+| Claude Code | `.mcp.json` in the project root, or `claude mcp add` | `mcpServers` |
+| Claude Desktop | `claude_desktop_config.json`, opened with Settings > Developer > Edit Config | `mcpServers` |
+| Cursor | `.cursor/mcp.json` in the project, or `~/.cursor/mcp.json` | `mcpServers` |
+| Gemini CLI | `.gemini/settings.json` in the project, or `~/.gemini/settings.json` | `mcpServers` |
+| VS Code with Copilot | `.vscode/mcp.json` in the project | `servers`, below |
+| Codex CLI | `~/.codex/config.toml`, or `.codex/config.toml` in a trusted project | TOML, below |
+
+A client started from a desktop launcher may not see the `PATH` of your shell, so it cannot find `serial_mcp`. Give the\
+full path that `command -v serial_mcp` prints, or let uv fetch and run the server, with `"command": "uvx"` and\
+`"args": ["--from", "git+https://github.com/jonatsu/serial-mcp-server", "serial_mcp"]`.
+
+### Claude Code
 
 ```bash
 # Standard setup
@@ -142,9 +184,9 @@ claude mcp add serial -e SERIAL_MCP_PLUGINS=mydevice,ota -- serial_mcp
 claude mcp add serial -e SERIAL_MCP_LOG_LEVEL=DEBUG -- serial_mcp
 ```
 
-## Add to VS Code / Copilot
+### VS Code with Copilot
 
-Add to your project's `.vscode/mcp.json` (or create it):
+VS Code names the object `servers` and takes the transport as `type`:
 
 ```json
 {
@@ -161,28 +203,21 @@ Add to your project's `.vscode/mcp.json` (or create it):
 }
 ```
 
-Adjust `env` to match your needs — set `SERIAL_MCP_PLUGINS` to specific plugin names, or add `SERIAL_MCP_MIRROR` for\
-PTY mirroring.
+### Codex CLI
 
-## Add to Cursor
+```toml
+[mcp_servers.serial]
+command = "serial_mcp"
+args = []
 
-Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support dots in tool names, so\
-`SERIAL_MCP_TOOL_SEPARATOR` must be set to `_`:
-
-```json
-{
-  "mcpServers": {
-    "serial": {
-      "command": "serial_mcp",
-      "args": [],
-      "env": {
-        "SERIAL_MCP_PLUGINS": "all",
-        "SERIAL_MCP_TOOL_SEPARATOR": "_"
-      }
-    }
-  }
-}
+[mcp_servers.serial.env]
+SERIAL_MCP_PLUGINS = "all"
 ```
+
+### Cursor
+
+Cursor shows a warning for tool names that contain dots, such as `serial.open`, although the tools still work. Set\
+`SERIAL_MCP_TOOL_SEPARATOR` to `_` in `env` to name them `serial_open` and avoid the warning.
 
 ## Configuration
 

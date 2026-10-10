@@ -1,8 +1,8 @@
 # Configuration
 
 The server and the `serial_mcp_script` command take their settings from `SERIAL_MCP_*` environment variables. Set them\
-where the MCP client starts the server: `claude mcp add -e NAME=value`, or the `env` block of `.vscode/mcp.json` or\
-`.cursor/mcp.json` (see [the README](../README.md#add-to-claude-code)). Every variable is optional.
+where the MCP client starts the server: `claude mcp add -e NAME=value`, or the `env` block of the client's MCP\
+configuration (see [the README](../README.md#set-up-other-mcp-clients)). Every variable is optional.
 
 ## Environment variables
 
@@ -31,7 +31,7 @@ every mistake.
 | `SERIAL_MCP_TRACE` | enabled | JSONL tracing of every tool call. Set to a false value, such as `0` or `off`, to disable. |
 | `SERIAL_MCP_TRACE_PAYLOADS` | disabled | Include write `data`, and the `source` and `vars` of `serial.script.run`, in traced args (stripped by default). |
 | `SERIAL_MCP_TRACE_MAX_BYTES` | `16384` | Max payload chars before truncation (only applies when `TRACE_PAYLOADS` is on). |
-| `SERIAL_MCP_TOOL_SEPARATOR` | `.` | Character used to separate tool name segments. Set to `_` for MCP clients that reject dots in tool names (e.g. Cursor). |
+| `SERIAL_MCP_TOOL_SEPARATOR` | `.` | Character used to separate tool name segments. Set to `_` for MCP clients that warn about or rewrite dots in tool names, such as Cursor. |
 
 ## The data directory
 
