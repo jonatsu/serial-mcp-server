@@ -165,3 +165,15 @@ just integration
 ```
 
 It takes about 90 seconds and exits 0 only when every scenario passes. It needs Linux, because it reads `/proc` to find its processes, and it uses pseudo-terminals. It starts real processes, and it removes its temporary files and processes when it ends (`--keep-work` keeps the files). It is not part of `pytest` or CI.
+
+## Versions and releases
+
+Versions follow [Semantic Versioning](https://semver.org/). The public interface that a version number speaks for is the MCP tools (names, arguments, results, and error codes), the `SERIAL_MCP_*` variables, `serial_mcp_server.plugin_api`, the script language and its result files, and the exit statuses of `serial_mcp_script`. While the version is below 1.0, a release that breaks any of these raises the minor number (0.1.3 to 0.2.0), and a release of fixes alone raises the patch number (0.2.0 to 0.2.1). From 1.0 on, a break raises the major number.
+
+The version comes from the Git tag: hatch-vcs derives it when the package is built, so no file holds a version number to edit. Releases are published as GitHub releases on this repository, with the wheel and source archive attached. Nothing is published to PyPI or the MCP registry from here, because `serial-mcp-server` on PyPI and `server.json`'s registry entry belong to the upstream project.
+
+To release, on an up-to-date `main` with CI green:
+
+1. Rename the CHANGELOG's `## Unreleased` heading to `## X.Y.Z`, add a new empty `## Unreleased` above it, and commit.
+2. Optionally tag a release candidate, `vX.Y.Zrc1`, and push the tag. CI builds it and creates a pre-release with generated notes.
+3. Tag `vX.Y.Z` on the CHANGELOG commit and push the tag. CI runs the checks, builds the package, and creates the release with the CHANGELOG section as its notes. It fails when the CHANGELOG has no `## X.Y.Z` section.
