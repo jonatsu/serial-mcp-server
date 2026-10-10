@@ -210,10 +210,10 @@ Mirror on (macOS/Linux only):
   PTY slave (rw mode) → PTY master → background reader thread (queues only) → writer thread → serial port
 ```
 
-The writer thread runs one job at a time in submission order, so an MCP write and a paste into the mirror never\
-interleave within one payload. In `rw` mode the writer holds at most 64 KiB of mirror input. Past that, the mirror\
-stops reading the PTY, and the excess waits in the kernel's PTY buffer, which slows the pasting terminal instead of\
-losing bytes.
+The writer thread runs one job at a time in submission order, so mirror input never lands inside an MCP write. The\
+mirror reads a paste in pieces of up to 4 KiB, each its own job, so an MCP write can land between two pieces. In `rw`\
+mode the writer holds at most 64 KiB of mirror input. Past that, the mirror stops reading the PTY, and the excess waits\
+in the kernel's PTY buffer, which slows the pasting terminal instead of losing bytes.
 
 ### Modes
 
@@ -221,7 +221,7 @@ losing bytes.
 | -- | -- |
 | `off` | No PTY. Serial data goes to the buffer only. |
 | `ro` | Serial data is teed to both the buffer and the PTY. External tools can observe but not write. |
-| `rw` | Same as `ro`, plus data written to the PTY slave is forwarded to the real serial port. The writer thread serializes MCP writes and PTY writes, so payloads never interleave. |
+| `rw` | Same as `ro`, plus data written to the PTY slave is forwarded to the real serial port. The writer thread serializes MCP writes and PTY writes, so mirror input never splits an MCP write. |
 
 ### Configuration
 
