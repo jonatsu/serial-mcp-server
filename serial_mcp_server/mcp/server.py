@@ -8,6 +8,7 @@ import re
 import sys
 import time
 from collections.abc import Callable
+from importlib.metadata import version
 from typing import Any, cast
 
 import anyio
@@ -90,7 +91,8 @@ def _renamed_tool(tool: Tool, sep: str, rename: Callable[[str], str]) -> Tool:
 
 def build_server(settings: Settings) -> tuple[Server, SerialState]:
     state = SerialState(settings)
-    server = Server("serial-mcp-server")
+    # Without a version the SDK reports its own version to clients as the server's.
+    server = Server("serial-mcp-server", version=version("serial-mcp-server"))
 
     tools: list[Tool] = (
         connection_tools.TOOLS
