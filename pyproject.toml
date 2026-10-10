@@ -16,7 +16,7 @@ dependencies = [
     "anyio>=4.11,<5",
     "pyserial>=3.5,<4",
     "mcp>=1.30.0,<2",
-    "pyyaml>=6.0,<7",
+    "pyyaml>=6.0.1,<7",
     "pydantic-settings>=2.7,<3",
     "regex>=2024.11.6",
 ]
@@ -26,9 +26,17 @@ test = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
 ]
+
+# Development tools, installed by `uv sync` and pinned in uv.lock, so `just`, CI, and every contributor run the same
+# versions. Keep ruff equal to the ruff-pre-commit rev in .pre-commit-config.yaml.
+[dependency-groups]
 dev = [
+    "basedpyright>=1.31",
+    "import-linter>=2.3",
+    "pip-audit>=2.9",
     "pre-commit>=4.0",
-    "ruff>=0.9",
+    "ruff==0.17.0",
+    "twine>=6.1",
 ]
 
 [project.urls]
@@ -111,10 +119,6 @@ source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "serial_mcp_server/_version.py"
-
-[tool.bandit]
-exclude_dirs = ["tests"]
-skips = ["B110"]  # try-except-pass is intentional for best-effort serial cleanup
 
 [tool.basedpyright]
 # basedpyright is the one type checker: `just typecheck`, CI, and the basedpyright editor extension all read this.

@@ -1,4 +1,4 @@
-ruff := 'uv run --with ruff ruff'
+ruff := 'uv run ruff'
 
 # Lint the repository, or only the given paths.
 [positional-arguments]
@@ -17,11 +17,11 @@ format-check *paths='.':
 
 # Check that imports follow the package layers (contracts in pyproject.toml).
 lint-imports:
-    uv run --with import-linter lint-imports
+    uv run lint-imports
 
 # Type-check the package, tests, tools, and examples (settings in pyproject.toml, [tool.basedpyright]).
 typecheck:
-    uv run --extra test --with basedpyright basedpyright
+    uv run --extra test basedpyright
 
 # Run the repository's lint, formatting, import-layer, and type checks.
 check: lint format-check lint-imports typecheck
