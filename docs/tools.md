@@ -524,6 +524,13 @@ Full-text search over a spec's content. Returns matching snippets with line numb
 
 Tools for inspecting the JSONL trace log. Tracing is enabled by default and records every tool call. The trace strips write `data`, and the inline `source` and `vars` of `serial.script.run`, from traced args unless `SERIAL_MCP_TRACE_PAYLOADS` is set.
 
+Each tool call records two events, and `connection_id` is copied from the arguments when present:
+
+```jsonl
+{"ts":"2025-01-01T00:00:00.000Z","event":"tool_call_start","tool":"serial.read","args":{"connection_id":"s1"},"connection_id":"s1"}
+{"ts":"2025-01-01T00:00:00.050Z","event":"tool_call_end","tool":"serial.read","ok":true,"error_code":null,"duration_ms":50,"connection_id":"s1"}
+```
+
 ### serial.trace.status
 
 Return tracing config and event count.
@@ -548,7 +555,7 @@ Returns `{ "ok": true, "events": [{ "ts": "...", "event": "tool_call_start", "to
 
 ## Plugins
 
-Tools for managing user plugins. Plugins live in `.serial_mcp/plugins/` and can add device-specific tools without modifying the core server. Requires `SERIAL_MCP_PLUGINS` env var to be set. A plugin imports only from `serial_mcp_server.plugin_api`: `ok` and `err` build responses, `SerialState` and `Tool` type the handlers and tools, and `handle_write`, `handle_read`, `handle_readline`, and `handle_read_until` reach the device.
+Tools for managing user plugins. Plugins live in `.serial_mcp/plugins/` and add device-specific tools without modifying the core server; they load only when `SERIAL_MCP_PLUGINS` enables them. [Plugins](plugins.md) explains enabling, installing, and writing them.
 
 ### serial.plugin.template
 

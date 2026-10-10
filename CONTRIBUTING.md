@@ -4,13 +4,33 @@
 
 ```bash
 # Clone and install in editable mode with test dependencies
-git clone https://github.com/es617/serial-mcp-server.git
+git clone https://github.com/jonatsu/serial-mcp-server.git
 cd serial-mcp-server
-pip install -e ".[test]"
+pip install -e ".[test]"    # or: uv sync --extra test
 
 # Run tests (no serial hardware needed)
-python -m pytest tests/ -v
+python -m pytest tests/ -v  # or: uv run --extra test python -m pytest tests/
 ```
+
+## Documentation
+
+Each kind of text has one home, so a reader knows where to look and a fact is written once:
+
+| File | Holds |
+|---|---|
+| `README.md` | What the server is, installation, client setup, and a map of the documents. |
+| `docs/concepts.md` | How the parts work and fit together, for a user deciding how to use them. |
+| `docs/configuration.md` | Every `SERIAL_MCP_*` variable and the data directory. |
+| `docs/tools.md`, `docs/scripts.md` | Reference: each tool's arguments and results, and the script language. |
+| `docs/plugins.md` | Plugins, for the people who enable and write them. |
+| `docs/roadmap.md` | Known work that no plan covers yet. |
+| `CHANGELOG.md` | User-visible changes per release. |
+| `CONTRIBUTING.md` | Development: setup, code layout, conventions, tests, and releases. |
+| `docs/plans/` | Designs and implementation plans; finished ones move to `docs/plans/archive/`. |
+
+Keep user documents short: explain enough to understand and use a feature, and link to the reference rather than
+repeat it. A behavior change updates the document that owns the behavior in the same commit, alongside the tool text
+(see [Adding a new tool](#adding-a-new-tool)).
 
 ## Pre-commit hooks
 
@@ -91,7 +111,7 @@ The SDK cancels a request through the request's cancel scope, and a shielded sco
 
 ## Configuration
 
-`serial_mcp_server/config.py` is the only module that reads the environment. `config.load()` reads every `SERIAL_MCP_*` variable once at start into a frozen `Settings`, and an invalid value stops the start with a message that names every invalid variable. Handlers read `state.settings`; other code takes the values it needs as parameters. To add a variable, add a field to `Settings` with its default and validation, document it in the README's variable table, and pass the value to the code that uses it. A test fails if any other module reads `os.environ`. In tests, build settings with `config.load({...})`, or change one value of a test's state with `tests.helpers.reconfigure`, instead of setting environment variables.
+`serial_mcp_server/config.py` is the only module that reads the environment. `config.load()` reads every `SERIAL_MCP_*` variable once at start into a frozen `Settings`, and an invalid value stops the start with a message that names every invalid variable. Handlers read `state.settings`; other code takes the values it needs as parameters. To add a variable, add a field to `Settings` with its default and validation, document it in the variable table of `docs/configuration.md`, and pass the value to the code that uses it. A test fails if any other module reads `os.environ`. In tests, build settings with `config.load({...})`, or change one value of a test's state with `tests.helpers.reconfigure`, instead of setting environment variables.
 
 The dispatcher in `mcp/server.py` catches common exceptions (KeyError, SerialException, TimeoutError, etc.) and converts them to error responses automatically.
 
