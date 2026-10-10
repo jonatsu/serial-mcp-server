@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -79,6 +81,18 @@ class TestTraceBuffer:
         assert "ts" in parsed
         parsed2 = json.loads(lines[1])
         assert parsed2["data"] == "world"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
+    @pytest.mark.parametrize("existing_mode", [None, 0o644])
+    def test_the_trace_file_is_readable_by_its_owner_only(self, tmp_path: Path, existing_mode):
+        trace_file = tmp_path / "trace.jsonl"
+        if existing_mode is not None:  # left by an earlier run with the old mode
+            trace_file.touch()
+            trace_file.chmod(existing_mode)
+
+        TraceBuffer(file_path=str(trace_file)).close()
+
+        assert stat.S_IMODE(trace_file.stat().st_mode) == 0o600
 
     def test_close_idempotent(self, tmp_path: Path):
         trace_file = tmp_path / "trace.jsonl"
