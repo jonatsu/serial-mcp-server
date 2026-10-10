@@ -154,8 +154,8 @@ _MAX_PULSE_MS = 10_000
 async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     """Pulse DTR low for ``duration_ms`` (100 ms by default, at most ``_MAX_PULSE_MS``), then set it high.
 
-    The wait is an event-loop sleep, so other tools run meanwhile. A request cancelled during the wait skips
-    the final step and leaves the line low. ``handle_pulse_rts`` behaves the same way.
+    The wait is an event-loop sleep, so other tools run meanwhile. A request cancelled during the wait still
+    sets the line high. ``handle_pulse_rts`` behaves the same way.
     """
     conn = state.get_connection(args["connection_id"])
     blocked = script_running_error(state, conn.connection_id)
@@ -164,10 +164,13 @@ async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.dtr = False
     conn.log_slot.event("dtr", value=False)
-    await anyio.sleep(duration_ms / 1000.0)
-    # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
-    conn.ser.dtr = True
-    conn.log_slot.event("dtr", value=True)
+    try:
+        await anyio.sleep(duration_ms / 1000.0)
+    finally:
+        # Also on cancel, so the line never stays low. No claim check: the pulse began before any claim; a line
+        # left low under a script is worse than one edge.
+        conn.ser.dtr = True
+        conn.log_slot.event("dtr", value=True)
     conn.last_seen_ts = time.time()
     return _ok(message=f"Pulsed DTR low for {duration_ms}ms on {conn.port}.", duration_ms=duration_ms)
 
@@ -180,10 +183,13 @@ async def handle_pulse_rts(state: SerialState, args: dict[str, Any]) -> dict[str
     duration_ms = min(int(args.get("duration_ms", 100)), _MAX_PULSE_MS)
     conn.ser.rts = False
     conn.log_slot.event("rts", value=False)
-    await anyio.sleep(duration_ms / 1000.0)
-    # No claim check: the pulse began before any claim; a line left low under a script is worse than one edge.
-    conn.ser.rts = True
-    conn.log_slot.event("rts", value=True)
+    try:
+        await anyio.sleep(duration_ms / 1000.0)
+    finally:
+        # Also on cancel, so the line never stays low. No claim check: the pulse began before any claim; a line
+        # left low under a script is worse than one edge.
+        conn.ser.rts = True
+        conn.log_slot.event("rts", value=True)
     conn.last_seen_ts = time.time()
     return _ok(message=f"Pulsed RTS low for {duration_ms}ms on {conn.port}.", duration_ms=duration_ms)
 
