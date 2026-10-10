@@ -49,7 +49,7 @@ async def test_a_cancelled_wait_ends_although_stdin_stays_open():
 def test_the_server_exits_on_sigint_while_its_client_keeps_stdin_open(tmp_path):
     env = {**os.environ, "SERIAL_MCP_SPEC_ROOT": str(tmp_path / ".serial_mcp")}
     server = subprocess.Popen(
-        [sys.executable, "-m", "serial_mcp_server"],
+        [sys.executable, "-X", "faulthandler", "-m", "serial_mcp_server"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -72,7 +72,15 @@ def test_the_server_exits_on_sigint_while_its_client_keeps_stdin_open(tmp_path):
 
         server.send_signal(signal.SIGINT)
 
-        assert server.wait(timeout=5) == 0
+        try:
+            status = server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            # The hang is intermittent; faulthandler writes every thread's stack to stderr on SIGABRT.
+            server.send_signal(signal.SIGABRT)
+            server.wait(timeout=5)
+            stderr = server.stderr.read().decode(errors="replace")
+            pytest.fail(f"the server was still running 5 s after SIGINT; its stderr:\n{stderr}")
+        assert status == 0
         assert b"Traceback" not in server.stderr.read()
     finally:
         if server.poll() is None:
