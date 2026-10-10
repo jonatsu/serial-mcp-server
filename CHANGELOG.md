@@ -67,6 +67,8 @@
 
 ### Fixed
 
+- One Ctrl-C (SIGINT) now stops the server, which closes its connections and port logs and exits 0. Before, it\
+  stayed up until the client also closed stdin, because the SDK read stdin in a thread that nothing could interrupt.
 - A spec index (`.serial_mcp/index.json`) that cannot be read is reported as `index_corrupt` by the spec tools and\
   left untouched. Before, it read as empty, and the next `serial.spec.register` replaced it, losing every other\
   registration.
