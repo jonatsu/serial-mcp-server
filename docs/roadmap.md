@@ -101,10 +101,6 @@ These came from the [package layout plan](plans/package-layout-implementation-pl
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running.
 
-### The integration harness on AnyIO
-
-`tests/integration/` still uses `asyncio` directly. It is a separate MCP client, so this is consistency only.
-
 ### Write jobs below the MCP layer
 
 `run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner, would\

@@ -11,7 +11,6 @@ and are removed at the end (``--keep-work`` keeps them).
 from __future__ import annotations
 
 import argparse
-import asyncio
 import hashlib
 import itertools
 import json
@@ -26,6 +25,9 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import anyio
+import anyio.to_thread
 
 from serial_mcp_server.config import DEFAULT_SCRIPT_PATTERN_SECONDS as PATTERN_TIMEOUT_SECONDS
 
@@ -57,6 +59,7 @@ REPLY = b"pong\r\n> "  # 8 bytes
 BASELINE_LINES = 25
 PASTE_LINES = 512  # 512 * 8 bytes = 4096 bytes = 4 KiB
 PASTE = LINE * PASTE_LINES
+RUN_DEADLINE_SECONDS = 900  # the whole harness, so a hung scenario cannot hold up the run
 
 PASS_SCRIPT = r"""# Demo device: version and ping, with explicit expects and no automatic prompt waits
 @prompt --off
@@ -120,7 +123,7 @@ async def frozen_line(terminal: Terminal, probe: Probe, replies_before: int) -> 
     try:
         tail = terminal.paste(LINE[-1:], 0.0)
         await tail.wait(5)
-        await asyncio.sleep(0.4)
+        await anyio.sleep(0.4)
     finally:
         os.kill(pid, signal.SIGCONT)
     arrival = await probe.wait_total(len(REPLY) * (replies_before + 1), 5)
@@ -130,6 +133,48 @@ async def frozen_line(terminal: Terminal, probe: Probe, replies_before: int) -> 
 
 
 # --------------------------------------------------------------------------- bullets 1 and 2
+
+
+async def _paste_scenario(
+    terminal: Terminal, probe: Probe, burst: bool, check: Check, measurements: dict[str, Any]
+) -> None:
+    """The typed baseline, the frozen-line control, and the paste, while the probe reads; fills *measurements*."""
+    baseline: list[float] = []
+    typed = b""
+    if not burst:
+        for n in range(1, BASELINE_LINES + 1):
+            line = terminal.paste(LINE, CHAR_DELAY_S)
+            await line.wait(5)
+            typed += LINE
+            arrival = await probe.wait_total(len(REPLY) * n, 3)
+            if arrival is None:
+                check.error(f"baseline line {n}: no reply within 3 s")
+                break
+            baseline.append(arrival - line.line_done[0])
+            await anyio.sleep(0.1)
+        measurements["frozen_latency"] = await frozen_line(terminal, probe, len(baseline))
+        typed += LINE
+    lines_before_paste = len(baseline) + (1 if not burst else 0)
+    paste = terminal.paste(PASTE, 0.0 if burst else CHAR_DELAY_S)
+    typed += PASTE
+    first_line = lines_before_paste
+    await paste.wait(120)
+    handed_over = paste.finished_at - paste.started_at
+    total = len(REPLY) * (first_line + PASTE_LINES)
+    last_arrival = await probe.wait_total(total, 90 if burst else 10)
+    paste_end = paste.finished_at
+    await anyio.sleep(0.7)  # settle: nothing more should arrive
+    extra = len(probe.data) - total
+    measurements.update(
+        baseline=baseline,
+        handed_over=handed_over,
+        paste=paste,
+        first_line=first_line,
+        last_arrival=last_arrival,
+        paste_end=paste_end,
+        extra=extra,
+        typed=typed,
+    )
 
 
 async def run_paste(
@@ -149,47 +194,13 @@ async def run_paste(
     check.note(f"log files at open: {sorted(opened['log']['files'])}")
     terminal = Terminal(mirror["pty_path"])
     probe = Probe(srv, cid)
-    probe.start()
     measurements: dict[str, Any] = {}
-    try:
-        baseline: list[float] = []
-        typed = b""
-        if not burst:
-            for n in range(1, BASELINE_LINES + 1):
-                line = terminal.paste(LINE, CHAR_DELAY_S)
-                await line.wait(5)
-                typed += LINE
-                arrival = await probe.wait_total(len(REPLY) * n, 3)
-                if arrival is None:
-                    check.error(f"baseline line {n}: no reply within 3 s")
-                    break
-                baseline.append(arrival - line.line_done[0])
-                await asyncio.sleep(0.1)
-            measurements["frozen_latency"] = await frozen_line(terminal, probe, len(baseline))
-            typed += LINE
-        lines_before_paste = len(baseline) + (1 if not burst else 0)
-        paste = terminal.paste(PASTE, 0.0 if burst else CHAR_DELAY_S)
-        typed += PASTE
-        first_line = lines_before_paste
-        await paste.wait(120)
-        handed_over = paste.finished_at - paste.started_at
-        total = len(REPLY) * (first_line + PASTE_LINES)
-        last_arrival = await probe.wait_total(total, 90 if burst else 10)
-        paste_end = paste.finished_at
-        await asyncio.sleep(0.7)  # settle: nothing more should arrive
-        extra = len(probe.data) - total
-        measurements.update(
-            baseline=baseline,
-            handed_over=handed_over,
-            paste=paste,
-            first_line=first_line,
-            last_arrival=last_arrival,
-            paste_end=paste_end,
-            extra=extra,
-            typed=typed,
-        )
-    finally:
-        await probe.stop()
+    async with anyio.create_task_group() as probe_group:
+        probe.start(probe_group)
+        try:
+            await _paste_scenario(terminal, probe, burst, check, measurements)
+        finally:
+            await probe.stop()
     measurements["probe"] = probe
     measurements["terminal_received"] = len(terminal.received)
     terminal.close()
@@ -637,7 +648,7 @@ async def check_cli(device: Device, work: Path, mcp_result: dict[str, Any]) -> t
     )
     formats = [x for fmt in ("jsonl", "text", "lines", "raw") for x in ("--log-format", fmt)]
     logs = work / "cli-logs"
-    done = await asyncio.to_thread(
+    done = await anyio.to_thread.run_sync(
         run_cli,
         [str(work / "scripts" / "demo.script"), "--port", device.path, "--log-dir", str(logs), *formats],
         cwd,
@@ -673,7 +684,7 @@ async def check_cli(device: Device, work: Path, mcp_result: dict[str, Any]) -> t
             Path(results[0]).parent == logs, "the result file sits in the log directory, as for the MCP tools"
         )
     # the wrong-answer script through the CLI, on the same (now idle) device
-    done = await asyncio.to_thread(
+    done = await anyio.to_thread.run_sync(
         run_cli,
         [
             str(work / "scripts" / "wrong.script"),
@@ -758,7 +769,7 @@ async def check_defaults(work: Path, fleet: Fleet) -> Check:
             "log" in await srv.call_ok("serial.connection_status", connection_id=cid)
             and time.monotonic() < deadline
         ):
-            await asyncio.sleep(0.05)
+            await anyio.sleep(0.05)
         after_run = tree(cwd)
         created = sorted(set(after_run) - set(before))
         check.note(f"script run state={run['state']}; files created by the run: {created}")
@@ -775,7 +786,7 @@ async def check_defaults(work: Path, fleet: Fleet) -> Check:
         await srv.call_ok("serial.read_until", connection_id=cid, delimiter="pong\r\n> ", timeout_ms=3000)
         status_after = await srv.call_ok("serial.connection_status", connection_id=cid)
         log_name = next(n for n in created if n.endswith(".txt"))
-        await asyncio.sleep(
+        await anyio.sleep(
             0.5
         )  # bounded settle: the log's disk thread flushes within milliseconds when a log is active
         grown = (cwd / log_name).stat().st_size - after_run[log_name]
@@ -827,14 +838,20 @@ async def frozen_status(srv: Any, run_id: str) -> float:
     Shows that the response times measured for bullet 8 would reveal a server that stops answering.
     """
     pid = find_server_pid()
+    timed: list[float] = []
+
+    async def call() -> None:
+        _, seconds = await timed_status(srv, run_id)
+        timed.append(seconds)
+
     os.kill(pid, signal.SIGSTOP)
-    try:
-        call = asyncio.create_task(timed_status(srv, run_id))
-        await asyncio.sleep(STALL_CONTROL_SECONDS)
-    finally:
-        os.kill(pid, signal.SIGCONT)
-    _, seconds = await call
-    return seconds
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(call)
+        try:
+            await anyio.sleep(STALL_CONTROL_SECONDS)
+        finally:
+            os.kill(pid, signal.SIGCONT)
+    return timed[0]
 
 
 async def check_regex_timeout(srv: Any, device: Device, work: Path) -> Check:
@@ -848,7 +865,7 @@ async def check_regex_timeout(srv: Any, device: Device, work: Path) -> Check:
     run_id = status["run_id"]
     latencies: list[float] = []
     while status["state"] == "running" and time.monotonic() - started < 60:
-        await asyncio.sleep(0.05)
+        await anyio.sleep(0.05)
         status, seconds = await timed_status(srv, run_id)
         latencies.append(seconds)
     elapsed = time.monotonic() - started
@@ -890,7 +907,7 @@ async def check_regex_timeout_cli(device: Device, work: Path) -> Check:
     cwd = work / "cli-regex"
     cwd.mkdir()
     started = time.monotonic()
-    done = await asyncio.to_thread(
+    done = await anyio.to_thread.run_sync(
         run_cli,
         [
             str(work / "scripts" / "catastrophic.script"),
@@ -936,6 +953,12 @@ async def guarded(report: Report, ident: str, title: str, coro: Any) -> Any:
         crash.lines.extend("      | " + line for line in traceback.format_exc().splitlines())
         report.add(crash)
         return None
+
+
+async def run_all_bounded(work: Path, fleet: Fleet, report: Report) -> dict[str, Check]:
+    """Every scenario, within the harness's overall deadline."""
+    with anyio.fail_after(RUN_DEADLINE_SECONDS):
+        return await run_all(work, fleet, report)
 
 
 async def run_all(work: Path, fleet: Fleet, report: Report) -> dict[str, Check]:
@@ -1050,7 +1073,7 @@ def main() -> int:
     started = time.monotonic()
     print(f"integration harness: repo {ROOT}\nwork dir {work}; python {sys.version.split()[0]}", flush=True)
     try:
-        verdicts = asyncio.run(asyncio.wait_for(run_all(work, fleet, report), timeout=900))
+        verdicts = anyio.run(run_all_bounded, work, fleet, report)
     except BaseException:
         print("HARNESS ERROR\n" + traceback.format_exc(), flush=True)
         report.add(Check("harness", "run aborted", failures=1))
