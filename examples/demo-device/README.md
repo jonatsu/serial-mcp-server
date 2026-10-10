@@ -55,9 +55,18 @@ See [demo-device-spec.md](demo-device-spec.md). Register it with the MCP server:
 serial.spec.register  →  { "path": "examples/demo-device/demo-device-spec.md" }
 ```
 
+The server accepts a spec only when the file lies inside the project directory, the directory that holds the data\
+directory (`.serial_mcp/` by default). A relative path resolves against the server's working directory. The example\
+path therefore works when the server runs from the root of this repository. In any other project, copy the spec into\
+that project and register the copy.
+
 ## Plugin
 
-See [demo_device_plugin.py](demo_device_plugin.py). Copy it to `.serial_mcp/plugins/` and load it:
+See [demo_device_plugin.py](demo_device_plugin.py). Plugins are off by default. Start the server with\
+`SERIAL_MCP_PLUGINS=all` or `SERIAL_MCP_PLUGINS=demo_device_plugin`, the plugin's file name without `.py`. The plugin\
+file must lie inside the plugins directory, `.serial_mcp/plugins/` under the data root, which `SERIAL_MCP_SPEC_ROOT`\
+moves. See [Enabling plugins](../../docs/plugins.md#enabling-plugins) and\
+[Installing a plugin](../../docs/plugins.md#installing-a-plugin) for the rules. Copy the file there and load it:
 
 ```
 serial.plugin.load  →  { "path": ".serial_mcp/plugins/demo_device_plugin.py" }

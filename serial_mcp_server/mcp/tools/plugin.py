@@ -29,6 +29,7 @@ def _plugin_template(device_name: str | None = None) -> str:
 from serial_mcp_server.plugin_api import (
     SerialState,
     Tool,
+    ToolAnnotations,  # hints such as readOnlyHint, passed to the client
     err,  # err("code", "message")
     handle_read,  # read raw bytes
     handle_read_until,  # read until a delimiter string
@@ -47,7 +48,9 @@ META = {{
 TOOLS = [
     Tool(
         name="{slug}.example",
-        description="Example tool — replace with real functionality.",
+        # Lead with when the agent should use the tool, then what it returns and changes on the device.
+        description="Use to ... Returns ... Changes nothing on the device.",
+        annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
         inputSchema={{
             "type": "object",
             "properties": {{

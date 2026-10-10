@@ -1,6 +1,8 @@
 ---
 kind: serial-protocol
 name: DemoDevice Protocol
+# The server reads only kind and name. The two keys below are informational: the spec tools return them to the
+# agent in meta, and nothing applies them.
 device_name_contains: DemoDevice
 connection:
   baudrate: 115200
@@ -125,6 +127,8 @@ Get all configuration values (no key) or a single key.
 {"log_interval_ms":1000,"sample_rate_hz":10,"device_name":"DemoDevice"}
 > config get log_interval_ms
 {"log_interval_ms":1000}
+> config get volume
+ERROR: unknown key 'volume'
 >
 ```
 
@@ -153,6 +157,16 @@ Start periodic log output. Optionally set the interval (overrides `log_interval_
 OK logs started (interval=1000ms)
 > [LOG] 14:32:01 temp=42.1 humidity=65.3 pressure=1013.2
 [LOG] 14:32:02 temp=41.8 humidity=65.5 pressure=1013.0
+```
+
+An interval outside 100–10000 ms or one that is not an integer is rejected, and the command changes nothing:
+
+```
+> log start 50
+ERROR: interval must be 100-10000 ms
+> log start fast
+ERROR: invalid interval 'fast'
+>
 ```
 
 Log lines have the format:
