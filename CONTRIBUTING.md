@@ -26,6 +26,7 @@ Each kind of text has one home, so a reader knows where to look and a fact is wr
 | `docs/roadmap.md` | Known work that no plan covers yet. |
 | `CHANGELOG.md` | User-visible changes per release. |
 | `CONTRIBUTING.md` | Development: setup, code layout, conventions, tests, and releases. |
+| `AGENTS.md` (`CLAUDE.md` imports it) | The few rules a coding agent must not miss, pointing here for the rest. |
 | `docs/plans/` | Designs and implementation plans; finished ones move to `docs/plans/archive/`. |
 
 Keep user documents short: explain enough to understand and use a feature, and link to the reference rather than repeat\
@@ -47,6 +48,22 @@ markdownlint-cli2 only reports. Each tool reads its own configuration file (`pyp
 In Markdown, keep prose lines at most 120 characters; code blocks, tables, and frontmatter are exempt. mdformat keeps\
 line breaks as written, so wrap long lines yourself. Write a hard line break as a trailing backslash (`\`), not two\
 trailing spaces.
+
+## Checks and type checking
+
+`just check` runs Ruff, the formatting check, the import-layer contracts, and basedpyright, the type checker; CI runs\
+each of them too. Run it with the tests before every commit.
+
+basedpyright runs in `standard` mode, configured in `[tool.basedpyright]` in `pyproject.toml`, which the basedpyright\
+editor extension reads as well. It checks types and control flow, such as a name that may be unbound or a value that\
+may be `None`, without asking for annotations everywhere. Treat a report as a question about the code: fix it when the\
+code is wrong, and when the checker misreads correct code, adjust the configuration or add one\
+`# pyright: ignore[<rule>]` with a comment that says why. Do not rewrite working code only to satisfy the checker.
+
+In `tests/`, three rules warn instead of failing, for patterns the checker cannot follow there: reading fields off the\
+MCP SDK's result unions and off Optional values without narrowing them first, and names assigned inside\
+`async with anyio.create_task_group()`, which AnyIO's types make look possibly unbound. Tighten them as the tests gain\
+narrowing. The checker assumes Linux, the platform CI runs on.
 
 ## Package layout
 
