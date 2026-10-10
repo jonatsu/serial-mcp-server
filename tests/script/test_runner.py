@@ -17,14 +17,14 @@ import pytest
 import serial as pyserial
 
 from serial_mcp_server import config
-from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, ConfigError
+from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, DEFAULT_SCRIPT_PATTERN_SECONDS, ConfigError
 from serial_mcp_server.port.pacing import NO_PACING, Pacing
 from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.script import Script, parse
 from serial_mcp_server.script import runner as script_runner
 from serial_mcp_server.script.matcher import OutputMatcher
 from serial_mcp_server.script.results import RunMetadata, RunResult, RunState, RunStatus
-from serial_mcp_server.script.runner import PATTERN_TIMEOUT_SECONDS, ScriptRunner
+from serial_mcp_server.script.runner import ScriptRunner
 
 EXAMPLE_SCRIPT = r"""# U-Boot smoke test
 @timeout 10s
@@ -152,7 +152,7 @@ def make_runner(
     script_name: str = "inline",
     files_directory: Path | None = None,
     result_path: Path | None = None,
-    pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
+    pattern_timeout_seconds: float = DEFAULT_SCRIPT_PATTERN_SECONDS,
     max_seconds: float = DEFAULT_SCRIPT_MAX_SECONDS,
 ) -> tuple[ScriptRunner, Script]:
     parsed = parse(source, variables or {}, files_directory or result_directory)
@@ -597,6 +597,17 @@ def test_blank_maximum_duration_means_the_default(blank: str) -> None:
     settings = config.load({"SERIAL_MCP_SCRIPT_MAX_SECONDS": blank})
 
     assert settings.script_max_seconds == DEFAULT_SCRIPT_MAX_SECONDS
+
+
+def test_the_pattern_limit_defaults_to_two_seconds_and_accepts_another_positive_value() -> None:
+    assert config.load({}).script_pattern_seconds == DEFAULT_SCRIPT_PATTERN_SECONDS == 2.0
+    assert config.load({"SERIAL_MCP_SCRIPT_PATTERN_SECONDS": "7.5"}).script_pattern_seconds == 7.5
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "soon"])
+def test_an_unusable_pattern_limit_is_rejected(value: str) -> None:
+    with pytest.raises(ConfigError, match="SERIAL_MCP_SCRIPT_PATTERN_SECONDS"):
+        config.load({"SERIAL_MCP_SCRIPT_PATTERN_SECONDS": value})
 
 
 def test_failed_thread_start_keeps_the_runner_recoverable(

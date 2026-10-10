@@ -23,8 +23,9 @@
   sent.
 - The script engine runs validated serial scripts on a dedicated thread and writes private JSON results under\
   `SERIAL_MCP_LOG_DIR`. `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each run. Patterns use the `regex`\
-  package, and each search has a two-second limit, so a pattern that backtracks without end ends the run `errored` with\
-  the reason `regex_timeout` instead of freezing the server. See [docs/scripts.md](docs/scripts.md).
+  package, and each search has a time limit, two seconds unless `SERIAL_MCP_SCRIPT_PATTERN_SECONDS` sets another, so a\
+  pattern that backtracks without end ends the run `errored` with the reason `regex_timeout` instead of freezing the\
+  server. See [docs/scripts.md](docs/scripts.md).
 - Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files\
   must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A\
   running script owns its connection's writes and control lines. The tool-call trace strips the inline `source` and the\

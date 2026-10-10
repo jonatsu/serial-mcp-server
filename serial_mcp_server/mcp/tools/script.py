@@ -281,6 +281,7 @@ async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[st
             result_directory=state.settings.log_dir,
             log_paths=conn.log_slot.file_paths,
         ),
+        pattern_timeout_seconds=state.settings.script_pattern_seconds,
         max_seconds=state.settings.script_max_seconds,
     )
     run, existing_run_id = state.script_jobs.claim(connection_id, runner)

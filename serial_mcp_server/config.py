@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 ENV_PREFIX = "SERIAL_MCP_"
 DATA_DIR_NAME = ".serial_mcp"
 DEFAULT_SCRIPT_MAX_SECONDS = 3600.0
+DEFAULT_SCRIPT_PATTERN_SECONDS = 2.0
 # A documented, overridable default (SERIAL_MCP_MIRROR_LINK), not a temporary file.
 DEFAULT_MIRROR_LINK = "/tmp/serial-mcp"  # noqa: S108  # nosec B108
 
@@ -107,6 +108,7 @@ class Settings(BaseSettings):
     max_connections: int = Field(default=10, gt=0)
     max_write_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
     script_max_seconds: float = Field(default=DEFAULT_SCRIPT_MAX_SECONDS, gt=0, allow_inf_nan=False)
+    script_pattern_seconds: float = Field(default=DEFAULT_SCRIPT_PATTERN_SECONDS, gt=0, allow_inf_nan=False)
     mirror: MirrorMode = "off"
     # A prefix, not a path: the mirror appends a number, so a trailing slash puts the links in a directory.
     mirror_link: str | None = None

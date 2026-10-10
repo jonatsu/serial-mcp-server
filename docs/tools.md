@@ -528,8 +528,9 @@ return `invalid_params` and an `errors` array. Each entry includes the source li
 that exists but cannot be read, or an operating-system error while the parser checks the `@send_file` paths, returns\
 `file_unreadable`. A `@send_file` file that exists but cannot be read passes that check, and the run then ends\
 `errored` with the reason `file_error`. If the port log cannot be started, the call returns `log_failed`. If the\
-connection closes while the script is starting, the call returns `not_found`. A pattern that takes longer than two\
-seconds to search ends the run `errored` with the reason `regex_timeout`; see [Limits](scripts.md#limits).
+connection closes while the script is starting, the call returns `not_found`. A pattern search longer than the limit\
+(`SERIAL_MCP_SCRIPT_PATTERN_SECONDS`, default 2 s) ends the run `errored` with the reason `regex_timeout`; see\
+[Limits](scripts.md#limits).
 
 `script_running` blocks `serial.write`, `serial.send_file`, `serial.configure`, `serial.flush`, `serial.set_dtr`,\
 `serial.set_rts`, `serial.pulse_dtr`, and `serial.pulse_rts`. `serial.log.start` and `serial.log.stop` also return\

@@ -289,8 +289,8 @@ flowchart LR
 The output matcher feeds the runner's `@expect`, prompt, and failure-pattern checks. See\
 [Serial Script Reference](scripts.md) for the language behavior.
 
-Each pattern search has a two-second limit and releases the interpreter lock while it runs. A pattern that backtracks\
-without end therefore ends its run instead of freezing the server.
+Each pattern search has a time limit, two seconds by default, and releases the interpreter lock while it runs. A\
+pattern that backtracks without end therefore ends its run instead of freezing the server.
 
 The `serial_mcp_script` command shares this engine and runs without the MCP server, so a CI job can run a script with\
 no agent.

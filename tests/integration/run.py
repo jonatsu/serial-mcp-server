@@ -27,7 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from serial_mcp_server.script.runner import PATTERN_TIMEOUT_SECONDS
+from serial_mcp_server.config import DEFAULT_SCRIPT_PATTERN_SECONDS as PATTERN_TIMEOUT_SECONDS
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 

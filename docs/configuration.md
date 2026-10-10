@@ -20,6 +20,7 @@ every mistake.
 | `SERIAL_MCP_MIRROR_LINK` | `/tmp/serial-mcp` | Base path for PTY symlinks. Connections get numbered: `/tmp/serial-mcp0`, `/tmp/serial-mcp1`, etc. |
 | `SERIAL_MCP_MAX_WRITE_SECONDS` | `60` | Cap on the estimated duration of a paced `serial.write` and of any `serial.send_file` transfer. The estimate is the larger of the pauses between segments and the time on the wire (ten bits per byte at the connection's baud rate). Longer writes are rejected with `invalid_params` before any byte is sent. Script writes are not subject to it. |
 | `SERIAL_MCP_SCRIPT_MAX_SECONDS` | `3600` | Maximum duration of one script run. A run that exceeds it fails with `max_duration`. |
+| `SERIAL_MCP_SCRIPT_PATTERN_SECONDS` | `2` | Longest one pattern search in a script may take. A search that runs longer ends the run `errored` with `regex_timeout`. A cancel that arrives during a search waits for it, so a larger value also slows cancelling. |
 | `SERIAL_MCP_SCRIPTS_DIR` | `.serial_mcp/scripts/` | Directory for script files used by `serial.script.run` and `serial.script.list`. |
 | `SERIAL_MCP_FILES_DIR` | `.serial_mcp/files/` | The only directory `serial.send_file` reads from. Files must be regular and at most 1 MiB. Do not put hard links or bind mounts to sensitive files in it: the server cannot tell them from regular files. |
 | `SERIAL_MCP_LOG` | disabled | Set to a true value, such as `1`, to record every connection's bytes in a port log. `serial.open` can override it per connection with `log`. |

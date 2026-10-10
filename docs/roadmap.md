@@ -25,11 +25,6 @@ collision-free names stop after 1,000 files with the same timestamp prefix.
 A failed run leaves the device where the failure happened. A `@finally` section would run cleanup steps on every exit;\
 until then, a CI job can run a separate reset script.
 
-### A configurable pattern time limit
-
-Each search stops after two seconds, so a legitimate pattern that needs longer cannot run, and a cancel can wait up to\
-that limit before the run ends.
-
 ### Mirror input in script results
 
 Operator input through a read/write mirror reaches the device mid-run and can change the outcome. The port log records\
