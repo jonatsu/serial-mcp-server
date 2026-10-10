@@ -8,7 +8,7 @@ import re
 import sys
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import serial as pyserial
@@ -21,6 +21,7 @@ from serial_mcp_server.config import ConfigError, Settings
 from serial_mcp_server.mcp.plugins import PluginManager
 from serial_mcp_server.mcp.responses import _err, _result_text
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.stdin import StdinLines
 from serial_mcp_server.mcp.tools import connection as connection_tools
 from serial_mcp_server.mcp.tools import file as file_tools
 from serial_mcp_server.mcp.tools import introspection as introspection_tools
@@ -211,7 +212,9 @@ async def _run(settings: Settings) -> None:
     _BENIGN_ASYNC = (EOFError, BrokenPipeError, anyio.ClosedResourceError, anyio.BrokenResourceError)
 
     try:
-        async with stdio_server() as (read_stream, write_stream):
+        # StdinLines provides the only part of AsyncFile that stdio_server uses: iteration over lines.
+        stdin = cast("anyio.AsyncFile[str]", StdinLines())
+        async with stdio_server(stdin=stdin) as (read_stream, write_stream):
             init_options = server.create_initialization_options(
                 notification_options=NotificationOptions(tools_changed=True),
             )

@@ -101,12 +101,6 @@ that cancels a running paced job, `serial.close` during a paced write at handler
 
 These came from the [package layout plan](plans/package-layout-implementation-plan.md), finished on 9 October 2026.
 
-### Exit on SIGINT alone
-
-After one Ctrl-C the server stays up until stdin closes, because the MCP SDK reads stdin in a worker thread; it then\
-exits 0 with closed port logs. MCP clients close stdin to stop a server, so they are unaffected, but a person running\
-the server in a terminal has to press Ctrl-D as well.
-
 ### A bounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
