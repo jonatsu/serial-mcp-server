@@ -114,11 +114,11 @@ confined to the configured files directory.
 
 ## Limits
 
-Each pattern search has a limit of two seconds. A pattern that backtracks without end, such as `(a|aa)+$` against a\
-long run of `a` characters, stops at the limit and ends the run `errored` with the reason `regex_timeout`. The search\
-releases the interpreter lock, so the server keeps answering while it runs. A cancel that arrives during a search takes\
-effect when the search returns, at the latest at the limit. If a pattern hits the limit, rewrite it without nested or\
-overlapping quantifiers. The limit is fixed.
+Each pattern search has a limit, two seconds unless `SERIAL_MCP_SCRIPT_PATTERN_SECONDS` sets another. A pattern that\
+backtracks without end, such as `(a|aa)+$` against a long run of `a` characters, stops at the limit and ends the run\
+`errored` with the reason `regex_timeout`. The search releases the interpreter lock, so the server keeps answering\
+while it runs. A cancel that arrives during a search takes effect when the search returns, at the latest at the limit.\
+If a pattern hits the limit, rewrite it without nested or overlapping quantifiers.
 
 `SERIAL_MCP_SCRIPT_MAX_SECONDS` and `@fail_on` are checked between steps and when output arrives, not while a single\
 write is in flight. A long paced `@send` or `@send_file` therefore runs to its end unless the run is cancelled, and a\

@@ -258,6 +258,7 @@ def _make_runner(
     script_name: str,
     result_directory: Path,
     result_path: Path | None,
+    pattern_timeout_seconds: float,
     max_seconds: float,
 ) -> ScriptRunner:
     return ScriptRunner(
@@ -270,6 +271,7 @@ def _make_runner(
             log_paths=conn.log_slot.file_paths,
             result_path=result_path,
         ),
+        pattern_timeout_seconds=pattern_timeout_seconds,
         max_seconds=max_seconds,
     )
 
@@ -294,6 +296,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 script_name=args.script.name,
                 result_directory=settings.log_dir,
                 result_path=args.result,
+                pattern_timeout_seconds=settings.script_pattern_seconds,
                 max_seconds=settings.script_max_seconds,
             )
             return _run(runner)

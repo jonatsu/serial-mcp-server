@@ -573,3 +573,27 @@ class TestScriptDirectory:
             assert len(cells) == 3, row
         by_name = {row.split("`")[1]: row for row in rows}
         assert "`@prompt REGEX \\| @prompt --off`" in by_name["prompt"]
+
+
+class TestPatternLimit:
+    async def test_a_run_searches_with_the_configured_pattern_limit(
+        self, connected_entry, script_env, monkeypatch
+    ):
+        import serial_mcp_server.mcp.tools.script as script_tools
+
+        state, conn = connected_entry
+        conn.ser.write.side_effect = len
+        reconfigure(state, script_pattern_seconds=0.5)
+        limits = []
+
+        def recording_runner(*args, **kwargs):
+            limits.append(kwargs["pattern_timeout_seconds"])
+            return ScriptRunner(*args, **kwargs)
+
+        monkeypatch.setattr(script_tools, "ScriptRunner", recording_runner)
+        run = await handle_script_run(
+            state, {**SID, "source": "@prompt --off\nhello\n", "wait_ms": "5000", "log": False}
+        )
+
+        assert run["state"] == "passed"
+        assert limits == [0.5]

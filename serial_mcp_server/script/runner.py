@@ -13,7 +13,7 @@ from typing import Literal, NoReturn
 
 import regex
 
-from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS
+from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, DEFAULT_SCRIPT_PATTERN_SECONDS
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.script.directives import LINE_NAMES
@@ -32,7 +32,6 @@ from serial_mcp_server.script.results import (
 )
 from serial_mcp_server.script.session import PortSession
 
-PATTERN_TIMEOUT_SECONDS = 2.0
 SCRIPT_CANCEL_WAIT_SECONDS = 5.0  # how long a cancel waits for the runner thread
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 _MAX_OUTPUT_TAIL_CHARS = 2048
@@ -116,7 +115,7 @@ class ScriptRunner:
         script: Script,
         session: PortSession,
         metadata: RunMetadata,
-        pattern_timeout_seconds: float = PATTERN_TIMEOUT_SECONDS,
+        pattern_timeout_seconds: float = DEFAULT_SCRIPT_PATTERN_SECONDS,
         *,
         max_seconds: float = DEFAULT_SCRIPT_MAX_SECONDS,
     ) -> None:

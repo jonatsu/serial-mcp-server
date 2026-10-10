@@ -582,3 +582,17 @@ def test_importing_the_cli_path_leaves_mcp_out(module):
     )
 
     assert done.returncode == 0, done.stderr
+
+
+def test_the_pattern_limit_comes_from_the_environment(device, tmp_path, monkeypatch):
+    monkeypatch.setenv("SERIAL_MCP_SCRIPT_PATTERN_SECONDS", "0.3")
+    script = write_script(tmp_path, "@timeout 20s\n@sendline " + "a" * 40 + "\n@expect (a|aa)+c\n")
+    result_path = tmp_path / "result.json"
+
+    done = run_cli(script, "--port", device.path, "--result", result_path, "--log-dir", tmp_path / "logs")
+
+    result = read_result(result_path)
+    assert done.returncode == 2, done.stderr
+    assert result["failure"]["reason"] == "regex_timeout"
+    assert "longer than 0.3 s" in result["failure"]["detail"]
+    assert result["steps"][-1]["duration"] < 2  # the default limit is 2 s
