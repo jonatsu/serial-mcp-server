@@ -100,6 +100,15 @@ class TestResultFormat:
 
 
 class TestBuildServer:
+    def test_the_server_reports_this_package_version(self, settings):
+        from importlib.metadata import version
+
+        from serial_mcp_server.mcp.server import build_server
+
+        server, _state = build_server(settings)
+
+        assert server.create_initialization_options().server_version == version("serial-mcp-server")
+
     def test_build_server_returns_server_and_state(self, settings):
         from serial_mcp_server.mcp.server import build_server
 

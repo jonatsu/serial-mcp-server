@@ -11,6 +11,10 @@
   suppression comment. CodeQL follows data flow from inputs to sensitive calls, which pattern checks cannot, and it\
   also checks the GitHub workflows.
 
+### Fixed
+
+- The server reports its own version to MCP clients when they connect. Before, it reported the MCP SDK's version.
+
 ## 0.2.1
 
 ### Fixed
