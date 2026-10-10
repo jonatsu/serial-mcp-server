@@ -95,6 +95,29 @@ Most other clients read a JSON file with an `mcpServers` object, such as `.mcp.j
 }
 ```
 
+To skip the install, let [uv](https://docs.astral.sh/uv/) fetch and run the server each time the client starts it.\
+Replace the `serial_mcp` command with `uvx`:
+
+```bash
+claude mcp add serial -- uvx --from git+https://github.com/jonatsu/serial-mcp-server serial_mcp
+```
+
+```json
+{
+  "mcpServers": {
+    "serial": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/jonatsu/serial-mcp-server",
+        "serial_mcp"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
 [Set up other MCP clients](#set-up-other-mcp-clients) lists where each client keeps the file and the clients that use\
 another shape.
 
@@ -162,8 +185,8 @@ keep the server in a JSON file with the `mcpServers` shape from the [Quickstart]
 | Codex CLI | `~/.codex/config.toml`, or `.codex/config.toml` in a trusted project | TOML, below |
 
 A client started from a desktop launcher may not see the `PATH` of your shell, so it cannot find `serial_mcp`. Give the\
-full path that `command -v serial_mcp` prints, or let uv fetch and run the server, with `"command": "uvx"` and\
-`"args": ["--from", "git+https://github.com/jonatsu/serial-mcp-server", "serial_mcp"]`.
+full path that `command -v serial_mcp` prints, or use the `uvx` form from the [Quickstart](#quickstart), which needs\
+only `uvx` on that `PATH`.
 
 ### Claude Code
 
