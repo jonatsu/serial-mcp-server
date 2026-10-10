@@ -202,8 +202,8 @@ Paths outside `.serial_mcp/plugins/` are rejected with `ValueError`.
 `ValueError`.
 
 **Plugin imports:** plugins import only from `serial_mcp_server.plugin_api`, which re-exports `ok`, `err`,\
-`SerialState`, `Tool`, and the serial read and write handlers. Its `__all__` changes only with a CHANGELOG entry; the\
-template that `serial.plugin.template` returns and the demo plugin follow it.
+`SerialState`, `Tool`, `ToolAnnotations`, and the serial read and write handlers. Its `__all__` changes only with a\
+CHANGELOG entry; the template that `serial.plugin.template` returns and the demo plugin follow it.
 
 **Policy:** `SERIAL_MCP_PLUGINS` is parsed into `Settings.plugins`, a `PluginPolicy` of `enabled` and `allowlist`. The\
 `PluginManager` checks this before every `load()` call. `load_all()` skips entirely when disabled.

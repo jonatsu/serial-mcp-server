@@ -13,6 +13,7 @@ from serial_mcp_server.mcp.tools.plugin import _plugin_template
 PUBLIC_NAMES = [
     "SerialState",
     "Tool",
+    "ToolAnnotations",
     "err",
     "handle_read",
     "handle_read_until",

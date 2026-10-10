@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- `serial_mcp_server.plugin_api` exports `ToolAnnotations`, so a plugin can mark its tools read-only or destructive\
+  without importing from the MCP SDK. The plugin template uses it.
+
 ### Changed
 
 - Requires PyYAML 6.0.1 or later. PyYAML 6.0 no longer builds from source with current build tools, so the old minimum\
@@ -14,6 +19,9 @@
 ### Fixed
 
 - The server reports its own version to MCP clients when they connect. Before, it reported the MCP SDK's version.
+- The demo device plugin returns an error when a command's write or read fails or its prompt never arrives, instead of\
+  an empty success, and `demo.sample` waits long enough for up to 1000 samples. Its README says how to enable plugins\
+  and where a spec must be.
 
 ## 0.2.1
 

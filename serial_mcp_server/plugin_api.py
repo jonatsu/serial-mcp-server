@@ -9,7 +9,7 @@ reads, and its writer thread queues and paces every write.
 
 from __future__ import annotations
 
-from mcp.types import Tool
+from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.mcp.responses import _err as err
 from serial_mcp_server.mcp.responses import _ok as ok
@@ -19,6 +19,7 @@ from serial_mcp_server.mcp.tools.io import handle_read, handle_read_until, handl
 __all__ = [
     "SerialState",
     "Tool",
+    "ToolAnnotations",
     "err",
     "handle_read",
     "handle_read_until",
