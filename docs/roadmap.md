@@ -69,6 +69,23 @@ File contents stay private, because files are created `0600`.
 
 ## Features That Need a Design
 
+### MCP Python SDK 2
+
+`pyproject.toml` caps `mcp` below 2, and the SDK's own guidance recommends that cap for projects not yet ported.\
+Version 2 (July 2026) removes the low-level server's `list_tools` and `call_tool` decorators and\
+`server.request_context`, so `mcp/server.py` needs a port to the `on_list_tools` and `on_call_tool` constructor\
+handlers. A handler exception no longer becomes an error result the agent sees, and model fields are snake_case for\
+attribute access. Under protocol revision 2026-07-28, a `tools/list_changed` notification reaches only clients that\
+subscribed, which changes how `serial.plugin.load` tells the client. `plugin_api` re-exports `Tool` and\
+`ToolAnnotations`, so their snake_case attributes are a breaking change for plugins and need a minor release. Version 1\
+receives only critical and security fixes, and only in its newest release.
+
+### Demo plugin replies out of step
+
+The demo plugin reads up to the first `> ` prompt, so the boot banner left in the buffer answers the first command, and\
+a failed read leaves a reply that the next command then receives. Clearing the buffer before each command would fix the\
+reference example; whether plugins need a helper for it is the design question.
+
 ### Limits on a write already in flight under a script
 
 The stop event ends such a write between segments, but `SERIAL_MCP_SCRIPT_MAX_SECONDS` and fail patterns are checked\
