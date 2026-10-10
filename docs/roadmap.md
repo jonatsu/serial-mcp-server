@@ -6,8 +6,8 @@ it up, or when it lands and the CHANGELOG records it. Add new follow-ups here ra
 so they stay in one place.
 
 Sections are in priority order, and so are the items within each section: defects that users can hit come first, then\
-security and operations, then features, test gaps, platforms, and internal structure. Place a new item by the same\
-rule.
+security and operations, then features, test gaps, platforms, and internal structure and tooling. Place a new item by\
+the same rule.
 
 Most items were collected from the archived\
 [pacing, logging, and script plan](plans/archive/pacing-logging-scripts-implementation-plan.md) and\
@@ -136,10 +136,19 @@ that cancels a running paced job, `serial.close` during a paced write at handler
 The suite has never run on Windows, and CI does not test it. The `serial.send_file` confinement checks rely on stable\
 inodes and `/proc`, so they are weaker there and untested.
 
-## Internal Structure
+## Internal Structure and Tooling
 
 ### Write jobs below the MCP layer
 
 `run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner, would\
 need them moved down; nothing needs that today. From the\
 [package layout plan](plans/archive/package-layout-implementation-plan.md).
+
+### Hook and Ruff updates
+
+Dependabot updates `uv.lock` only within the ranges in `pyproject.toml` (`versioning-strategy: lockfile-only`), so it\
+never moves the exact `ruff==0.17.0` pin, and the hook revisions in `.pre-commit-config.yaml` are outside its reach.\
+Ruff and the hooks therefore stay where they are until someone updates them. A monthly scheduled workflow could run\
+`pre-commit autoupdate` and open a pull request; when it moves ruff-pre-commit, the same change must raise the `ruff`\
+pin in the `dev` group and relock. Until then, run `pre-commit autoupdate` by hand now and then, keeping betterleaks on\
+its stable major as its comment says.
