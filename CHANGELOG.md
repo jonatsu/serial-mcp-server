@@ -8,6 +8,10 @@
 
 - `serial.pulse_dtr` and `serial.pulse_rts` set the line high again when the request is cancelled during the pulse.\
   Before, the line stayed low, which can hold a device in reset.
+- A connection opened with `timeout_ms` 0 no longer keeps a CPU core busy. `timeout_ms` now sets only the default wait\
+  of the read tools; the port's own read timeout is fixed at 200 ms, so the reader thread also stops promptly when a\
+  connection with a long `timeout_ms` closes. A plugin that reads the port object directly waits at most 200 ms per\
+  read.
 
 ## 0.2.0
 

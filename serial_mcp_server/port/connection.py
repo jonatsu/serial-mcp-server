@@ -27,8 +27,8 @@ class SerialConnection:
     bytesize: int
     parity: str
     stopbits: float
-    # Seconds. The default wait of the read tools, and pyserial's read timeout, which is how long the reader
-    # thread blocks for one byte before it checks for a stop request. 200 ms unless ``serial.open`` set it.
+    # Seconds. The default wait of the read tools, 200 ms unless ``serial.open`` set it. pyserial's own read
+    # timeout is ``READ_POLL_MS`` instead, whatever this is.
     timeout: float
     # Seconds. How long one ``ser.write`` may block; see ``write_serial_payload``.
     write_timeout: float

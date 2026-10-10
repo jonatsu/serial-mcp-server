@@ -124,6 +124,23 @@ class TestOpen:
         assert not result["ok"]
         assert result["error"]["code"] == "invalid_params"
 
+    @pytest.mark.parametrize("timeout_ms", [0, 10_000])
+    async def test_the_port_read_timeout_stays_fixed_whatever_timeout_ms_is(
+        self, serial_state, mock_serial, mock_reader, timeout_ms
+    ):
+        with (
+            patch(
+                "serial_mcp_server.mcp.tools.connection.pyserial.Serial", return_value=mock_serial
+            ) as open_port,
+            patch("serial_mcp_server.port.stack.create_reader", return_value=mock_reader),
+        ):
+            result = await handle_open(serial_state, {"port": "/dev/ttyUSB0", "timeout_ms": timeout_ms})
+
+        assert result["ok"]
+        assert open_port.call_args.kwargs["timeout"] == 0.2  # zero would make pyserial non-blocking
+        assert result["config"]["timeout_ms"] == timeout_ms
+        assert serial_state.connections[result["connection_id"]].timeout == timeout_ms / 1000
+
     async def test_open_with_character_pacing(self, serial_state, mock_serial, mock_reader):
         with (
             patch("serial_mcp_server.mcp.tools.connection.pyserial.Serial", return_value=mock_serial),
