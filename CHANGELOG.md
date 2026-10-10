@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- `serial.pulse_dtr` and `serial.pulse_rts` set the line high again when the request is cancelled during the pulse.\
+  Before, the line stayed low, which can hold a device in reset.
+
 ## 0.2.0
 
 The first release from this fork of es617/serial-mcp-server, which it extends from upstream's 0.1.3. It adds write\

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from unittest.mock import call
+
+import anyio
+import pytest
+
 from serial_mcp_server.mcp.tools.lines import (
     HANDLERS,
     TOOLS,
@@ -43,15 +48,23 @@ class TestControlLines:
         result = await handle_pulse_dtr(state, {"connection_id": "s1", "duration_ms": 10})
         assert result["ok"]
         assert result["duration_ms"] == 10
-        # DTR should end high (True) after pulse
-        assert conn.ser.dtr is True
+        assert vars(type(conn.ser))["dtr"].call_args_list == [call(False), call(True)]
 
     async def test_pulse_rts(self, connected_entry):
         state, conn = connected_entry
         result = await handle_pulse_rts(state, {"connection_id": "s1", "duration_ms": 10})
         assert result["ok"]
         assert result["duration_ms"] == 10
-        assert conn.ser.rts is True
+        assert vars(type(conn.ser))["rts"].call_args_list == [call(False), call(True)]
+
+    @pytest.mark.parametrize(("handler", "line"), [(handle_pulse_dtr, "dtr"), (handle_pulse_rts, "rts")])
+    async def test_a_cancelled_pulse_still_sets_the_line_high(self, connected_entry, handler, line):
+        state, conn = connected_entry
+        with anyio.move_on_after(0.05) as scope:
+            await handler(state, {"connection_id": "s1", "duration_ms": 5000})
+
+        assert scope.cancelled_caught
+        assert vars(type(conn.ser))[line].call_args_list == [call(False), call(True)]
 
     async def test_pulse_dtr_clamped(self, connected_entry):
         state, _conn = connected_entry
