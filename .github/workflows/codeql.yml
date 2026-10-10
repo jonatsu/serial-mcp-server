@@ -1,0 +1,41 @@
+name: CodeQL
+
+# Data-flow security analysis of the Python code and of these workflows. Findings appear under the repository's
+# Security tab, code scanning. It replaces Bandit, whose pattern checks Ruff's `S` rules already run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"  # weekly, so new queries also reach code that has not changed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write  # upload the results to code scanning
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d  # v4.38.3
+        with:
+          category: /language:${{ matrix.language }}

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- Requires PyYAML 6.0.1 or later. PyYAML 6.0 no longer builds from source with current build tools, so the old minimum\
+  could not be installed where no wheel exists; CI now tests the lowest version of every dependency.
+- Security scanning uses GitHub CodeQL instead of Bandit. Bandit matches code patterns, and Ruff's `S` rules, which\
+  already run in pre-commit and CI, are Ruff's port of those checks, so Bandit found nothing new and needed a second\
+  suppression comment. CodeQL follows data flow from inputs to sensitive calls, which pattern checks cannot, and it\
+  also checks the GitHub workflows.
+
 ## 0.2.1
 
 ### Fixed

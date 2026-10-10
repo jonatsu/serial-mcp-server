@@ -3,14 +3,19 @@
 ## Dev setup
 
 ```bash
-# Clone and install in editable mode with test dependencies
+# Clone and install the project, its test extra, and the development tools from uv.lock
 git clone https://github.com/jonatsu/serial-mcp-server.git
 cd serial-mcp-server
-pip install -e ".[test]"    # or: uv sync --extra test
+uv sync --extra test
 
 # Run tests (no serial hardware needed)
-python -m pytest tests/ -v  # or: uv run --extra test python -m pytest tests/
+uv run --extra test python -m pytest tests/
 ```
+
+`uv.lock` is committed, and the development tools (Ruff, basedpyright, import-linter, pre-commit, pip-audit, twine) are\
+the `dev` dependency group in `pyproject.toml`, so `just`, CI, and every contributor run the same versions. After\
+changing a dependency, run `uv lock` and commit the lock with it; CI installs with `--locked` and fails on a stale\
+lock. Ruff is pinned twice, in the `dev` group and as the ruff-pre-commit `rev`; change both together.
 
 ## Documentation
 
@@ -51,8 +56,15 @@ trailing spaces.
 
 ## Checks and type checking
 
-`just check` runs Ruff, the formatting check, the import-layer contracts, and basedpyright, the type checker; CI runs\
-each of them too. Run it with the tests before every commit.
+`just check` runs Ruff, the formatting check, the import-layer contracts, and basedpyright, the type checker. Run it\
+with the tests before every commit.
+
+CI (`.github/workflows/cicd.yml`) runs every pre-commit hook on all files, the import-layer contracts, basedpyright,\
+the tests on each supported Python version, the tests again against the lowest dependency versions `pyproject.toml`\
+allows, the integration harness, the package build, and pip-audit on the locked runtime dependencies. A release tag\
+needs all of them to pass, including pip-audit, which elsewhere only reports. CodeQL (`.github/workflows/codeql.yml`)\
+analyzes the Python code and the workflows for security flaws; its findings appear in the repository's code scanning\
+alerts. Dependabot keeps the actions, which are pinned to commit SHAs, and `uv.lock` current.
 
 basedpyright runs in `standard` mode, configured in `[tool.basedpyright]` in `pyproject.toml`, which the basedpyright\
 editor extension reads as well. It checks types and control flow, such as a name that may be unbound or a value that\
@@ -253,7 +265,7 @@ just integration
 
 It takes about 90 seconds and exits 0 only when every scenario passes. It needs Linux, because it reads `/proc` to find\
 its processes, and it uses pseudo-terminals. It starts real processes, and it removes its temporary files and processes\
-when it ends (`--keep-work` keeps the files). It is not part of `pytest` or CI.
+when it ends (`--keep-work` keeps the files). It is not part of `pytest`; CI runs it on every push.
 
 ## Versions and releases
 
@@ -273,5 +285,6 @@ To release, on an up-to-date `main` with CI green:
 1. Rename the CHANGELOG's `## Unreleased` heading to `## X.Y.Z`, add a new empty `## Unreleased` above it, and commit.
 2. Optionally tag a release candidate, `vX.Y.Zrc1`, and push the tag. CI builds it and creates a pre-release with\
    generated notes.
-3. Tag `vX.Y.Z` on the CHANGELOG commit and push the tag. CI runs the checks, builds the package, and creates the\
-   release with the CHANGELOG section as its notes. It fails when the CHANGELOG has no `## X.Y.Z` section.
+3. Tag `vX.Y.Z` on the commit on `main` that holds the final CHANGELOG section, and push the tag. CI runs the checks,\
+   builds the package, and creates the release with the CHANGELOG section as its notes. It fails when the CHANGELOG has\
+   no `## X.Y.Z` section.

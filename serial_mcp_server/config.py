@@ -26,7 +26,7 @@ DEFAULT_SCRIPT_PATTERN_SECONDS = 2.0
 # Characters, not bytes, kept of each traced payload; see ``mcp.trace.TraceBuffer``.
 DEFAULT_TRACE_MAX_BYTES = 16384
 # A documented, overridable default (SERIAL_MCP_MIRROR_LINK), not a temporary file.
-DEFAULT_MIRROR_LINK = "/tmp/serial-mcp"  # noqa: S108  # nosec B108
+DEFAULT_MIRROR_LINK = "/tmp/serial-mcp"  # noqa: S108
 
 # The port log and the format modules own these names; tests/test_config.py keeps the two lists equal.
 LogFormatName = Literal["text", "jsonl", "lines", "raw"]

@@ -7,114 +7,151 @@ on:
   pull_request:
     branches: [main]
 
+# Every job reads only; the release job alone asks for write access.
 permissions:
-  contents: write  # create GitHub releases
+  contents: read
+
+# A new push to a pull request cancels its older run. Runs for main and for tags always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Every job installs from uv.lock with `--locked`, which also fails when the lock no longer matches pyproject.toml.
+# The tools (ruff, basedpyright, import-linter, pip-audit, twine) come from the lock's dev group.
 
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install ruff import-linter
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: lint-imports
+          enable-cache: true
+      - run: uv sync --locked
+      # The same hooks as a local commit: Ruff, Markdown formatting and linting, EditorConfig, and the secrets scan.
+      - run: uv run pre-commit run --all-files --show-diff-on-failure
+      - run: uv run lint-imports
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           python-version: "3.11"
+          enable-cache: true
       # The project environment in .venv, which [tool.basedpyright] points at, as `just typecheck` uses it.
-      - run: uv sync --extra test
-      - run: uv run --with basedpyright basedpyright
+      - run: uv sync --locked --extra test
+      - run: uv run basedpyright
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - run: pip install -e ".[test]"
-      - run: python -m pytest tests/ -v --cov --cov-report=term-missing --cov-report="markdown:coverage.md"
-      - uses: actions/upload-artifact@v4
+          enable-cache: true
+      - run: uv sync --locked --extra test
+      - run: uv run python -m pytest tests/ -v --cov --cov-report=term-missing --cov-report="markdown:coverage.md"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: matrix.python-version == '3.13'
         with:
           name: coverage-report
           path: coverage.md
 
-  build:
+  # The lowest versions pyproject.toml allows for each direct dependency, so a raised minimum is never only a claim.
+  test-lowest:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # full history for hatch-vcs versioning
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install build twine
-      - run: python -m build
-      - run: twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - run: uv venv .venv-lowest
+      - run: uv pip install --python .venv-lowest --resolution lowest-direct -e ".[test]"
+      - run: .venv-lowest/bin/python -m pytest tests/ -q
+
+  # Real processes on pseudo-terminals (about 90 s): the server, the script command, and the demo device.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run python tests/integration/run.py
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # full history for hatch-vcs versioning
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv build
+      - run: uv run twine check dist/*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: dist
           path: dist/
 
-  security:
+  # Known vulnerabilities in the locked runtime dependencies, the set a user installs; development tools are left out.
+  # A finding fails a release tag and only reports elsewhere, so an advisory published upstream does not block every
+  # push.
+  audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
         with:
           python-version: "3.11"
-          cache: pip
-      - run: pip install bandit pip-audit
-      - name: Bandit (static security analysis)
-        run: bandit -r serial_mcp_server/ -c pyproject.toml
-      - name: pip-audit (dependency vulnerabilities)
-        continue-on-error: true
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv export --locked --no-default-groups --no-emit-project --format requirements-txt -o runtime-requirements.txt
+      - name: pip-audit
         run: |
-          pip install -e .
-          pip-audit --strict --desc | tee pip-audit-report.txt
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pip-audit-report
-          path: pip-audit-report.txt
+          set -o pipefail
+          uv run pip-audit --strict --desc --disable-pip --require-hashes -r runtime-requirements.txt \
+            | tee pip-audit-report.txt
       - name: Summary
         if: always()
         run: |
-          echo "## Security scan results" >> "$GITHUB_STEP_SUMMARY"
-          echo "### Bandit (static analysis)" >> "$GITHUB_STEP_SUMMARY"
-          echo "Passed" >> "$GITHUB_STEP_SUMMARY"
-          echo "### pip-audit (dependency vulnerabilities)" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          if [ -f pip-audit-report.txt ]; then
-            cat pip-audit-report.txt >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "pip-audit did not run" >> "$GITHUB_STEP_SUMMARY"
-          fi
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## pip-audit (locked runtime dependencies)"
+            echo '```'
+            cat pip-audit-report.txt 2>/dev/null || echo "pip-audit did not run"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, typecheck, test, build, security]
+    needs: [lint, typecheck, test, test-lowest, integration, build, audit]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write  # create the GitHub release
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist/
@@ -134,15 +171,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${{ github.ref_name }}" == *rc* ]]; then
-            gh release create "${{ github.ref_name }}" \
-              --title "${{ github.ref_name }}" \
+          if [[ "$GITHUB_REF_NAME" == *rc* ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
               --generate-notes \
               --prerelease \
               dist/*
           else
-            gh release create "${{ github.ref_name }}" \
-              --title "${{ github.ref_name }}" \
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
               --notes-file release-notes.md \
               dist/*
           fi
