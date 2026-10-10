@@ -12,6 +12,7 @@ from mcp.types import Tool, ToolAnnotations
 from serial_mcp_server.mcp.responses import _err, _ok, script_running_error
 from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.mcp.threads import run_to_completion
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog.formats import (
@@ -28,7 +29,6 @@ from serial_mcp_server.portlog.request import build_log_request
 # Tool definitions
 # ---------------------------------------------------------------------------
 
-_CONNECTION_ID = {"type": "string"}
 _NOT_LOGGING_HINT = "Call serial.log.start to begin logging."
 
 TOOLS: list[Tool] = [
@@ -45,7 +45,7 @@ TOOLS: list[Tool] = [
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": _CONNECTION_ID,
+                "connection_id": CONNECTION_ID,
                 "log_formats": LOG_FORMATS_SCHEMA,
                 "log_text_timestamps": LOG_TEXT_TIMESTAMPS_SCHEMA,
             },
@@ -56,12 +56,12 @@ TOOLS: list[Tool] = [
         name="serial.log.stop",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         description=(
-            "Stop the port log: flush and close its files, and return their paths and sizes. "
-            "The connection stays open."
+            "Use when the user wants the recording to end, or to hand them finished log files: flushes and "
+            "closes the port log's files and returns their paths and sizes. The connection stays open."
         ),
         inputSchema={
             "type": "object",
-            "properties": {"connection_id": _CONNECTION_ID},
+            "properties": {"connection_id": CONNECTION_ID},
             "required": ["connection_id"],
         },
     ),
@@ -69,12 +69,12 @@ TOOLS: list[Tool] = [
         name="serial.log.status",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "Report whether a connection is logging, with its formats, file paths, entry count, "
-            "and the bytes dropped because the disk fell behind."
+            "Use to find a connection's log files or check that logging works: reports whether it is logging, "
+            "with its formats, file paths, entry count, and the bytes dropped because the disk fell behind."
         ),
         inputSchema={
             "type": "object",
-            "properties": {"connection_id": _CONNECTION_ID},
+            "properties": {"connection_id": CONNECTION_ID},
             "required": ["connection_id"],
         },
     ),
@@ -82,14 +82,15 @@ TOOLS: list[Tool] = [
         name="serial.log.mark",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         description=(
-            "Write a labelled marker into the port log between the surrounding traffic, "
-            "for example at the start of a test step. "
+            "Use to make a log easy to navigate, for example at the start of each test step or before a "
+            "command whose output matters: writes a labelled marker into the port log between the surrounding "
+            "traffic. "
             "The jsonl and lines logs carry markers; the text and raw logs stay byte-exact."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": _CONNECTION_ID,
+                "connection_id": CONNECTION_ID,
                 "label": {"type": "string", "description": "Short text to record, such as 'step 2: boot'."},
             },
             "required": ["connection_id", "label"],

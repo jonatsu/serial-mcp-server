@@ -100,13 +100,12 @@ TOOLS: list[Tool] = [
         name="serial.plugin.list",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "List loaded plugins with their tool names and metadata. "
-            "Each plugin may include a 'meta' dict with matching hints like "
-            "device_name_contains or description — use these to determine "
-            "which plugin fits the connected device. "
-            "Also returns whether plugins are enabled and the current policy. "
-            "Plugins require SERIAL_MCP_PLUGINS env var — set to 'all' for all or 'name1,name2' to allow specific plugins. "
-            "If disabled, tell the user to set this variable when adding the MCP server."
+            "Use right after serial.open, and whenever a task matches a known device: lists the loaded plugins, "
+            "which add device-specific tools such as reading a sensor or flashing firmware, with their tool "
+            "names and meta, whose hints such as device_name_contains show which device each fits. Prefer a "
+            "plugin's tools to raw reads and writes for the operations it covers. The response also says "
+            "whether plugins are enabled. They are off unless the server runs with SERIAL_MCP_PLUGINS set to "
+            "all or to a list of plugin names; when off, tell the user to set it where the server is configured."
         ),
         inputSchema={
             "type": "object",
@@ -118,8 +117,8 @@ TOOLS: list[Tool] = [
         name="serial.plugin.reload",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Hot-reload a plugin by name. Re-imports the module and refreshes tools. "
-            "Requires SERIAL_MCP_PLUGINS env var to be set."
+            "Use after editing a loaded plugin's file: re-imports the plugin and replaces its tools, without "
+            "restarting the server. Needs plugins enabled with SERIAL_MCP_PLUGINS."
         ),
         inputSchema={
             "type": "object",
@@ -136,10 +135,10 @@ TOOLS: list[Tool] = [
         name="serial.plugin.template",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "Return a Python plugin template. Use this when creating a new plugin. "
-            "Optionally pre-fill with a device name. Save the result to "
-            ".serial_mcp/plugins/<name>.py, fill in the tools and handlers, "
-            "then load with serial.plugin.load."
+            "Use when the user wants shortcut tools for a device that has no plugin, typically after its protocol "
+            "is known from a spec: returns a Python plugin template and a suggested_path. Save it at that path, "
+            "fill in the tools and handlers, and load it with serial.plugin.load. A plugin runs as code inside "
+            "the server, so show it to the user before loading."
         ),
         inputSchema={
             "type": "object",
@@ -156,14 +155,16 @@ TOOLS: list[Tool] = [
         name="serial.plugin.load",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Load a new plugin from a file or directory path. Requires SERIAL_MCP_PLUGINS env var to be set."
+            "Use after saving a new plugin: loads it and adds its tools. The path must be inside the plugins "
+            "directory, the plugins_dir that serial.plugin.list reports, and plugins must be enabled with SERIAL_MCP_PLUGINS. The client "
+            "may need a restart before it can call the new tools."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to a .py file or directory containing __init__.py.",
+                    "description": "A .py file, or a directory with __init__.py, inside the plugins directory.",
                 },
             },
             "required": ["path"],

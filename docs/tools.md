@@ -156,7 +156,7 @@ Returns `{ "ok": true, "config": { ... } }` in the same shape as `serial.connect
 
 ### serial.read
 
-Read up to `nbytes` from a serial port. Returns immediately with whatever data is available within the timeout.
+Read up to `nbytes` from a serial port. Returns as soon as any bytes are buffered, or an empty result once the read timeout passes.
 
 ```json
 { "connection_id": "s1a2b3c4", "nbytes": 256, "timeout_ms": 500, "as": "text" }

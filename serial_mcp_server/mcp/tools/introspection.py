@@ -18,8 +18,9 @@ TOOLS: list[Tool] = [
         name="serial.connections.list",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "List all open serial connections with their status, port, configuration, "
-            "and timestamps. Useful for recovering connection IDs after context loss."
+            "Use when you have lost track of a connection_id, or before opening a port that may already be "
+            "open: lists every open connection with its port, baud rate, encoding, buffered bytes, mirror, and "
+            "timestamps. serial.connection_status gives one connection's full configuration."
         ),
         inputSchema={
             "type": "object",

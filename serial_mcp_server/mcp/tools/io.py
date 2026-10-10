@@ -17,6 +17,13 @@ from serial_mcp_server.mcp.responses import (
     script_running_error,
 )
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools.schemas import (
+    CONNECTION_ID,
+    DATA_FORMAT,
+    READ_TIMEOUT_MS,
+    max_bytes,
+    pacing_properties,
+)
 from serial_mcp_server.mcp.writes import duration_error, run_write_job
 from serial_mcp_server.port.pacing import (
     MAX_PACING_DELAY_MS,
@@ -92,29 +99,18 @@ TOOLS: list[Tool] = [
         name="serial.read",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Read up to nbytes from a serial port. Returns immediately with whatever data "
-            "is available within the timeout. Use serial.readline or serial.read_until for "
-            "line-oriented reads."
+            "Use to see what the device sent: after opening, after each write, or whenever output may have "
+            "arrived. Returns as soon as any bytes are buffered, up to nbytes, or an empty result once the read "
+            "timeout passes. Reading consumes the bytes. For a reply that ends in a known line ending or prompt, "
+            "serial.readline and serial.read_until wait for the whole of it."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "nbytes": {
-                    "type": ["integer", "string"],
-                    "default": 256,
-                    "description": "Maximum bytes to read (default 256).",
-                },
-                "timeout_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override read timeout for this call only (milliseconds).",
-                },
-                "as": {
-                    "type": "string",
-                    "enum": ["text", "hex", "base64"],
-                    "default": "text",
-                    "description": "Output format: text (decoded string), hex, or base64. Default text.",
-                },
+                "connection_id": CONNECTION_ID,
+                "nbytes": max_bytes(256),
+                "timeout_ms": READ_TIMEOUT_MS,
+                "as": DATA_FORMAT,
             },
             "required": ["connection_id"],
         },
@@ -124,51 +120,44 @@ TOOLS: list[Tool] = [
         name="serial.write",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Write data to a serial port. Returns bytes_written, the bytes the host serial layer accepted. "
-            "Pace a slow receiver with inter_char_delay_ms, or chunk_size with chunk_delay_ms. "
-            "A paced write whose estimated time exceeds the server cap (SERIAL_MCP_MAX_WRITE_SECONDS, "
-            "default 60 s) is rejected before anything is sent; split the data across calls. "
-            "A write that stops early returns write_aborted with bytes_written."
+            "Use to send a command or data to the device; read the reply afterwards. Set append_newline=true to "
+            "end a command with the connection's line ending. Returns bytes_written, the bytes the host serial "
+            "layer accepted. Pace a device that drops fast input with inter_char_delay_ms, or with chunk_size "
+            "and chunk_delay_ms. A paced write whose estimated time exceeds the server cap "
+            "(SERIAL_MCP_MAX_WRITE_SECONDS, default 60 s) is rejected before anything is sent; split the data "
+            "across calls or lower the pacing. For a long prepared input, serial.send_file keeps it out of the "
+            "arguments. A write that stops early returns "
+            "write_aborted with bytes_written. While a script runs on the connection, writes return "
+            "script_running."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "data": {"type": "string", "description": "Data to write."},
+                "connection_id": CONNECTION_ID,
+                "data": {
+                    "type": "string",
+                    "description": "The text or bytes to send, interpreted as 'as' says.",
+                },
                 "encoding": {
                     "type": "string",
-                    "description": "Override encoding for this call (defaults to connection encoding).",
+                    "description": "Encoding for this call only; default the connection's encoding.",
                 },
                 "append_newline": {
                     "type": ["boolean", "string"],
                     "default": False,
-                    "description": "Append the connection's newline character after data (default false).",
+                    "description": "Send the connection's line ending after data (default false).",
                 },
                 "newline": {
                     "type": "string",
-                    "description": "Override newline for append_newline (defaults to connection newline).",
+                    "description": "Line ending that append_newline sends, for this call only.",
                 },
                 "as": {
                     "type": "string",
                     "enum": ["text", "hex", "base64"],
                     "default": "text",
-                    "description": "How to interpret 'data': text (encode with encoding), hex, or base64.",
+                    "description": "How to read data: text (encoded with the encoding), hex, or base64.",
                 },
-                "inter_char_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": (
-                        "Override the connection's delay between transmitted characters in milliseconds "
-                        "for this write (0 disables pacing; max 1000). Cannot be combined with chunk pacing."
-                    ),
-                },
-                "chunk_size": {
-                    "type": ["integer", "string"],
-                    "description": "Override bytes per chunk for this write; set with chunk_delay_ms.",
-                },
-                "chunk_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override delay after each drained chunk in milliseconds (max 1000).",
-                },
+                **pacing_properties(per_call=True),
             },
             "required": ["connection_id", "data"],
         },
@@ -178,32 +167,21 @@ TOOLS: list[Tool] = [
         name="serial.readline",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Read a line from the serial port (reads until the newline character is received "
-            "or max_bytes is reached). Uses the connection's newline setting by default."
+            "Use to read one line of a line-based reply: waits until the connection's line ending arrives, "
+            "max_bytes is reached, or the read timeout passes, and returns what it has, including the line "
+            "ending when it arrived."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "timeout_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override read timeout (milliseconds).",
-                },
-                "max_bytes": {
-                    "type": ["integer", "string"],
-                    "default": 4096,
-                    "description": "Maximum bytes to read (default 4096).",
-                },
+                "connection_id": CONNECTION_ID,
+                "timeout_ms": READ_TIMEOUT_MS,
+                "max_bytes": max_bytes(4096),
                 "newline": {
                     "type": "string",
-                    "description": "Override line terminator (defaults to connection newline).",
+                    "description": "Line ending to wait for, for this call only; default the connection's.",
                 },
-                "as": {
-                    "type": "string",
-                    "enum": ["text", "hex", "base64"],
-                    "default": "text",
-                    "description": "Output format (default text).",
-                },
+                "as": DATA_FORMAT,
             },
             "required": ["connection_id"],
         },
@@ -213,32 +191,22 @@ TOOLS: list[Tool] = [
         name="serial.read_until",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Read from the serial port until a delimiter string is received or max_bytes is reached."
+            "Use to wait for a prompt or marker, such as '> ' or 'OK': reads until the delimiter arrives, "
+            "max_bytes is reached, or the read timeout passes, and returns what it has, including the delimiter "
+            "when it arrived."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
                 "delimiter": {
                     "type": "string",
-                    "default": "\\n",
-                    "description": "Delimiter to read until (default \\n).",
+                    "default": "\n",
+                    "description": "Text to wait for (default a newline).",
                 },
-                "timeout_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override read timeout (milliseconds).",
-                },
-                "max_bytes": {
-                    "type": ["integer", "string"],
-                    "default": 4096,
-                    "description": "Maximum bytes to read (default 4096).",
-                },
-                "as": {
-                    "type": "string",
-                    "enum": ["text", "hex", "base64"],
-                    "default": "text",
-                    "description": "Output format (default text).",
-                },
+                "timeout_ms": READ_TIMEOUT_MS,
+                "max_bytes": max_bytes(4096),
+                "as": DATA_FORMAT,
             },
             "required": ["connection_id"],
         },
@@ -248,18 +216,19 @@ TOOLS: list[Tool] = [
         name="serial.flush",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Discard pending data in the input buffer, the output buffer, or both. "
+            "Use to start from a clean state, for example to drop stale output before sending a command whose "
+            "reply you want to read alone. Discards pending data in the input buffer, the output buffer, or both. "
             "Flushing output also cancels writes still queued, which return write_aborted."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
                 "what": {
                     "type": "string",
                     "enum": ["input", "output", "both"],
                     "default": "both",
-                    "description": "Which buffer to flush: input, output, or both (default both).",
+                    "description": "Which buffer to discard: input, output, or both (default both).",
                 },
             },
             "required": ["connection_id"],
