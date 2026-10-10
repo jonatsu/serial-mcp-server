@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import logging
+import re
 import sys
 import time
+from collections.abc import Callable
 from typing import Any
 
 import anyio
@@ -37,16 +40,51 @@ logger = logging.getLogger("serial_mcp_server")
 # ---------------------------------------------------------------------------
 
 
-def _apply_tool_separator(tools: list[Tool], handlers: dict[str, Any], sep: str) -> None:
-    """Replace '.' with *sep* in every tool name and handler key."""
+def _apply_tool_separator(tools: list[Tool], handlers: dict[str, Any], sep: str) -> Callable[[str], str]:
+    """Replace '.' with *sep* in every tool name and handler key, and in the tool names the descriptions mention.
+
+    The tools are replaced by renamed copies, because the module-level ``TOOLS`` lists are shared by every server
+    built in the process. Returns the function that renames the tool names a text mentions, for the hints and
+    error messages that tool results carry.
+    """
     if sep == ".":
-        return
-    for t in tools:
-        t.name = t.name.replace(".", sep)
+        return str
+    names = sorted((t.name for t in tools), key=len, reverse=True)
+    mention = re.compile(r"(?<![\w.])(?:" + "|".join(map(re.escape, names)) + r")(?!\w)")
+
+    def rename(text: str) -> str:
+        return mention.sub(lambda m: m.group(0).replace(".", sep), text)
+
+    tools[:] = [_renamed_tool(t, sep, rename) for t in tools]
     for old_key in list(handlers):
         new_key = old_key.replace(".", sep)
         if new_key != old_key:
             handlers[new_key] = handlers.pop(old_key)
+    return rename
+
+
+def _with_renamed_mentions(result: dict[str, Any], rename: Callable[[str], str]) -> dict[str, Any]:
+    """Rename the tool names in a result's hint and error message; data from the device stays as it arrived."""
+    if isinstance(result.get("hint"), str):
+        result = {**result, "hint": rename(result["hint"])}
+    error = result.get("error")
+    if isinstance(error, dict) and isinstance(error.get("message"), str):
+        result = {**result, "error": {**error, "message": rename(error["message"])}}
+    return result
+
+
+def _renamed_tool(tool: Tool, sep: str, rename: Callable[[str], str]) -> Tool:
+    schema = copy.deepcopy(tool.inputSchema)
+    for prop in schema.get("properties", {}).values():
+        if isinstance(prop.get("description"), str):
+            prop["description"] = rename(prop["description"])
+    return tool.model_copy(
+        update={
+            "name": tool.name.replace(".", sep),
+            "description": rename(tool.description) if tool.description else tool.description,
+            "inputSchema": schema,
+        }
+    )
 
 
 def build_server(settings: Settings) -> tuple[Server, SerialState]:
@@ -90,7 +128,7 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
     handlers.update(plugin_tools.make_handlers(manager, server))
 
     # Rename tool names / handler keys for clients that reject dots.
-    _apply_tool_separator(tools, handlers, settings.tool_separator)
+    rename_mentions = _apply_tool_separator(tools, handlers, settings.tool_separator)
 
     @server.list_tools()
     async def _list_tools() -> list[Tool]:
@@ -128,6 +166,8 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
         except Exception as exc:
             logger.error("Unhandled error in %s: %s", name, exc, exc_info=True)
             result = _err("internal", f"Internal error in {name}. Check server logs for details.")
+
+        result = _with_renamed_mentions(result, rename_mentions)
 
         if result.get("ok") and "connection_id" in arguments:
             conn = state.connections.get(arguments["connection_id"])

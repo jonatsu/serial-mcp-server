@@ -23,6 +23,7 @@
 - Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
 - `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also discards writes still queued.
 - `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway, and cancelling the request stops a paced write between segments.
+- With `SERIAL_MCP_TOOL_SEPARATOR` set, tool descriptions, property descriptions, result hints, and error messages now name the tools by their renamed names, such as `serial_spec_list`. Before, only the tool names changed, so the text pointed agents at tools that did not exist.
 - A cancelled `serial.open` always releases the port before the request ends. Before, a cancellation that arrived while the port was opening left the port to garbage collection, and one that arrived during the cleanup of a failed open could skip closing it. A `serial.log.start` cancelled while it created the log's files now removes them, instead of leaving a log open that no connection holds.
 
 ## 0.1.3
