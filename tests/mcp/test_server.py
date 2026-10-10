@@ -108,3 +108,47 @@ class TestBuildServer:
         assert serialized["annotations"]["readOnlyHint"] is False
         assert serialized["annotations"]["destructiveHint"] is True
         assert serialized["annotations"]["openWorldHint"] is True
+
+    async def test_another_separator_renames_the_tools_their_text_names(self, settings):
+        from serial_mcp_server.mcp.server import build_server
+
+        server, _state = build_server(settings.model_copy(update={"tool_separator": "_"}))
+        result = await server.request_handlers[ListToolsRequest](None)
+        tools = result.root.tools
+        dotted = {name for name in EXPECTED_TOOL_HINTS}
+
+        assert {tool.name for tool in tools} == {name.replace(".", "_") for name in dotted}
+        for tool in tools:
+            texts = [tool.description or ""]
+            texts += [prop.get("description", "") for prop in tool.inputSchema.get("properties", {}).values()]
+            for text in texts:
+                assert not [name for name in dotted if name in text], (tool.name, text)
+        assert "serial_spec_list" in next(tool.description for tool in tools if tool.name == "serial_open")
+
+    async def test_another_separator_leaves_the_default_tool_list_unchanged(self, settings):
+        from serial_mcp_server.mcp.server import build_server
+
+        build_server(settings.model_copy(update={"tool_separator": "_"}))
+        server, _state = build_server(settings)
+        result = await server.request_handlers[ListToolsRequest](None)
+
+        assert {tool.name for tool in result.root.tools} == set(EXPECTED_TOOL_HINTS)
+        assert "serial.spec.list" in next(
+            tool.description for tool in result.root.tools if tool.name == "serial.open"
+        )
+
+    async def test_another_separator_renames_the_tools_an_error_message_names(self, settings):
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        from serial_mcp_server.mcp.server import build_server
+
+        server, _state = build_server(settings.model_copy(update={"tool_separator": "_"}))
+        request = CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(name="serial_close", arguments={"connection_id": "x"}),
+        )
+        result = await server.request_handlers[CallToolRequest](request)
+        message = json.loads(result.root.content[0].text)["error"]["message"]
+
+        assert "serial_connections_list" in message
+        assert "serial.connections.list" not in message
