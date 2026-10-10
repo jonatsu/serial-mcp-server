@@ -623,7 +623,8 @@ many unread bytes are in the connection's read buffer.
 ## Protocol Specs
 
 Tools for managing serial device protocol specs. Specs are markdown files with YAML front-matter stored in\
-`.serial_mcp/specs/`.
+`.serial_mcp/specs/`. The spec index, `.serial_mcp/index.json`, records the registered specs. When it exists but cannot\
+be read as a JSON object, every tool that reads it returns `index_corrupt` and leaves the file as it is.
 
 ### serial.spec.template
 

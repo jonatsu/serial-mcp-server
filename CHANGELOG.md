@@ -67,6 +67,9 @@
 
 ### Fixed
 
+- A spec index (`.serial_mcp/index.json`) that cannot be read is reported as `index_corrupt` by the spec tools and\
+  left untouched. Before, it read as empty, and the next `serial.spec.register` replaced it, losing every other\
+  registration.
 - Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread\
   per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to\
   overflow.

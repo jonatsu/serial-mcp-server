@@ -269,3 +269,41 @@ class TestSpecHandlers:
         )
         assert result["ok"] is True
         assert result["count"] == 0
+
+
+class TestCorruptIndex:
+    """A spec index that cannot be read is reported, never replaced, so no registration is lost silently."""
+
+    @pytest.fixture(params=["{not json", "[1, 2]"], ids=["invalid-json", "not-an-object"])
+    def corrupt_index(self, request, tmp_path):
+        index = data_root_for(tmp_path) / "index.json"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text(request.param, encoding="utf-8")
+        return index
+
+    async def test_register_refuses_and_leaves_the_index_as_it_was(self, tmp_path, corrupt_index):
+        from serial_mcp_server.mcp.tools.spec import handle_spec_register
+
+        before = corrupt_index.read_bytes()
+        spec_file = write_spec(tmp_path, VALID_SPEC)
+        result = await handle_spec_register(SerialState(settings_for(tmp_path)), {"path": str(spec_file)})
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "index_corrupt"
+        assert str(corrupt_index) in result["error"]["message"]
+        assert corrupt_index.read_bytes() == before
+
+    async def test_list_reports_the_index_instead_of_listing_nothing(self, tmp_path, corrupt_index):
+        from serial_mcp_server.mcp.tools.spec import handle_spec_list
+
+        result = await handle_spec_list(SerialState(settings_for(tmp_path)), {})
+
+        assert result["ok"] is False
+        assert result["error"]["code"] == "index_corrupt"
+
+    async def test_read_reports_the_index(self, tmp_path, corrupt_index):
+        from serial_mcp_server.mcp.tools.spec import handle_spec_read
+
+        result = await handle_spec_read(SerialState(settings_for(tmp_path)), {"spec_id": "x"})
+
+        assert result["error"]["code"] == "index_corrupt"

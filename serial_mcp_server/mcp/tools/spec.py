@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from mcp.types import Tool, ToolAnnotations
@@ -10,6 +12,8 @@ from serial_mcp_server.mcp.responses import _err, _ok
 from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID
 from serial_mcp_server.specs import store
+
+Handler = Callable[[SerialState, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -159,6 +163,19 @@ TOOLS: list[Tool] = [
 # ---------------------------------------------------------------------------
 
 
+def _reports_index_errors(handler: Handler) -> Handler:
+    """Return an unreadable spec index as index_corrupt, the one error every index-reading handler shares."""
+
+    @functools.wraps(handler)
+    async def wrapper(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await handler(state, args)
+        except store.SpecIndexError as exc:
+            return _err("index_corrupt", str(exc))
+
+    return wrapper
+
+
 async def handle_spec_template(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     device_name: str | None = args.get("device_name")
     template = store.get_template(device_name)
@@ -166,6 +183,7 @@ async def handle_spec_template(state: SerialState, args: dict[str, Any]) -> dict
     return _ok(template=template, suggested_path=str(suggested_path))
 
 
+@_reports_index_errors
 async def handle_spec_register(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     path = args["path"]
     try:
@@ -177,11 +195,13 @@ async def handle_spec_register(state: SerialState, args: dict[str, Any]) -> dict
     return _ok(**entry)
 
 
+@_reports_index_errors
 async def handle_spec_list(state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
     entries = store.list_specs(state.settings.data_root)
     return _ok(specs=entries, count=len(entries))
 
 
+@_reports_index_errors
 async def handle_spec_attach(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     cid = args["connection_id"]
     spec_id = args["spec_id"]
@@ -211,6 +231,7 @@ async def handle_spec_get(state: SerialState, args: dict[str, Any]) -> dict[str,
     return _ok(spec=entry.spec)
 
 
+@_reports_index_errors
 async def handle_spec_read(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     spec_id = args["spec_id"]
     try:
@@ -222,6 +243,7 @@ async def handle_spec_read(state: SerialState, args: dict[str, Any]) -> dict[str
     return _ok(**data)
 
 
+@_reports_index_errors
 async def handle_spec_search(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
     spec_id = args["spec_id"]
     query = args["query"]
