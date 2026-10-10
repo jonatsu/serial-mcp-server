@@ -12,6 +12,17 @@ pip install -e ".[test]"
 python -m pytest tests/ -v
 ```
 
+## Pre-commit hooks
+
+```bash
+pre-commit install                    # run the hooks on every commit
+pre-commit run --files <changed files>
+```
+
+The hooks check generic hygiene (whitespace, final newlines, merge markers, large files, private keys), scan the staged diff for secrets, and check EditorConfig compliance. Ruff formats Python, and mdformat formats Markdown. markdownlint-cli2 only reports. Each tool reads its own configuration file (`pyproject.toml`, `.mdformat.toml`, `.markdownlint-cli2.jsonc`, `.editorconfig`), so editors with the matching extensions apply the same rules.
+
+In Markdown, keep prose lines at most 120 characters; code blocks, tables, and frontmatter are exempt. mdformat keeps line breaks as written, so wrap long lines yourself. Write a hard line break as a trailing backslash (`\`), not two trailing spaces.
+
 ## Package layout
 
 ```text
