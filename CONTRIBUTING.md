@@ -248,8 +248,8 @@ release of fixes alone raises the patch number (0.2.0 to 0.2.1). From 1.0 on, a 
 
 The version comes from the Git tag: hatch-vcs derives it when the package is built, so no file holds a version number\
 to edit. Releases are published as GitHub releases on this repository, with the wheel and source archive attached.\
-Nothing is published to PyPI or the MCP registry from here, because `serial-mcp-server` on PyPI and `server.json`'s\
-registry entry belong to the upstream project.
+Nothing is published to PyPI or the MCP registry from here, because the `serial-mcp-server` package on PyPI and the\
+`io.github.es617/serial-mcp-server` registry entry belong to the upstream project.
 
 To release, on an up-to-date `main` with CI green:
 
