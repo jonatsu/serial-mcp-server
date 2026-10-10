@@ -14,7 +14,7 @@ from dataclasses import dataclass
 _MAX_WINDOW_CHARS = 1_048_576
 # Characters of the previous check's text that the next ``@fail_on`` check searches again, so a match split
 # across two checks is still seen. A match longer than this that straddles two checks can be missed.
-_FAIL_PATTERN_OVERLAP_CHARS = 256
+FAIL_PATTERN_OVERLAP_CHARS = 256
 
 
 @dataclass(frozen=True)
@@ -90,7 +90,7 @@ class OutputMatcher:
             if not self._new_output:
                 return ""
             text = self._fail_overlap + self._new_output
-            self._fail_overlap = text[-_FAIL_PATTERN_OVERLAP_CHARS:]
+            self._fail_overlap = text[-FAIL_PATTERN_OVERLAP_CHARS:]
             self._new_output = ""
             return text
 

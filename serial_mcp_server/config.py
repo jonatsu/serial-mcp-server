@@ -23,6 +23,8 @@ ENV_PREFIX = "SERIAL_MCP_"
 DATA_DIR_NAME = ".serial_mcp"
 DEFAULT_SCRIPT_MAX_SECONDS = 3600.0
 DEFAULT_SCRIPT_PATTERN_SECONDS = 2.0
+# Characters, not bytes, kept of each traced payload; see ``mcp.trace.TraceBuffer``.
+DEFAULT_TRACE_MAX_BYTES = 16384
 # A documented, overridable default (SERIAL_MCP_MIRROR_LINK), not a temporary file.
 DEFAULT_MIRROR_LINK = "/tmp/serial-mcp"  # noqa: S108  # nosec B108
 
@@ -122,8 +124,7 @@ class Settings(BaseSettings):
     tool_separator: str = Field(default=".", min_length=1)
     trace_enabled: bool = True
     trace_payloads: bool = False
-    # Characters, not bytes, kept of each traced payload; see ``mcp.trace.TraceBuffer``.
-    trace_max_bytes: int = Field(default=16384, gt=0)
+    trace_max_bytes: int = Field(default=DEFAULT_TRACE_MAX_BYTES, gt=0)
 
     @classmethod
     def settings_customise_sources(
