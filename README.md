@@ -2,36 +2,46 @@
 
 <!-- mcp-name: io.github.es617/serial-mcp-server -->
 
-![MCP](https://img.shields.io/badge/MCP-compatible-blue)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![MCP](https://img.shields.io/badge/MCP-compatible-blue)\
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)\
+![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)\
 ![Serial](https://img.shields.io/badge/Serial-RS232%2FUART-green)
 
-A stateful serial port Model Context Protocol (MCP) server for developer tooling and AI agents.
-Works out of the box with Claude Code, VS Code with Copilot, and any MCP-compatible runtime. Communicates over **stdio** and uses [pyserial](https://github.com/pyserial/pyserial) for cross-platform serial on macOS, Windows, and Linux.
+A stateful serial port Model Context Protocol (MCP) server for developer tooling and AI agents. Works out of the box\
+with Claude Code, VS Code with Copilot, and any MCP-compatible runtime. Communicates over **stdio** and uses\
+[pyserial](https://github.com/pyserial/pyserial) for cross-platform serial on macOS, Windows, and Linux.
 
-> **Example:** Let Claude Code list available serial ports, connect to your microcontroller, reset it via DTR, and read the boot banner from your hardware.
+> **Example:** Let Claude Code list available serial ports, connect to your microcontroller, reset it via DTR, and read\
+> the boot banner from your hardware.
 
 ## Demo
 
-[Video walkthrough](https://www.youtube.com/watch?v=FdFdXjoyyAM) — connecting to a serial device, sending commands, reading responses, and creating plugins.
+[Video walkthrough](https://www.youtube.com/watch?v=FdFdXjoyyAM) — connecting to a serial device, sending commands,\
+reading responses, and creating plugins.
 
 ---
 
 ## Why this exists
-If you’ve ever copy-pasted commands into `screen` or `minicom`, guessed baud rates, toggled DTR to kick a bootloader, and re-run the same test sequence 20 times — this is for you.
 
+If you’ve ever copy-pasted commands into `screen` or `minicom`, guessed baud rates, toggled DTR to kick a bootloader,\
+and re-run the same test sequence 20 times — this is for you.
 
-You have a serial device. You want an AI agent to talk to it — open a port, send commands, read responses, debug protocols. This server makes that possible.
+You have a serial device. You want an AI agent to talk to it — open a port, send commands, read responses, debug\
+protocols. This server makes that possible.
 
-It gives any MCP-compatible agent a full set of serial tools: listing ports, opening connections, reading, writing, line-oriented I/O, control line manipulation — plus protocol specs and device plugins, so the agent can reason about higher-level device behavior instead of just raw bytes.
+It gives any MCP-compatible agent a full set of serial tools: listing ports, opening connections, reading, writing,\
+line-oriented I/O, control line manipulation — plus protocol specs and device plugins, so the agent can reason about\
+higher-level device behavior instead of just raw bytes.
 
-The agent calls these tools, gets structured JSON back, and reasons about what to do next — without you manually typing commands into a terminal for every step.
+The agent calls these tools, gets structured JSON back, and reasons about what to do next — without you manually typing\
+commands into a terminal for every step.
 
 **What agents can do with it:**
 
-- **Develop and debug** — connect to your device, send commands, read responses, and diagnose issues conversationally (boot banners, prompts, error codes).
-- **Iterate on new firmware** — attach a protocol spec so the agent understands your command set, boot modes, and output format as they evolve.
+- **Develop and debug** — connect to your device, send commands, read responses, and diagnose issues conversationally\
+  (boot banners, prompts, error codes).
+- **Iterate on new firmware** — attach a protocol spec so the agent understands your command set, boot modes, and\
+  output format as they evolve.
 - **Automate test flows** — reset device via DTR, wait for prompt, run a command sequence, validate output.
 - **Explore unknown devices** — probe command sets, discover prompts, infer message formats.
 - **Build serial automation** — long-running test rigs, manufacturing bring-up, CI hardware smoke tests.
@@ -41,7 +51,8 @@ The agent calls these tools, gets structured JSON back, and reasons about what t
 ## Who is this for?
 
 - **Embedded engineers** — faster iteration on serial protocols, conversational debugging, automated test sequences
-- **Hobbyists and makers** — interact with serial devices without writing boilerplate; let the agent help reverse-engineer simple protocols
+- **Hobbyists and makers** — interact with serial devices without writing boilerplate; let the agent help\
+  reverse-engineer simple protocols
 - **QA and test engineers** — build repeatable serial test suites with plugin tools
 - **Support and field engineers** — diagnose serial device issues interactively without specialized tooling
 - **Researchers** — automate data collection from serial devices, explore device capabilities systematically
@@ -58,8 +69,9 @@ pip install git+https://github.com/jonatsu/serial-mcp-server.git
 claude mcp add serial -- serial_mcp
 ```
 
-The `serial-mcp-server` package on PyPI is the upstream project, [es617/serial-mcp-server](https://github.com/es617/serial-mcp-server),
-which does not have the features of this fork yet.
+The `serial-mcp-server` package on PyPI is the upstream project,\
+[es617/serial-mcp-server](https://github.com/es617/serial-mcp-server), which does not have the features of this fork\
+yet.
 
 Then in Claude Code, try:
 
@@ -84,7 +96,8 @@ Once connected, the agent has full serial capabilities:
 - **Create specs and plugins** for new devices so future sessions start "knowing" your protocol
 - **PTY mirroring** — attach screen, minicom, or custom scripts to the same serial session the agent is using
 
-The agent can coordinate multi-step flows automatically — e.g., toggle reset, wait for prompt, send init sequence, stream output.
+The agent can coordinate multi-step flows automatically — e.g., toggle reset, wait for prompt, send init sequence,\
+stream output.
 
 At a high level:
 
@@ -97,7 +110,7 @@ You can start with raw serial tools, then move up the stack as your device proto
 ## Documentation
 
 | Document | What it covers |
-|---|---|
+| -- | -- |
 | [Concepts](docs/concepts.md) | How the agent works with devices: the security model, specs, plugins, the PTY mirror, the port log, and scripts. |
 | [Configuration](docs/configuration.md) | Every `SERIAL_MCP_*` variable, and the data directory. |
 | [Tools](docs/tools.md) | Every MCP tool, with its arguments and results. |
@@ -109,7 +122,8 @@ You can start with raw serial tools, then move up the stack as your device proto
 
 ---
 
-> MCP is a protocol — this server works with any MCP-compatible client. Below are setup instructions for the most common ones.
+> MCP is a protocol — this server works with any MCP-compatible client. Below are setup instructions for the most\
+> common ones.
 
 ## Add to Claude Code
 
@@ -149,11 +163,13 @@ Add to your project's `.vscode/mcp.json` (or create it):
 }
 ```
 
-Adjust `env` to match your needs — set `SERIAL_MCP_PLUGINS` to specific plugin names, or add `SERIAL_MCP_MIRROR` for PTY mirroring.
+Adjust `env` to match your needs — set `SERIAL_MCP_PLUGINS` to specific plugin names, or add `SERIAL_MCP_MIRROR` for\
+PTY mirroring.
 
 ## Add to Cursor
 
-Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support dots in tool names, so `SERIAL_MCP_TOOL_SEPARATOR` must be set to `_`:
+Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support dots in tool names, so\
+`SERIAL_MCP_TOOL_SEPARATOR` must be set to `_`:
 
 ```json
 {
@@ -172,9 +188,9 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 
 ## Configuration
 
-The server reads `SERIAL_MCP_*` environment variables once, when it starts; the examples above set them with `-e` or
-`env`. The common ones are `SERIAL_MCP_PLUGINS` to enable plugins, `SERIAL_MCP_MIRROR` for the PTY mirror,
-`SERIAL_MCP_LOG` to record every connection, and `SERIAL_MCP_TOOL_SEPARATOR` for clients that reject dots in tool
+The server reads `SERIAL_MCP_*` environment variables once, when it starts; the examples above set them with `-e` or\
+`env`. The common ones are `SERIAL_MCP_PLUGINS` to enable plugins, `SERIAL_MCP_MIRROR` for the PTY mirror,\
+`SERIAL_MCP_LOG` to record every connection, and `SERIAL_MCP_TOOL_SEPARATOR` for clients that reject dots in tool\
 names. [Configuration](docs/configuration.md) lists every variable and its default.
 
 ---
@@ -182,7 +198,7 @@ names. [Configuration](docs/configuration.md) lists every variable and its defau
 ## Tools
 
 | Category | Tools |
-|---|---|
+| -- | -- |
 | **Serial Core** | `serial.list_ports`, `serial.open`, `serial.close`, `serial.connection_status`, `serial.configure`, `serial.read`, `serial.write`, `serial.readline`, `serial.read_until`, `serial.flush`, `serial.send_file`, `serial.set_dtr`, `serial.set_rts`, `serial.pulse_dtr`, `serial.pulse_rts` |
 | **Introspection** | `serial.connections.list` |
 | **Port Log** | `serial.log.start`, `serial.log.stop`, `serial.log.status`, `serial.log.mark` |
@@ -195,47 +211,55 @@ See the [serial script reference](docs/scripts.md) for script syntax and example
 
 ### Run a script without an agent
 
-`serial_mcp_script` runs one script on a port with no agent and no MCP server. A CI job reads the outcome from the exit status and the result file:
+`serial_mcp_script` runs one script on a port with no agent and no MCP server. A CI job reads the outcome from the exit\
+status and the result file:
 
 ```bash
 serial_mcp_script tests/uboot-smoke.serial --port /dev/ttyUSB0 --baud 115200 \
   --var SERVER_IP=10.0.0.1 --result build/out.json
 ```
 
-The exit status is `0` when the script passed, `1` when it failed, `2` for an error or unusable input, and `130` when interrupted. See [Running from the command line](docs/scripts.md#running-from-the-command-line) for every option.
+The exit status is `0` when the script passed, `1` when it failed, `2` for an error or unusable input, and `130` when\
+interrupted. See [Running from the command line](docs/scripts.md#running-from-the-command-line) for every option.
 
 ---
 
 ## Protocol Specs
 
-Specs are markdown files that describe a serial device's protocol — connection settings, message format, commands, and multi-step flows. They live in `.serial_mcp/specs/` and teach the agent what the byte stream means.
+Specs are markdown files that describe a serial device's protocol — connection settings, message format, commands, and\
+multi-step flows. They live in `.serial_mcp/specs/` and teach the agent what the byte stream means.
 
-Without a spec, the agent can still open a port and exchange data. With a spec, it knows what commands to send, what responses to expect, and what the data means.
+Without a spec, the agent can still open a port and exchange data. With a spec, it knows what commands to send, what\
+responses to expect, and what the data means.
 
-You can create specs by telling the agent about your device — paste a datasheet, describe the protocol, or just let it explore and document what it finds. The agent generates the spec file, registers it, and references it in future sessions. You can also write specs by hand.
+You can create specs by telling the agent about your device — paste a datasheet, describe the protocol, or just let it\
+explore and document what it finds. The agent generates the spec file, registers it, and references it in future\
+sessions. You can also write specs by hand.
 
 ---
 
 ## Plugins
 
-Plugins add device-specific shortcut tools to the server. Instead of the agent composing raw read/write sequences, a
-plugin provides high-level operations like `mydevice.read_temp` or `ota.upload_firmware`. They are Python modules in
-`.serial_mcp/plugins/`, off until `SERIAL_MCP_PLUGINS` enables them, and the agent can draft new ones for you to
+Plugins add device-specific shortcut tools to the server. Instead of the agent composing raw read/write sequences, a\
+plugin provides high-level operations like `mydevice.read_temp` or `ota.upload_firmware`. They are Python modules in\
+`.serial_mcp/plugins/`, off until `SERIAL_MCP_PLUGINS` enables them, and the agent can draft new ones for you to\
 review. [Plugins](docs/plugins.md) covers enabling, installing, and writing them.
 
 ---
 
 ## Tracing
 
-Every tool call is traced to `.serial_mcp/traces/trace.jsonl` and an in-memory ring buffer of the last 2000 events.
-Tracing is on by default; `SERIAL_MCP_TRACE=0` turns it off. The agent reads recent events with `serial.trace.tail`;
+Every tool call is traced to `.serial_mcp/traces/trace.jsonl` and an in-memory ring buffer of the last 2000 events.\
+Tracing is on by default; `SERIAL_MCP_TRACE=0` turns it off. The agent reads recent events with `serial.trace.tail`;\
 see [Tracing](docs/tools.md#tracing) for the event format.
 
 ---
 
 ## PTY Mirror
 
-When the MCP server owns a serial port, most OSes prevent any other process from opening it. PTY mirroring creates a virtual clone port that external tools (screen, minicom, logic analyzers, custom scripts) can connect to simultaneously.
+When the MCP server owns a serial port, most OSes prevent any other process from opening it. PTY mirroring creates a\
+virtual clone port that external tools (screen, minicom, logic analyzers, custom scripts) can connect to\
+simultaneously.
 
 ```bash
 # Enable read-only mirror
@@ -251,44 +275,54 @@ screen /tmp/serial-mcp0 115200
 ```
 
 | Mode | Behavior |
-|---|---|
+| -- | -- |
 | `off` | No mirror (default). Only the MCP server can access the port. |
 | `ro` | External tools see all serial data but cannot write to the device. |
 | `rw` | External tools can both see data and write to the device. |
 
-**Platform:** macOS and Linux only. On Windows, setting `SERIAL_MCP_MIRROR` to `ro`/`rw` logs a warning and is silently ignored. [Concepts](docs/concepts.md#pty-mirror--virtual-clone-ports) explains how the mirror works.
+**Platform:** macOS and Linux only. On Windows, setting `SERIAL_MCP_MIRROR` to `ro`/`rw` logs a warning and is silently\
+ignored. [Concepts](docs/concepts.md#pty-mirror--virtual-clone-ports) explains how the mirror works.
 
 ---
 
 ## Try without an agent
 
-You can test the server interactively using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) — no Claude or other agent needed:
+You can test the server interactively using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) — no\
+Claude or other agent needed:
 
 ```bash
 npx @modelcontextprotocol/inspector python -m serial_mcp_server
 ```
 
-Open the URL with the auth token from the terminal output. The Inspector gives you a web UI to call any tool and see responses in real time.
-
+Open the URL with the auth token from the terminal output. The Inspector gives you a web UI to call any tool and see\
+responses in real time.
 
 ---
 
 ## Known limitations
 
-- **Single-client only.** The server handles one MCP session at a time (stdio transport). Multi-client transports (HTTP/SSE) may be added later.
+- **Single-client only.** The server handles one MCP session at a time (stdio transport). Multi-client transports\
+  (HTTP/SSE) may be added later.
 - **Exclusive access.** Without PTY mirroring, the MCP server must own the serial port exclusively.
 
 ---
 
 ## Safety
 
-This server connects an AI agent to real hardware. That's the point — and it means the stakes are higher than pure-software tools.
+This server connects an AI agent to real hardware. That's the point — and it means the stakes are higher than\
+pure-software tools.
 
-**Plugins execute arbitrary code.** When plugins are enabled, the agent can create and run Python code on your machine with full server privileges. Review agent-generated plugins before loading them. Use `SERIAL_MCP_PLUGINS=name1,name2` to allow only specific plugins rather than `all`.
+**Plugins execute arbitrary code.** When plugins are enabled, the agent can create and run Python code on your machine\
+with full server privileges. Review agent-generated plugins before loading them. Use `SERIAL_MCP_PLUGINS=name1,name2`\
+to allow only specific plugins rather than `all`.
 
-**Writes affect real devices.** A bad command sent to a serial device can trigger unintended behavior, disrupt other connected systems, or cause hardware damage (e.g., wiping flash, entering bootloader mode, triggering actuators). Consider what the agent can reach.
+**Writes affect real devices.** A bad command sent to a serial device can trigger unintended behavior, disrupt other\
+connected systems, or cause hardware damage (e.g., wiping flash, entering bootloader mode, triggering actuators).\
+Consider what the agent can reach.
 
-**Use tool approval deliberately.** When your MCP client prompts you to approve a tool call, consider whether you want to allow it once or always. "Always allow" is convenient but means the agent can repeat that action without further confirmation.
+**Use tool approval deliberately.** When your MCP client prompts you to approve a tool call, consider whether you want\
+to allow it once or always. "Always allow" is convenient but means the agent can repeat that action without further\
+confirmation.
 
 This software is provided as-is under the MIT License. You are responsible for what the agent does with your hardware.
 
@@ -300,4 +334,5 @@ This project is licensed under the MIT License — see [LICENSE](LICENSE) for de
 
 ## Acknowledgements
 
-This project is built on top of the excellent [pyserial](https://github.com/pyserial/pyserial) library for cross-platform serial communication in Python.
+This project is built on top of the excellent [pyserial](https://github.com/pyserial/pyserial) library for\
+cross-platform serial communication in Python.

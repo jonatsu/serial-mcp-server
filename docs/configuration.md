@@ -1,15 +1,18 @@
 # Configuration
 
-The server and the `serial_mcp_script` command take their settings from `SERIAL_MCP_*` environment variables. Set
-them where the MCP client starts the server: `claude mcp add -e NAME=value`, or the `env` block of `.vscode/mcp.json`
-or `.cursor/mcp.json` (see [the README](../README.md#add-to-claude-code)). Every variable is optional.
+The server and the `serial_mcp_script` command take their settings from `SERIAL_MCP_*` environment variables. Set them\
+where the MCP client starts the server: `claude mcp add -e NAME=value`, or the `env` block of `.vscode/mcp.json` or\
+`.cursor/mcp.json` (see [the README](../README.md#add-to-claude-code)). Every variable is optional.
 
 ## Environment variables
 
-The server and `serial_mcp_script` read these variables once, when they start. An unset or blank variable means its default. A boolean accepts `1`, `true`, `yes`, or `on`, and `0`, `false`, `no`, or `off`, in any case. Any other invalid value stops the start with exit status 2 and a message that names every invalid variable, so one start reports every mistake.
+The server and `serial_mcp_script` read these variables once, when they start. An unset or blank variable means its\
+default. A boolean accepts `1`, `true`, `yes`, or `on`, and `0`, `false`, `no`, or `off`, in any case. Any other\
+invalid value stops the start with exit status 2 and a message that names every invalid variable, so one start reports\
+every mistake.
 
 | Variable | Default | Description |
-|---|---|---|
+| -- | -- | -- |
 | `SERIAL_MCP_SPEC_ROOT` | `.serial_mcp/` | The data directory that holds specs, plugins, scripts, files, logs, and traces. By default, the first `.serial_mcp/` from the working directory upwards, else one next to the nearest `.git/`, else one in the working directory. The directory variables below default to subdirectories of it. |
 | `SERIAL_MCP_MAX_CONNECTIONS` | `10` | Maximum simultaneous open serial connections. |
 | `SERIAL_MCP_PLUGINS` | disabled | Plugin policy: `all` to allow all, or `name1,name2` to allow specific plugins. Unset = disabled. |
@@ -31,9 +34,9 @@ The server and `serial_mcp_script` read these variables once, when they start. A
 
 ## The data directory
 
-The server keeps its files in one data directory, `.serial_mcp/` by default, which `SERIAL_MCP_SPEC_ROOT` moves.
-Without that variable, the server uses the first `.serial_mcp/` it finds from the working directory upwards, else
-one next to the nearest `.git/`, else one in the working directory.
+The server keeps its files in one data directory, `.serial_mcp/` by default, which `SERIAL_MCP_SPEC_ROOT` moves.\
+Without that variable, the server uses the first `.serial_mcp/` it finds from the working directory upwards, else one\
+next to the nearest `.git/`, else one in the working directory.
 
 ```text
 .serial_mcp/
@@ -45,6 +48,6 @@ one next to the nearest `.git/`, else one in the working directory.
 └── traces/     # trace.jsonl, the tool-call trace
 ```
 
-Specs, plugins, scripts, and files are project material worth keeping in version control. Port logs, script results,
-and the trace hold device output and what was sent to the device, so keep `logs/` and `traces/` out of it; the server
+Specs, plugins, scripts, and files are project material worth keeping in version control. Port logs, script results,\
+and the trace hold device output and what was sent to the device, so keep `logs/` and `traces/` out of it; the server\
 never deletes those files.

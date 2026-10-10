@@ -3,53 +3,118 @@
 ## Unreleased
 
 ### Added
-- Port log: set `SERIAL_MCP_LOG=1`, or pass `log` or `log_formats` to `serial.open`, to record the bytes on the wire in `text` (received bytes unchanged, with optional `grabserial`-style timestamps), `jsonl` (both directions plus control events), `lines` (one entry per line, with partial prompts flagged), and `raw` (received bytes, byte-exact) files under `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`). Off by default; files are mode `0600`. See [docs/tools.md](docs/tools.md#serialopen).
-- `serial.log.start`, `serial.log.stop`, `serial.log.status`, and `serial.log.mark` start, stop, inspect, and annotate the port log of an open connection. `serial.connection_status` now reports `dropped_bytes`, the received bytes the read buffer discarded because nothing read them, and each drop is recorded as a `buffer_drop` event in the port log.
-- `serial.send_file` sends a prepared file from `SERIAL_MCP_FILES_DIR` (default `.serial_mcp/files/`) to the device with the connection's pacing. Paths that leave the directory, directories, FIFOs, links that point outside it, and files over 1 MiB are refused before any byte is sent.
-- `serial.configure` changes write pacing, encoding, and newline on an open connection without reopening it, which avoids a DTR or RTS toggle that can reset the device.
-- `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced `serial.write` and of any `serial.send_file` transfer. The estimate is the larger of the pauses between segments and the time on the wire at the connection's baud rate (ten bits per byte). Longer writes are rejected with `invalid_params` before any byte is sent.
-- The script engine runs validated serial scripts on a dedicated thread and writes private JSON results under `SERIAL_MCP_LOG_DIR`. `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each run. Patterns use the `regex` package, and each search has a two-second limit, so a pattern that backtracks without end ends the run `errored` with the reason `regex_timeout` instead of freezing the server. See [docs/scripts.md](docs/scripts.md).
-- Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A running script owns its connection's writes and control lines. The tool-call trace strips the inline `source` and the `vars`, as it strips write `data`; it strips an argument with either name from any tool, plugin tools included. See [docs/scripts.md](docs/scripts.md).
-- `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See [Running from the command line](docs/scripts.md#running-from-the-command-line).
+
+- Port log: set `SERIAL_MCP_LOG=1`, or pass `log` or `log_formats` to `serial.open`, to record the bytes on the wire in\
+  `text` (received bytes unchanged, with optional `grabserial`-style timestamps), `jsonl` (both directions plus control\
+  events), `lines` (one entry per line, with partial prompts flagged), and `raw` (received bytes, byte-exact) files\
+  under `SERIAL_MCP_LOG_DIR` (default `.serial_mcp/logs/`). Off by default; files are mode `0600`. See\
+  [docs/tools.md](docs/tools.md#serialopen).
+- `serial.log.start`, `serial.log.stop`, `serial.log.status`, and `serial.log.mark` start, stop, inspect, and annotate\
+  the port log of an open connection. `serial.connection_status` now reports `dropped_bytes`, the received bytes the\
+  read buffer discarded because nothing read them, and each drop is recorded as a `buffer_drop` event in the port log.
+- `serial.send_file` sends a prepared file from `SERIAL_MCP_FILES_DIR` (default `.serial_mcp/files/`) to the device\
+  with the connection's pacing. Paths that leave the directory, directories, FIFOs, links that point outside it, and\
+  files over 1 MiB are refused before any byte is sent.
+- `serial.configure` changes write pacing, encoding, and newline on an open connection without reopening it, which\
+  avoids a DTR or RTS toggle that can reset the device.
+- `SERIAL_MCP_MAX_WRITE_SECONDS` (default 60) caps the estimated duration of a paced `serial.write` and of any\
+  `serial.send_file` transfer. The estimate is the larger of the pauses between segments and the time on the wire at\
+  the connection's baud rate (ten bits per byte). Longer writes are rejected with `invalid_params` before any byte is\
+  sent.
+- The script engine runs validated serial scripts on a dedicated thread and writes private JSON results under\
+  `SERIAL_MCP_LOG_DIR`. `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each run. Patterns use the `regex`\
+  package, and each search has a two-second limit, so a pattern that backtracks without end ends the run `errored` with\
+  the reason `regex_timeout` instead of freezing the server. See [docs/scripts.md](docs/scripts.md).
+- Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files\
+  must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A\
+  running script owns its connection's writes and control lines. The tool-call trace strips the inline `source` and the\
+  `vars`, as it strips write `data`; it strips an argument with either name from any tool, plugin tools included. See\
+  [docs/scripts.md](docs/scripts.md).
+- `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through\
+  its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See\
+  [Running from the command line](docs/scripts.md#running-from-the-command-line).
 
 ### Changed
-- **Breaking for plugins:** plugins import from `serial_mcp_server.plugin_api` only. The server's modules moved into packages (`mcp/`, `port/`, `portlog/`, `script/`, `specs/`), so `serial_mcp_server.helpers`, `serial_mcp_server.state`, and `serial_mcp_server.handlers_serial` no longer exist, and a plugin that imports them fails to load: the server logs the import error at start, and `serial.plugin.load` returns it as `plugin_error`. Replace `from serial_mcp_server.helpers import _ok, _err`, `from serial_mcp_server.state import SerialState`, and `from serial_mcp_server.handlers_serial import handle_write, ...` with `from serial_mcp_server.plugin_api import ok, err, SerialState, handle_write, ...`, and call `ok`/`err` instead of `_ok`/`_err`. Plugins generated by `serial.plugin.template` now follow this. `SerialState` now takes the server's `Settings` instead of `max_connections`, so read the connection limit from `state.settings.max_connections`.
-- Configuration is read once, when the server or `serial_mcp_script` starts, into one validated set of settings; changing the process environment afterwards has no effect. An invalid `SERIAL_MCP_*` value now stops the start with exit status 2 and one message that names every invalid variable. Before, the outcome depended on the variable: `SERIAL_MCP_MAX_CONNECTIONS` and `SERIAL_MCP_TRACE_MAX_BYTES` crashed with a traceback, `SERIAL_MCP_MIRROR` and `SERIAL_MCP_MAX_WRITE_SECONDS` logged a warning and used the default, `SERIAL_MCP_LOG_LEVEL` silently used `WARNING` for an unknown name (it now accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`), and `SERIAL_MCP_SCRIPT_MAX_SECONDS` and the log variables failed each call that used them. `serial_mcp_script` also stops on an invalid variable that only the server uses, such as `SERIAL_MCP_MIRROR`. See the [environment variables](docs/configuration.md#environment-variables).
-- Every boolean variable accepts `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off` in any case. `SERIAL_MCP_TRACE=off` now disables tracing; before, only `0`, `false`, and `no` did.
-- Every tool description now opens with when to use the tool, and every property has a description. `serial.configure`, `serial.set_dtr`, `serial.set_rts`, `serial.spec.register`, and `serial.spec.attach` carry `idempotentHint`, and `serial.spec.register` and `serial.spec.attach` are no longer marked destructive, so clients that ask before destructive tools stop asking for them.
-- The schema defaults of `newline` on `serial.open` and `delimiter` on `serial.read_until` are now the real characters (`\r\n` and `\n`) that the server uses, not their backslash spellings.
-- The package's project URLs (homepage, repository, issues, changelog) now point to <https://github.com/jonatsu/serial-mcp-server>.
+
+- **Breaking for plugins:** plugins import from `serial_mcp_server.plugin_api` only. The server's modules moved into\
+  packages (`mcp/`, `port/`, `portlog/`, `script/`, `specs/`), so `serial_mcp_server.helpers`,\
+  `serial_mcp_server.state`, and `serial_mcp_server.handlers_serial` no longer exist, and a plugin that imports them\
+  fails to load: the server logs the import error at start, and `serial.plugin.load` returns it as `plugin_error`.\
+  Replace `from serial_mcp_server.helpers import _ok, _err`, `from serial_mcp_server.state import SerialState`, and\
+  `from serial_mcp_server.handlers_serial import handle_write, ...` with\
+  `from serial_mcp_server.plugin_api import ok, err, SerialState, handle_write, ...`, and call `ok`/`err` instead of\
+  `_ok`/`_err`. Plugins generated by `serial.plugin.template` now follow this. `SerialState` now takes the server's\
+  `Settings` instead of `max_connections`, so read the connection limit from `state.settings.max_connections`.
+- Configuration is read once, when the server or `serial_mcp_script` starts, into one validated set of settings;\
+  changing the process environment afterwards has no effect. An invalid `SERIAL_MCP_*` value now stops the start with\
+  exit status 2 and one message that names every invalid variable. Before, the outcome depended on the variable:\
+  `SERIAL_MCP_MAX_CONNECTIONS` and `SERIAL_MCP_TRACE_MAX_BYTES` crashed with a traceback, `SERIAL_MCP_MIRROR` and\
+  `SERIAL_MCP_MAX_WRITE_SECONDS` logged a warning and used the default, `SERIAL_MCP_LOG_LEVEL` silently used `WARNING`\
+  for an unknown name (it now accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`), and\
+  `SERIAL_MCP_SCRIPT_MAX_SECONDS` and the log variables failed each call that used them. `serial_mcp_script` also stops\
+  on an invalid variable that only the server uses, such as `SERIAL_MCP_MIRROR`. See the\
+  [environment variables](docs/configuration.md#environment-variables).
+- Every boolean variable accepts `1`, `true`, `yes`, `on`, `0`, `false`, `no`, and `off` in any case.\
+  `SERIAL_MCP_TRACE=off` now disables tracing; before, only `0`, `false`, and `no` did.
+- Every tool description now opens with when to use the tool, and every property has a description. `serial.configure`,\
+  `serial.set_dtr`, `serial.set_rts`, `serial.spec.register`, and `serial.spec.attach` carry `idempotentHint`, and\
+  `serial.spec.register` and `serial.spec.attach` are no longer marked destructive, so clients that ask before\
+  destructive tools stop asking for them.
+- The schema defaults of `newline` on `serial.open` and `delimiter` on `serial.read_until` are now the real characters\
+  (`\r\n` and `\n`) that the server uses, not their backslash spellings.
+- The package's project URLs (homepage, repository, issues, changelog) now point to
+  <https://github.com/jonatsu/serial-mcp-server>.
 
 ### Fixed
-- Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to overflow.
+
+- Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread\
+  per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to\
+  overflow.
 - Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
-- `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also discards writes still queued.
-- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway, and cancelling the request stops a paced write between segments.
-- With `SERIAL_MCP_TOOL_SEPARATOR` set, tool descriptions, property descriptions, result hints, and error messages now name the tools by their renamed names, such as `serial_spec_list`. Before, only the tool names changed, so the text pointed agents at tools that did not exist.
-- A cancelled `serial.open` always releases the port before the request ends. Before, a cancellation that arrived while the port was opening left the port to garbage collection, and one that arrived during the cleanup of a failed open could skip closing it. A `serial.log.start` cancelled while it created the log's files now removes them, instead of leaving a log open that no connection holds.
+- `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also\
+  discards writes still queued.
+- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway, and\
+  cancelling the request stops a paced write between segments.
+- With `SERIAL_MCP_TOOL_SEPARATOR` set, tool descriptions, property descriptions, result hints, and error messages now\
+  name the tools by their renamed names, such as `serial_spec_list`. Before, only the tool names changed, so the text\
+  pointed agents at tools that did not exist.
+- A cancelled `serial.open` always releases the port before the request ends. Before, a cancellation that arrived while\
+  the port was opening left the port to garbage collection, and one that arrived during the cleanup of a failed open\
+  could skip closing it. A `serial.log.start` cancelled while it created the log's files now removes them, instead of\
+  leaving a log open that no connection holds.
 
 ## 0.1.3
 
 ### Fixed
-- Raise minimum `mcp` SDK dependency to >=1.23.0 to exclude versions with known CVEs (CVE-2025-53366, CVE-2025-53365, CVE-2025-66416). These affect HTTP/SSE transport only — stdio servers were never vulnerable — but the wider range allowed scanners to flag the package.
+
+- Raise minimum `mcp` SDK dependency to >=1.23.0 to exclude versions with known CVEs (CVE-2025-53366, CVE-2025-53365,\
+  CVE-2025-66416). These affect HTTP/SSE transport only — stdio servers were never vulnerable — but the wider range\
+  allowed scanners to flag the package.
 
 ## 0.1.2
 
 ### Added
+
 - VS Code / Copilot setup instructions in README (`.vscode/mcp.json`)
 - Cursor setup instructions in README (`.cursor/mcp.json`)
-- `SERIAL_MCP_TOOL_SEPARATOR` env var — configurable separator for tool names (default `.`). Set to `_` for MCP clients that reject dots in tool names (e.g. Cursor).
+- `SERIAL_MCP_TOOL_SEPARATOR` env var — configurable separator for tool names (default `.`). Set to `_` for MCP clients\
+  that reject dots in tool names (e.g. Cursor).
 
 ## 0.1.1
 
 ### Fixed
-- Accept string-typed numeric parameters in tool schemas (`"9600"` instead of `9600`). Some MCP clients serialize all tool arguments as strings, which caused JSON Schema validation errors on `integer` and `number` fields. Affected fields: `baudrate`, `bytesize`, `stopbits`, `timeout_ms`, `write_timeout_ms`, `nbytes`, `max_bytes`, `duration_ms`, `k`, `n`.
+
+- Accept string-typed numeric parameters in tool schemas (`"9600"` instead of `9600`). Some MCP clients serialize all\
+  tool arguments as strings, which caused JSON Schema validation errors on `integer` and `number` fields. Affected\
+  fields: `baudrate`, `bytesize`, `stopbits`, `timeout_ms`, `write_timeout_ms`, `nbytes`, `max_bytes`, `duration_ms`,\
+  `k`, `n`.
 
 ## 0.1.0
 
 Initial release.
 
 ### Serial Core
+
 - List available serial ports with device metadata (VID, PID, manufacturer, serial number)
 - Open connections with configurable baud rate, byte size, parity, stop bits, timeout, and encoding
 - Close connections, query connection status
@@ -62,26 +127,31 @@ Initial release.
 - Graceful shutdown (closes all serial ports on exit)
 
 ### PTY Mirror
+
 - Virtual clone ports via pseudo-terminals (`SERIAL_MCP_MIRROR=ro` or `rw`)
 - External tools (screen, picocom, etc.) can attach to the same serial session
 - Default symlink at `/tmp/serial-mcp0`, configurable via `SERIAL_MCP_MIRROR_LINK`
 - macOS and Linux only
 
 ### Introspection
+
 - `serial.connections.list` for recovering connection IDs and inspecting state
 
 ### Protocol Specs
+
 - Markdown specs with YAML front-matter (`kind: serial-protocol`, `name`)
 - Template generation, registration, indexing
 - Attach specs to connections for agent reference
 - Full-text search over spec content
 
 ### Tracing
+
 - JSONL tracing of every tool call (in-memory ring buffer + file sink)
 - Configurable payload logging with truncation
 - `serial.trace.status` and `serial.trace.tail` for inspection
 
 ### Plugins
+
 - User plugins in `.serial_mcp/plugins/` (single files or packages)
 - Plugin contract: `TOOLS`, `HANDLERS`, optional `META` for device matching
 - `SERIAL_MCP_PLUGINS` env var: `all` or comma-separated allowlist
@@ -90,6 +160,7 @@ Initial release.
 - Hot-reload without server restart
 
 ### Security
+
 - Plugin path containment: `serial.plugin.load` rejects paths outside `.serial_mcp/plugins/`
 - Spec path containment: `serial.spec.register` rejects paths outside the project directory
 - Trace file always writes to `.serial_mcp/traces/trace.jsonl` (no configurable path)

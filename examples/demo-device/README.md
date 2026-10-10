@@ -2,7 +2,8 @@
 
 A simulated serial device for testing the Serial MCP server. Same protocol, two ways to run it:
 
-- **`pty_server.py`** — virtual serial port using a PTY pair. Local testing on macOS/Linux, no hardware needed, pure stdlib.
+- **`pty_server.py`** — virtual serial port using a PTY pair. Local testing on macOS/Linux, no hardware needed, pure\
+  stdlib.
 - **`uart_server.py`** — real UART port. Designed for Raspberry Pi but works with any serial port. Requires pyserial.
 
 ## Quick start (PTY — local)
@@ -33,7 +34,8 @@ python3 uart_server.py --port /dev/ttyAMA0
 python3 uart_server.py --port /dev/ttyUSB0 --baud 9600
 ```
 
-Connect from your dev machine using the USB-to-serial adapter port (e.g. `/dev/ttyUSB0` on Linux, `/dev/tty.usbserial-*` on macOS).
+Connect from your dev machine using the USB-to-serial adapter port (e.g. `/dev/ttyUSB0` on Linux,\
+`/dev/tty.usbserial-*` on macOS).
 
 ## Test with the Serial MCP server
 
