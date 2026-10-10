@@ -105,3 +105,35 @@ Bounding it needs a decision on releasing the connection's claim while the runne
 
 `run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner, would\
 need them moved down; nothing needs that today.
+
+## From the Code Comment Review
+
+These came from documenting the hardcoded limits on 10 October 2026.
+
+### A cancelled DTR or RTS pulse leaves the line low
+
+`serial.pulse_dtr` and `serial.pulse_rts` set the line low, sleep, and set it high. A request cancelled during the\
+sleep skips the last step, so the line stays low, which can hold a device in reset. Restoring the line in a `finally`\
+fixes it.
+
+### A zero read timeout may busy-loop the reader
+
+With `timeout_ms` 0 on `serial.open`, the reader's one-byte read returns at once when nothing is waiting, so the reader\
+thread may spin. Not yet reproduced; either reject 0 or make the reader wait when the read returns nothing.
+
+### Trace edge cases
+
+`TraceBuffer.tail(0)` returns every event, because `items[-0:]` is the whole list, and a negative count also returns an\
+odd slice. A write error in the trace file sink fails the tool call that emitted the event, instead of only disabling\
+or reporting the sink.
+
+### Duplicated constants
+
+The `@fail_on` overlap of 256 characters is defined in both `script/runner.py` and `script/matcher.py`, and the default\
+trace payload limit of 16384 in both `mcp/trace.py` and `config.py`. Each pair must stay equal by hand; the runner and\
+the trace module should import the value instead.
+
+### Shutdown limit and worker threads
+
+`SHUTDOWN_LIMIT_SECONDS` (0.25 s) in `mcp/server.py` abandons `stop_connections` when it runs long, but AnyIO worker\
+threads are not daemon threads, so the interpreter may still wait for it at exit. Not verified end to end.
