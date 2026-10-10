@@ -24,6 +24,7 @@ from serial_mcp_server.mcp.threads import run_to_completion
 from serial_mcp_server.mcp.tools.io import PACING_KEYS, parse_write_pacing
 from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID, pacing_properties
 from serial_mcp_server.port.connection import stop_connections
+from serial_mcp_server.port.reader import READ_POLL_MS
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.portlog.formats import (
     CONFIGURE_EVENT,
@@ -311,7 +312,7 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
         "bytesize": BYTESIZE_MAP[bytesize],
         "parity": PARITY_MAP[parity],
         "stopbits": STOPBITS_MAP[stopbits],
-        "timeout": timeout_s,
+        "timeout": READ_POLL_MS / 1000.0,  # timeout_s stays the read tools' default wait; see READ_POLL_MS
         "write_timeout": write_timeout_s,
     }
     if exclusive is not None:

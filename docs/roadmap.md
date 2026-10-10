@@ -15,12 +15,6 @@ Most items were collected from the archived\
 
 ## Defects
 
-### A zero read timeout busy-loops the reader
-
-`serial.open` accepts `timeout_ms` 0. pyserial treats a zero timeout as non-blocking, so when nothing is waiting the\
-reader's one-byte read returns at once and the reader thread spins a CPU core for as long as the connection is open.\
-Either reject 0 or make the reader wait when a read returns nothing. From the code comment review.
-
 ### A trace file error fails the tool call
 
 `TraceBuffer.emit` writes the file sink without handling errors, so a full disk or a removed trace directory makes\

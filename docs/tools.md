@@ -68,6 +68,10 @@ Open a serial port connection. Returns a `connection_id` for use with other tool
 
 Only `port` is required. All other parameters have defaults.
 
+`timeout_ms` is the default wait of `serial.read`, `serial.readline`, and `serial.read_until` on this connection, and\
+`0` makes them return only what is already buffered. It does not set the port's own read timeout: the server fixes that\
+at 200 ms, so its reader thread never spins and stops promptly.
+
 Set `inter_char_delay_ms` from 0 to 1000 to pause between transmitted characters. The default is `0` (no pacing). This\
 connection setting applies to `serial.write` and writes forwarded through a read/write PTY mirror. Alternatively, set\
 both `chunk_size` and `chunk_delay_ms` to positive values to pause after each chunk drains. Only one pacing mode may be\

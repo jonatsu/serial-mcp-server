@@ -13,6 +13,12 @@ from serial_mcp_server.portlog.log import PortLogSlot
 
 logger = logging.getLogger("serial_mcp_server")
 
+# pyserial read timeout of every port the server opens: how long the reader blocks for one byte before it checks for
+# a stop request. Fixed rather than taken from ``serial.open``'s ``timeout_ms``: pyserial treats 0 as non-blocking,
+# which would make the reader spin, and a long timeout would delay stopping it. ``timeout_ms`` sets only the read
+# tools' default wait, so code that reads the port object directly waits at most this long.
+READ_POLL_MS = 200
+
 
 # ---------------------------------------------------------------------------
 # ReaderThread — background serial reader (cross-platform)
@@ -29,8 +35,8 @@ class ReaderThread:
     """Background thread that continuously reads from a serial port into a buffer.
 
     A read takes whatever ``in_waiting`` reports. When nothing is waiting it reads exactly one byte, blocking
-    up to the port's read timeout. The first byte after a quiet
-    period is therefore a chunk of its own, which shows as a one-byte ``rx`` entry in the jsonl port log. Each
+    up to the port's read timeout (``READ_POLL_MS``). The first byte after a quiet period is therefore a chunk
+    of its own, which shows as a one-byte ``rx`` entry in the jsonl port log. Each
     chunk is logged, then buffered, then fed to the subscribers.
     """
 
@@ -55,8 +61,8 @@ class ReaderThread:
     def join(self) -> None:
         """Wait up to 3 s for the thread to exit. Call after ``signal_stop``.
 
-        A thread still blocked in a read with a longer port timeout is not waited for further. The handle is
-        dropped either way, so ``alive`` reports False afterwards.
+        A thread still blocked after that, such as in a stuck driver call, is not waited for further. The handle
+        is dropped either way, so ``alive`` reports False afterwards.
         """
         if self._thread is not None:
             self._thread.join(timeout=3)

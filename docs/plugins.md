@@ -99,7 +99,9 @@ Import only from `serial_mcp_server.plugin_api`. It provides `ok` and `err` to b
 and the handlers `handle_write`, `handle_read`, `handle_readline`, and `handle_read_until`. That module is the plugin\
 interface: its names change only with a CHANGELOG entry, while the server's other modules can move between releases.\
 Reach the device through those handlers rather than the port object, because the server's reader thread owns reads and\
-its writer thread queues and paces every write, which keeps the port log, the mirror, and a running script consistent.
+its writer thread queues and paces every write, which keeps the port log, the mirror, and a running script consistent.\
+A plugin that reads the port object directly gets the server's fixed 200 ms port read timeout, not the connection's\
+`timeout_ms`, which sets only the handlers' default wait.
 
 Write tool descriptions for the agent: say when to use the tool, what it returns, and what it changes on the device.\
 Add MCP `annotations`, such as `readOnlyHint`, where they apply; the server passes them to the client unchanged. An\
