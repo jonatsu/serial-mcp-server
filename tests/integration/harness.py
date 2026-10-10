@@ -5,7 +5,6 @@ Drives real processes and real pseudo-terminals. Used by run.py; not collected b
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import bisect
 import json
@@ -22,6 +21,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import anyio
+import anyio.abc
+import anyio.to_thread
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -257,7 +259,7 @@ class Paste:
             self.error = exc
 
     async def wait(self, timeout: float) -> None:
-        await asyncio.to_thread(self._thread.join, timeout)
+        await anyio.to_thread.run_sync(self._thread.join, timeout)
         if self._thread.is_alive():
             raise TimeoutError("paste thread did not finish")
         if self.error is not None:
@@ -304,7 +306,7 @@ class Client:
         self.session = session
 
     async def call(self, tool: str, **arguments: Any) -> dict[str, Any]:
-        async with asyncio.timeout(CALL_DEADLINE_S):
+        with anyio.fail_after(CALL_DEADLINE_S):
             result = await self.session.call_tool(tool, arguments)
         text = "".join(block.text for block in result.content if block.type == "text")
         if result.isError:
@@ -348,12 +350,19 @@ class Probe:
         self.totals: list[int] = []
         self.calls = 0
         self._stop = False
-        self._task: asyncio.Task[None] | None = None
+        self._stopped = anyio.Event()
 
-    def start(self) -> None:
-        self._task = asyncio.create_task(self._run())
+    def start(self, task_group: anyio.abc.TaskGroup) -> None:
+        """Poll in *task_group*; a failed call fails the group, and with it the scenario."""
+        task_group.start_soon(self._run)
 
     async def _run(self) -> None:
+        try:
+            await self._poll()
+        finally:
+            self._stopped.set()
+
+    async def _poll(self) -> None:
         while not self._stop:
             payload = await self.client.call_ok(
                 "serial.read",
@@ -380,15 +389,12 @@ class Probe:
             arrival = self.time_reaching(total)
             if arrival is not None:
                 return arrival
-            if self._task is not None and self._task.done():
-                self._task.result()
-            await asyncio.sleep(0.005)
+            await anyio.sleep(0.005)
         return self.time_reaching(total)
 
     async def stop(self) -> None:
         self._stop = True
-        if self._task is not None:
-            await self._task
+        await self._stopped.wait()
 
 
 # --------------------------------------------------------------------------- port log parsing
