@@ -540,7 +540,7 @@ class TestExposedToolText:
 
     @staticmethod
     def description(name: str) -> str:
-        return next(tool.description for tool in TOOLS if tool.name == name)
+        return next(tool.description or "" for tool in TOOLS if tool.name == name)
 
     def test_write_names_the_cap_and_the_early_stop_error(self):
         text = self.description("serial.write")

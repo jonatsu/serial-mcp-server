@@ -19,6 +19,7 @@ from serial_mcp_server.portlog.formats import (
     Entry,
     LinesWriter,
     RawWriter,
+    TextTimestamps,
     TextWriter,
     WriterOptions,
 )
@@ -63,7 +64,7 @@ def lines_of(sink: Sink) -> list[dict]:
 
 def text_writer(mode: str) -> tuple[TextWriter, Sink]:
     sink = Sink()
-    return TextWriter(sink, WriterOptions(text_timestamps=mode)), sink
+    return TextWriter(sink, WriterOptions(text_timestamps=TextTimestamps(mode))), sink
 
 
 class TestTextTimestamps:
@@ -330,7 +331,7 @@ class TestThroughPortLog:
         assert json.loads(content)["partial"] is True
 
     def test_text_timestamps_apply_through_the_log(self, tmp_path):
-        request = LogRequest(("text",), tmp_path, text_timestamps="elapsed")
+        request = LogRequest(("text",), tmp_path, text_timestamps=TextTimestamps.ELAPSED)
         log = PortLog.start(request, "utf-8", NOW)
         log.rx(b"hello\n")
         log.close()

@@ -28,7 +28,8 @@ _IS_UNIX = sys.platform != "win32"
 MIRROR_BACKLOG_LIMIT = 64 * 1024
 _PTY_READ_SIZE = 4096
 
-if _IS_UNIX:
+# sys.platform rather than _IS_UNIX, so type checkers see these imports bound on Unix.
+if sys.platform != "win32":
     import fcntl
     import select
     import termios

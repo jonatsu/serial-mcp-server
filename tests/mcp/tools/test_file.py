@@ -41,7 +41,7 @@ class TestRegistration:
         assert TOOLS[0].inputSchema["required"] == ["connection_id", "path"]
 
     def test_description_tells_the_agent_when_and_where(self):
-        text = TOOLS[0].description
+        text = TOOLS[0].description or ""
         assert text.startswith("Use for long inputs")
         assert "SERIAL_MCP_FILES_DIR" in text
         assert "1 MiB" in text

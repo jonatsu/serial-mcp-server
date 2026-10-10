@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 
 from serial_mcp_server.port.buffer import SerialBuffer
-
-# MirrorSession is Unix-only
-_IS_UNIX = sys.platform != "win32"
-if _IS_UNIX:
-    pass
-
 
 # ---------------------------------------------------------------------------
 # SerialBuffer

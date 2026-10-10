@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
+
+if TYPE_CHECKING:
+    import serial as pyserial
 
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.connection import SerialConnection
@@ -56,7 +60,7 @@ def gated(tmp_path):
         write_timeout=0.2,
         encoding="utf-8",
         newline="\n",
-        ser=port,
+        ser=cast("pyserial.Serial", port),  # a fake with the methods the writer and session call
         writer=writer,
         buffer=SerialBuffer(),
     )

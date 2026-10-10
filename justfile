@@ -19,8 +19,12 @@ format-check *paths='.':
 lint-imports:
     uv run --with import-linter lint-imports
 
-# Run the repository's lint, formatting, and import-layer checks.
-check: lint format-check lint-imports
+# Type-check the package, tests, tools, and examples (settings in pyproject.toml, [tool.basedpyright]).
+typecheck:
+    uv run --extra test --with basedpyright basedpyright
+
+# Run the repository's lint, formatting, import-layer, and type checks.
+check: lint format-check lint-imports typecheck
 
 # Run the slow end-to-end harness against the demo device (about 90 s).
 integration:

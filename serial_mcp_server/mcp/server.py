@@ -140,11 +140,11 @@ def build_server(settings: Settings) -> tuple[Server, SerialState]:
         arguments = arguments or {}
 
         buf = get_trace_buffer()
+        cid = arguments.get("connection_id")
+        t0 = time.monotonic()
         if buf:
-            cid = arguments.get("connection_id")
             safe_args = buf.sanitize(arguments)
             buf.emit({"event": "tool_call_start", "tool": name, "args": safe_args, "connection_id": cid})
-            t0 = time.monotonic()
 
         handler = handlers.get(name)
         if handler is None:

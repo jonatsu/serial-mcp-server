@@ -88,6 +88,7 @@ async def _running_script(state, source: str = "@sleep 60s\n") -> str:
 
 async def _wait_for_status(state, run_id: str, condition, timeout: float = 2.0):
     deadline = time.monotonic() + timeout
+    result = None
     while time.monotonic() < deadline:
         result = await handle_script_status(state, {"run_id": run_id})
         if condition(result):

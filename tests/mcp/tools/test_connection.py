@@ -514,7 +514,7 @@ class TestExposedToolText:
 
     @staticmethod
     def description(name: str) -> str:
-        return next(tool.description for tool in TOOLS if tool.name == name)
+        return next(tool.description or "" for tool in TOOLS if tool.name == name)
 
     def test_open_tells_the_agent_when_to_log(self):
         text = self.description("serial.open")

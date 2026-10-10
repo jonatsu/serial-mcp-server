@@ -115,3 +115,23 @@ version-file = "serial_mcp_server/_version.py"
 [tool.bandit]
 exclude_dirs = ["tests"]
 skips = ["B110"]  # try-except-pass is intentional for best-effort serial cleanup
+
+[tool.basedpyright]
+# basedpyright is the one type checker: `just typecheck`, CI, and the basedpyright editor extension all read this.
+# "standard" checks types and flow (possibly unbound names, Optional access) without demanding annotations
+# everywhere, which basedpyright's own default, "recommended", does.
+typeCheckingMode = "standard"
+pythonVersion = "3.11"
+# basedpyright defaults to "All", which treats every platform-guarded import as possibly missing. CI runs Linux.
+pythonPlatform = "Linux"
+include = ["serial_mcp_server", "tests", "tools", "examples"]
+venvPath = "."
+venv = ".venv"
+# Three rules warn in tests rather than fail; tighten them as the tests gain narrowing. Tests read fields off the
+# MCP SDK's result unions and off Optional values without narrowing first (reportAttributeAccessIssue,
+# reportOptionalMemberAccess). And AnyIO declares TaskGroup.__aexit__ as returning bool, so a name assigned inside
+# `async with create_task_group()` reads as possibly unbound after it (reportPossiblyUnboundVariable).
+executionEnvironments = [
+  { root = "tests", reportAttributeAccessIssue = "warning", reportOptionalMemberAccess = "warning", reportPossiblyUnboundVariable = "warning" },
+  { root = "." },
+]

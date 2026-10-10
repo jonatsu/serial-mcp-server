@@ -197,42 +197,42 @@ class TestInitTrace:
 
 
 class TestHandlersTraceDisabled:
-    async def test_status_disabled(self, monkeypatch):
+    async def test_status_disabled(self, monkeypatch, serial_state):
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
         from serial_mcp_server.mcp.tools.trace import handle_trace_status
 
-        result = await handle_trace_status(None, {})
+        result = await handle_trace_status(serial_state, {})
         assert result["ok"] is True
         assert result["enabled"] is False
 
-    async def test_tail_disabled(self, monkeypatch):
+    async def test_tail_disabled(self, monkeypatch, serial_state):
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
         from serial_mcp_server.mcp.tools.trace import handle_trace_tail
 
-        result = await handle_trace_tail(None, {})
+        result = await handle_trace_tail(serial_state, {})
         assert result["ok"] is True
         assert result["enabled"] is False
 
 
 class TestHandlersTraceEnabled:
-    async def test_status_enabled(self, monkeypatch):
+    async def test_status_enabled(self, monkeypatch, serial_state):
         buf = TraceBuffer()
         buf.emit({"event": "test"})
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", buf)
         from serial_mcp_server.mcp.tools.trace import handle_trace_status
 
-        result = await handle_trace_status(None, {})
+        result = await handle_trace_status(serial_state, {})
         assert result["ok"] is True
         assert result["enabled"] is True
         assert result["event_count"] == 1
 
-    async def test_tail_enabled(self, monkeypatch):
+    async def test_tail_enabled(self, monkeypatch, serial_state):
         buf = TraceBuffer()
         buf.emit({"event": "test", "data": 42})
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", buf)
         from serial_mcp_server.mcp.tools.trace import handle_trace_tail
 
-        result = await handle_trace_tail(None, {"n": 10})
+        result = await handle_trace_tail(serial_state, {"n": 10})
         assert result["ok"] is True
         assert len(result["events"]) == 1
         assert result["events"][0]["data"] == 42
