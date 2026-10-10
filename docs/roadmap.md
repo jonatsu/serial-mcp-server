@@ -133,12 +133,6 @@ need them moved down; nothing needs that today.
 
 These came up on 10 October 2026, while the tool text, the hooks, and the release workflow were reworked.
 
-### A corrupt spec index
-
-When `.serial_mcp/specs/index.json` cannot be parsed, the server treats it as empty, and the next\
-`serial.spec.register` rewrites it with one entry, so every other registration is lost without a warning. Refusing to\
-register over a corrupt index, or keeping a backup, would prevent that.
-
 ### Upstream registry metadata
 
 `server.json` and the `mcp-name` comment in the README describe upstream's MCP registry entry and PyPI package at\

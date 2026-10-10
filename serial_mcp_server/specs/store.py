@@ -7,14 +7,11 @@ No serial imports — pure filesystem + YAML.
 from __future__ import annotations
 
 import json
-import logging
 import re
 from pathlib import Path
 from typing import Any
 
 from serial_mcp_server.specs.frontmatter import compute_spec_id, parse_frontmatter, validate_spec_meta
-
-logger = logging.getLogger(__name__)
 
 INDEX_FILE = "index.json"
 SPECS_SUBDIR = "specs"
@@ -31,16 +28,33 @@ def _ensure_spec_dir(spec_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+class SpecIndexError(Exception):
+    """The spec index exists but cannot be read, so no operation may trust or replace it."""
+
+
 def _load_index(spec_root: Path) -> dict[str, Any]:
-    """Load the index.json, returning empty dict if missing/corrupt."""
+    """Load the index.json; a missing index is empty.
+
+    Raises ``SpecIndexError`` when the file cannot be read or is not a JSON object. Treating it as empty would let
+    the next registration overwrite it and drop every other entry without a word.
+    """
     index_path = spec_root / INDEX_FILE
     if not index_path.exists():
         return {}
     try:
-        return json.loads(index_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Corrupt index at %s, starting fresh", index_path)
-        return {}
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+        raise SpecIndexError(_index_error_message(index_path, str(exc))) from exc
+    if not isinstance(index, dict):
+        raise SpecIndexError(_index_error_message(index_path, "it does not hold a JSON object"))
+    return index
+
+
+def _index_error_message(index_path: Path, reason: str) -> str:
+    return (
+        f"The spec index {index_path} cannot be used: {reason}. Fix the file, or delete it to start a new index; "
+        "deleting it forgets every registration, and serial.spec.register adds specs back."
+    )
 
 
 def _save_index(spec_root: Path, index: dict[str, Any]) -> None:
