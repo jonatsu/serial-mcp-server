@@ -273,7 +273,9 @@ Versions follow [Semantic Versioning](https://semver.org/). The public interface
 the MCP tools (names, arguments, results, and error codes), the `SERIAL_MCP_*` variables,\
 `serial_mcp_server.plugin_api`, the script language and its result files, and the exit statuses of `serial_mcp_script`.\
 While the version is below 1.0, a release that breaks any of these raises the minor number (0.1.3 to 0.2.0), and a\
-release of fixes alone raises the patch number (0.2.0 to 0.2.1). From 1.0 on, a break raises the major number.
+release of fixes alone raises the patch number (0.2.0 to 0.2.1). Additions that break nothing, such as a new tool or a\
+new name in `plugin_api`, also raise only the patch number below 1.0, so a minor bump always means something broke.\
+From 1.0 on, a break raises the major number and an addition the minor number.
 
 The version comes from the Git tag: hatch-vcs derives it when the package is built, so no file holds a version number\
 to edit. Releases are published as GitHub releases on this repository, with the wheel and source archive attached.\
