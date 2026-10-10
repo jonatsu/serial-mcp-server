@@ -1,7 +1,5 @@
 # Serial MCP Server
 
-<!-- mcp-name: io.github.es617/serial-mcp-server -->
-
 ![MCP](https://img.shields.io/badge/MCP-compatible-blue)\
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)\
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)\
