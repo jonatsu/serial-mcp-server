@@ -28,7 +28,8 @@ Simulated serial device for testing the Serial MCP server.
 - Responses are one or more lines, each terminated with `\r\n`.
 - After every response, the device prints the prompt `> ` (greater-than followed by a space).
 - The prompt indicates the device is ready for the next command.
-- Prefixed lines (`[LOG]`, `[SAMPLE]`, `[BOOT]`) are asynchronous output — they may appear between the prompt and the next command.
+- Prefixed lines (`[LOG]`, `[SAMPLE]`, `[BOOT]`) are asynchronous output — they may appear between the prompt and the\
+  next command.
 
 ## Boot sequence
 
@@ -87,7 +88,7 @@ pong
 >
 ```
 
-### echo \<text\>
+### echo \<text>
 
 Echo text back verbatim. Useful for testing write + readline.
 
@@ -108,6 +109,7 @@ Print device status as a single JSON line.
 ```
 
 Fields:
+
 - `state`: `"idle"`, `"logging"`, or `"sampling"`
 - `temp`: current temperature reading (float)
 - `uptime`: seconds since boot (int)
@@ -126,7 +128,7 @@ Get all configuration values (no key) or a single key.
 >
 ```
 
-### config set \<key\> \<value\>
+### config set \<key> \<value>
 
 Set a configuration value.
 
@@ -137,6 +139,7 @@ OK log_interval_ms=500
 ```
 
 Valid keys and ranges:
+
 - `log_interval_ms`: 100–10000 (int)
 - `sample_rate_hz`: 1–100 (int)
 - `device_name`: any string
@@ -153,11 +156,13 @@ OK logs started (interval=1000ms)
 ```
 
 Log lines have the format:
+
 ```
 [LOG] HH:MM:SS temp=<float> humidity=<float> pressure=<float>
 ```
 
-Log lines are emitted asynchronously — they appear even while the device is waiting for commands. The prompt is still valid; just send a command and the device will respond.
+Log lines are emitted asynchronously — they appear even while the device is waiting for commands. The prompt is still\
+valid; just send a command and the device will respond.
 
 ### log stop
 
@@ -169,7 +174,7 @@ OK logs stopped
 >
 ```
 
-### sample \<count\>
+### sample \<count>
 
 Collect a fixed number of sensor samples and then stop. The device emits one line per sample, then a `DONE` marker.
 
@@ -183,9 +188,10 @@ OK sampling 3 at 10Hz
 >
 ```
 
-Use `read_until` with delimiter `DONE` to collect all samples in one call. The sample rate is controlled by `config set sample_rate_hz`. Count must be 1–1000.
+Use `read_until` with delimiter `DONE` to collect all samples in one call. The sample rate is controlled by\
+`config set sample_rate_hz`. Count must be 1–1000.
 
-### auth \<password\>
+### auth \<password>
 
 Authenticate the session. Required for `secret` and `factory-reset`.
 
@@ -240,6 +246,7 @@ Rebooting...
 ## Error handling
 
 Unknown commands:
+
 ```
 > foo
 ERROR: unknown command 'foo'. Type 'help' for available commands.
@@ -247,6 +254,7 @@ ERROR: unknown command 'foo'. Type 'help' for available commands.
 ```
 
 Wrong arguments:
+
 ```
 > config set
 ERROR: usage: config set <key> <value>

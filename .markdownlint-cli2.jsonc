@@ -104,6 +104,10 @@
     // MD036: Allow emphasis/strong text that reads like a heading
     "no-emphasis-as-heading": false,
 
+    // MD038: Allow spaces inside code spans. The docs quote device prompts such as `> `, whose trailing space is
+    // part of what the device sends and what a pattern must match.
+    "no-space-in-code": false,
+
     // MD040: Don't require a language tag on fenced code blocks
     "fenced-code-language": false,
 
