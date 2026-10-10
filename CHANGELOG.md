@@ -17,7 +17,7 @@ interface. Releases are published on GitHub only; install from this repository.
 
 - Write pacing for slow receivers: `inter_char_delay_ms`, or `chunk_size` with `chunk_delay_ms`, on `serial.open` for\
   the connection, and on `serial.write` and `serial.send_file` for one call. Input from a read/write mirror follows the\
-  connection's pacing.
+  connection's pacing. Cancelling the request stops a paced write between segments.
 - Port log: set `SERIAL_MCP_LOG=1`, or pass `log` or `log_formats` to `serial.open`, to record the bytes on the wire in\
   `text` (received bytes unchanged, with optional `grabserial`-style timestamps), `jsonl` (both directions plus control\
   events), `lines` (one entry per line, with partial prompts flagged), and `raw` (received bytes, byte-exact) files\
@@ -35,16 +35,15 @@ interface. Releases are published on GitHub only; install from this repository.
   `serial.send_file` transfer. The estimate is the larger of the pauses between segments and the time on the wire at\
   the connection's baud rate (ten bits per byte). Longer writes are rejected with `invalid_params` before any byte is\
   sent.
-- The script engine runs validated serial scripts on a dedicated thread and writes private JSON results under\
-  `SERIAL_MCP_LOG_DIR`. `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each run. Patterns use the `regex`\
-  package, and each search has a time limit, two seconds unless `SERIAL_MCP_SCRIPT_PATTERN_SECONDS` sets another, so a\
-  pattern that backtracks without end ends the run `errored` with the reason `regex_timeout` instead of freezing the\
-  server. See [docs/scripts.md](docs/scripts.md).
-- Agents can run, inspect, cancel, list, and request a template for serial scripts through five MCP tools. Script files\
-  must stay inside `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`). Inline source is limited to 256 KiB. A\
-  running script owns its connection's writes and control lines. The tool-call trace strips the inline `source` and the\
-  `vars`, as it strips write `data`; it strips an argument with either name from any tool, plugin tools included. See\
-  [docs/scripts.md](docs/scripts.md).
+- Serial scripts send, expect, and prompt on a connection in the background, and each run writes a private JSON result\
+  under `SERIAL_MCP_LOG_DIR`. Agents use them through `serial.script.run`, `serial.script.status`,\
+  `serial.script.cancel`, `serial.script.list`, and `serial.script.template`. Script files must stay inside\
+  `SERIAL_MCP_SCRIPTS_DIR` (default `.serial_mcp/scripts/`), and inline source is limited to 256 KiB. A running script\
+  owns its connection's writes and control lines. The tool-call trace strips the `source` and `vars` arguments, as it\
+  strips write `data`, from every tool, plugin tools included. See [docs/scripts.md](docs/scripts.md).
+- `SERIAL_MCP_SCRIPT_MAX_SECONDS` (default `3600`) caps each script run. Each pattern search is limited to two seconds\
+  unless `SERIAL_MCP_SCRIPT_PATTERN_SECONDS` sets another, so a pattern that backtracks without end ends the run\
+  `errored` with the reason `regex_timeout` instead of freezing the server.
 - `serial_mcp_script` runs one serial script on a port with no agent and no MCP server, and reports the outcome through\
   its exit status (`0` passed, `1` failed, `2` error or unusable input, `130` interrupted) and a result file. See\
   [Running from the command line](docs/scripts.md#running-from-the-command-line).
@@ -83,6 +82,9 @@ interface. Releases are published on GitHub only; install from this repository.
   (`\r\n` and `\n`) that the server uses, not their backslash spellings.
 - The package's project URLs (homepage, repository, issues, changelog) now point to
   <https://github.com/jonatsu/serial-mcp-server>.
+- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway. A write\
+  still queued when the connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also\
+  discards queued writes.
 - Releases are GitHub releases of this repository, with the wheel and source archive attached. Nothing is published to\
   PyPI or the MCP registry, whose `serial-mcp-server` entries remain upstream's, and `server.json` is removed.
 
@@ -93,21 +95,16 @@ interface. Releases are published on GitHub only; install from this repository.
 - A spec index (`.serial_mcp/index.json`) that cannot be read is reported as `index_corrupt` by the spec tools and\
   left untouched. Before, it read as empty, and the next `serial.spec.register` replaced it, losing every other\
   registration.
-- Paced writes no longer stall receiving in `SERIAL_MCP_MIRROR=rw` mode. All writes now go through one writer thread\
-  per connection, so pasting into the mirror terminal cannot delay device output or cause the kernel buffer to\
-  overflow.
+- In `SERIAL_MCP_MIRROR=rw` mode, input from the mirror terminal no longer stalls receiving. The mirror's reader thread\
+  wrote that input to the port itself, so a slow write, or an MCP write holding the port, delayed device output and\
+  could let the kernel buffer overflow. Each connection now has one writer thread that runs all writes in order.
 - Errors while forwarding mirror input to the serial port are now logged instead of silently dropped.
-- `serial.write` after a connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also\
-  discards writes still queued.
-- `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway, and\
-  cancelling the request stops a paced write between segments.
 - With `SERIAL_MCP_TOOL_SEPARATOR` set, tool descriptions, property descriptions, result hints, and error messages now\
   name the tools by their renamed names, such as `serial_spec_list`. Before, only the tool names changed, so the text\
   pointed agents at tools that did not exist.
 - A cancelled `serial.open` always releases the port before the request ends. Before, a cancellation that arrived while\
   the port was opening left the port to garbage collection, and one that arrived during the cleanup of a failed open\
-  could skip closing it. A `serial.log.start` cancelled while it created the log's files now removes them, instead of\
-  leaving a log open that no connection holds.
+  could skip closing it.
 
 ## 0.1.3
 
