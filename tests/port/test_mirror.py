@@ -12,16 +12,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from serial_mcp_server.port.buffer import SerialBuffer
-from serial_mcp_server.port.mirror import MIRROR_BACKLOG_LIMIT, create_reader
+from serial_mcp_server.port.mirror import MIRROR_BACKLOG_LIMIT, MirrorSession, create_reader
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.reader import ReaderThread
 from serial_mcp_server.port.writer import SerialWriter
 from serial_mcp_server.script.matcher import OutputMatcher
 
-# MirrorSession is Unix-only
+# The PTY mirror itself is Unix-only.
 _IS_UNIX = sys.platform != "win32"
-if _IS_UNIX:
-    from serial_mcp_server.port.mirror import MirrorSession
 
 
 @pytest.mark.skipif(not _IS_UNIX, reason="PTY mirror requires Unix")

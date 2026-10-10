@@ -30,8 +30,8 @@ async def test_lines_arrive_in_order_and_end_of_file_ends_the_iteration():
 
 async def test_a_cancelled_wait_ends_although_stdin_stays_open():
     read_fd, write_fd = os.pipe()
+    lines = StdinLines(read_fd)
     try:
-        lines = StdinLines(read_fd)
         started = time.monotonic()
         with anyio.move_on_after(0.2):
             async for _line in lines:
@@ -40,7 +40,8 @@ async def test_a_cancelled_wait_ends_although_stdin_stays_open():
         assert time.monotonic() - started < 2
     finally:
         os.close(write_fd)  # end of file ends the reader thread before its descriptor closes
-        lines._thread.join(timeout=2)
+        if lines._thread is not None:  # started by the first iteration
+            lines._thread.join(timeout=2)
         os.close(read_fd)
 
 

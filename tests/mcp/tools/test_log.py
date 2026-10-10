@@ -51,7 +51,7 @@ class TestRegistration:
 
     def test_start_description_tells_the_agent_when_to_use_it(self):
         start = next(t for t in TOOLS if t.name == "serial.log.start")
-        assert "user asks to log or record" in start.description
+        assert "user asks to log or record" in (start.description or "")
 
 
 class TestStart:

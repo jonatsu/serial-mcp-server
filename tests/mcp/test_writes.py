@@ -81,6 +81,7 @@ async def test_a_closed_writer_returns_connection_closed_without_writing(conn, p
     written, error = await run_write_job(conn, b"hello", NO_PACING, on_done=done)
 
     assert written == 0
+    assert error is not None
     assert error["error"]["code"] == "connection_closed"
     assert done.calls == [0]
     port.write.assert_not_called()
@@ -116,6 +117,7 @@ async def test_a_write_that_times_out_partway_returns_write_aborted_with_the_byt
         written, error = await run_write_job(conn, b"abcd", CHUNK_PACING, on_done=done)
 
     assert written == 2
+    assert error is not None
     assert error["error"]["code"] == "write_aborted"
     assert error["bytes_written"] == 2
     assert done.called.wait(1)
@@ -178,5 +180,6 @@ class TestDurationError:
     def test_a_write_over_the_cap_names_the_variable(self):
         error = duration_error(61.5, 60)
 
+        assert error is not None
         assert error["error"]["code"] == "invalid_params"
         assert "SERIAL_MCP_MAX_WRITE_SECONDS" in error["error"]["message"]

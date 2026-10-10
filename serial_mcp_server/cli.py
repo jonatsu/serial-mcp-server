@@ -225,15 +225,19 @@ def _open_stack(ser: pyserial.Serial, log_request: LogRequest | None) -> SerialC
     The connection records what *ser* reports, so it cannot drift from the port that was opened.
     """
     try:
+        port, timeout, write_timeout = ser.port, ser.timeout, ser.write_timeout
+        if port is None or timeout is None or write_timeout is None:
+            # _open_serial opens a named port with both timeouts set, so pyserial reports all three.
+            raise _CliError(f"The opened port reports no name or no timeouts: {ser!r}")
         return open_port_stack(
             ser,
-            port=ser.port,
+            port=port,
             baudrate=ser.baudrate,
             bytesize=ser.bytesize,
             parity=ser.parity,
             stopbits=ser.stopbits,
-            timeout=ser.timeout,
-            write_timeout=ser.write_timeout,
+            timeout=timeout,
+            write_timeout=write_timeout,
             encoding=_ENCODING,
             newline=_NEWLINE,
             pacing=NO_PACING,

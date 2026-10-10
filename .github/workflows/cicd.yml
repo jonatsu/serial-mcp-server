@@ -24,6 +24,17 @@ jobs:
       - run: ruff format --check .
       - run: lint-imports
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.11"
+      # The project environment in .venv, which [tool.basedpyright] points at, as `just typecheck` uses it.
+      - run: uv sync --extra test
+      - run: uv run --with basedpyright basedpyright
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -99,7 +110,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [lint, test, build, security]
+    needs: [lint, typecheck, test, build, security]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

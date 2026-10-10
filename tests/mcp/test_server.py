@@ -148,7 +148,9 @@ class TestBuildServer:
             texts += [prop.get("description", "") for prop in tool.inputSchema.get("properties", {}).values()]
             for text in texts:
                 assert not [name for name in dotted if name in text], (tool.name, text)
-        assert "serial_spec_list" in next(tool.description for tool in tools if tool.name == "serial_open")
+        assert "serial_spec_list" in next(
+            tool.description or "" for tool in tools if tool.name == "serial_open"
+        )
 
     async def test_another_separator_leaves_the_default_tool_list_unchanged(self, settings):
         from serial_mcp_server.mcp.server import build_server
@@ -159,7 +161,7 @@ class TestBuildServer:
 
         assert {tool.name for tool in result.root.tools} == set(EXPECTED_TOOL_HINTS)
         assert "serial.spec.list" in next(
-            tool.description for tool in result.root.tools if tool.name == "serial.open"
+            tool.description or "" for tool in result.root.tools if tool.name == "serial.open"
         )
 
     async def test_another_separator_renames_the_tools_an_error_message_names(self, settings):

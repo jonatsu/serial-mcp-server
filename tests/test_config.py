@@ -87,7 +87,8 @@ class TestDefaults:
         monkeypatch.setenv("MAX_CONNECTIONS", "3")  # the name an unprefixed environment source would read
 
         assert config.load({}).max_connections == 10
-        assert config.Settings(data_root=tmp_path).max_connections == 10  # the constructor's own sources
+        # The constructor's own sources: the call omits the directories on purpose, which the validator fills.
+        assert config.Settings(data_root=tmp_path).max_connections == 10  # pyright: ignore[reportCallIssue]
 
 
 class TestAcceptedForms:

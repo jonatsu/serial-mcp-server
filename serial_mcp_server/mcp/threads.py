@@ -12,7 +12,9 @@ T = TypeVar("T")
 Ts = TypeVarTuple("Ts")
 
 
-async def run_to_completion(func: Callable[[*Ts], T], *args: *Ts) -> T:
+# The checker assumes a CancelScope may swallow its body's exception and fall through, leaving no return value.
+# This scope is never cancelled and has no deadline, so it cannot.
+async def run_to_completion(func: Callable[[*Ts], T], *args: *Ts) -> T:  # pyright: ignore[reportReturnType]
     """Run *func* in a worker thread and wait for it, shielded from cancellation.
 
     Use it for work that completes a change already begun, such as releasing a port or closing a log.

@@ -357,7 +357,7 @@ def analyze_log_agreement(check: Check, log: LogFiles, oracle: bytes, typed: byt
     check.expect(
         log.raw.split(b"\n")[-1] == b"> "
         and rx_entries[-1]["text"] == "> "
-        and rx_entries[-1].get("partial"),
+        and bool(rx_entries[-1].get("partial")),
         "the trailing prompt '> ' (no newline) is kept as a partial last line",
     )
     check.expect(tx == typed, f"jsonl tx bytes == bytes typed into the terminal ({len(tx)} vs {len(typed)})")

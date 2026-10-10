@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import sys
 import time
+from typing import cast
 from unittest.mock import MagicMock, PropertyMock
 
 from serial_mcp_server.port.buffer import SerialBuffer
 from serial_mcp_server.port.reader import ReaderThread
-
-# MirrorSession is Unix-only
-_IS_UNIX = sys.platform != "win32"
-if _IS_UNIX:
-    pass
+from serial_mcp_server.portlog.log import PortLogSlot
 
 
 class TestReaderThread:
@@ -63,7 +59,7 @@ class TestReaderThread:
             def close(self, error=None):
                 pass
 
-        reader = ReaderThread(MagicMock(), buffer, LogSlot())
+        reader = ReaderThread(MagicMock(), buffer, cast("PortLogSlot", LogSlot()))
         reader.subscribe(Subscriber())
 
         reader._deliver(b"hello")

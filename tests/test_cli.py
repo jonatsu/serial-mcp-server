@@ -16,12 +16,14 @@ import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
-import serial as pyserial
 
 from serial_mcp_server import cli
+from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.portlog.request import LogRequest
+from serial_mcp_server.script.runner import ScriptRunner
 from tests.helpers import read_jsonl
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY and POSIX signals are Unix-only")
@@ -109,7 +111,7 @@ def run_cli(*args: str | Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def read_result(path: Path) -> dict[str, object]:
+def read_result(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
@@ -452,7 +454,7 @@ def test_unusable_log_dir_exits_two_and_leaves_the_device_usable(device, tmp_pat
 def test_a_stack_that_cannot_start_its_log_closes_the_port(device, tmp_path):
     blocker = tmp_path / "file"
     blocker.write_text("not a directory", encoding="utf-8")
-    ser = pyserial.Serial(device.path)
+    ser = cli._open_serial(device.path, 115200)
     try:
         with pytest.raises(cli._CliError, match="Could not start the port log"):
             cli._open_stack(ser, LogRequest(("text",), blocker / "logs"))
@@ -537,7 +539,7 @@ def test_a_second_interrupt_does_not_skip_releasing_the_connection(monkeypatch):
             raise KeyboardInterrupt
 
     monkeypatch.setattr(cli, "stop_connections", interrupted_once)
-    conn = object()
+    conn = cast("SerialConnection", object())  # _release only hands it to the patched stop_connections
 
     cli._release(conn)
 
@@ -560,7 +562,7 @@ def test_a_second_interrupt_does_not_skip_waiting_for_the_cancelled_run():
 
     runner = Runner()
 
-    cli._cancel_run(runner)
+    cli._cancel_run(cast("ScriptRunner", runner))
 
     assert runner.cancelled
     assert runner.joins == 2

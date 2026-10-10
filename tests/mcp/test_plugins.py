@@ -316,7 +316,7 @@ HANDLERS = {"test.hello": _h}
         # Should have one test.hello tool with v2 description
         plugin_tools = [t for t in tools if t.name == "test.hello"]
         assert len(plugin_tools) == 1
-        assert "v2" in plugin_tools[0].description
+        assert "v2" in (plugin_tools[0].description or "")
 
     def test_load_all_discovers_and_loads(self, tmp_path: Path) -> None:
         manager, tools, handlers = self._make_manager(tmp_path)
@@ -529,7 +529,7 @@ class TestPluginManagerPolicy:
 class TestPluginHandlers:
     """Tests for handler functions in serial_mcp_server.mcp.tools.plugin."""
 
-    def _setup(self, tmp_path: Path) -> tuple[Any, dict[str, Any]]:
+    def _setup(self, tmp_path: Path) -> tuple[dict[str, Any], PluginManager]:
         """Create a PluginManager with make_handlers. Returns (plugin_handlers, manager)."""
         from serial_mcp_server.mcp.tools.plugin import make_handlers
 

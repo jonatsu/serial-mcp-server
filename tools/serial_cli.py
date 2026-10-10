@@ -44,15 +44,18 @@ class McpClient:
             bufsize=1,
             env=env,
         )
+        if self.proc.stdin is None or self.proc.stdout is None or self.proc.stderr is None:
+            raise RuntimeError("the server's pipes were not created")
+        self.stdin, self.stdout, self.stderr = self.proc.stdin, self.proc.stdout, self.proc.stderr
 
     def send(self, msg):
-        self.proc.stdin.write(json.dumps(msg) + "\n")
-        self.proc.stdin.flush()
+        self.stdin.write(json.dumps(msg) + "\n")
+        self.stdin.flush()
 
     def recv(self):
         """Read one JSON-RPC response (skip notifications)."""
         while True:
-            line = self.proc.stdout.readline()
+            line = self.stdout.readline()
             if not line:
                 return None
             line = line.strip()
@@ -103,7 +106,7 @@ class McpClient:
     def initialize(self):
         time.sleep(0.5)
         if self.proc.poll() is not None:
-            stderr = self.proc.stderr.read()
+            stderr = self.stderr.read()
             print(f"  [error] Server exited with code {self.proc.returncode}")
             if stderr:
                 print(f"  [stderr] {stderr.strip()}")
@@ -123,7 +126,7 @@ class McpClient:
         )
         resp = self.recv()
         if resp is None:
-            stderr = self.proc.stderr.read()
+            stderr = self.stderr.read()
             print("  [error] No response to initialize")
             if stderr:
                 print(f"  [stderr] {stderr.strip()}")
