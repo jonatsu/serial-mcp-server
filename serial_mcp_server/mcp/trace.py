@@ -14,12 +14,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from serial_mcp_server.config import DEFAULT_TRACE_MAX_BYTES
+
 if TYPE_CHECKING:
     from serial_mcp_server.config import Settings
-
-# Default cut length of a traced payload (SERIAL_MCP_TRACE_MAX_BYTES sets the operator's value). The unit is
-# characters of the value, not encoded bytes; see ``_truncated``.
-DEFAULT_MAX_PAYLOAD_BYTES = 16384
 
 # ---------------------------------------------------------------------------
 # Sanitize args
@@ -30,7 +28,7 @@ _PAYLOAD_KEYS = {"data", "source", "vars"}
 
 
 def sanitize_args(
-    args: dict[str, Any], *, payloads: bool = False, max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
+    args: dict[str, Any], *, payloads: bool = False, max_bytes: int = DEFAULT_TRACE_MAX_BYTES
 ) -> dict[str, Any]:
     """Return a copy of *args* with payload values stripped, or cut to *max_bytes* when *payloads* is set.
 
@@ -73,8 +71,8 @@ class TraceBuffer:
     it is append-only, has no size cap or rotation, and is created with mode 0o644 before the umask applies.
 
     Arguments named ``data``, ``source``, or ``vars`` are payloads. ``sanitize`` removes them unless
-    *payloads* is set. When they are traced, a payload longer than *max_payload_bytes* characters (16384 by
-    default) is cut, so a long write or script shows only its start.
+    *payloads* is set. When they are traced, a payload longer than *max_payload_bytes* characters
+    (``DEFAULT_TRACE_MAX_BYTES`` by default) is cut, so a long write or script shows only its start.
     """
 
     def __init__(
@@ -83,7 +81,7 @@ class TraceBuffer:
         file_path: str | None = None,
         *,
         payloads: bool = False,
-        max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+        max_payload_bytes: int = DEFAULT_TRACE_MAX_BYTES,
     ) -> None:
         self._payloads = payloads
         self._max_payload_bytes = max_payload_bytes

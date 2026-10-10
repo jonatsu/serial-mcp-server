@@ -17,7 +17,7 @@ from serial_mcp_server.config import DEFAULT_SCRIPT_MAX_SECONDS, DEFAULT_SCRIPT_
 from serial_mcp_server.port.pacing import Pacing
 from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 from serial_mcp_server.script.directives import LINE_NAMES
-from serial_mcp_server.script.matcher import OutputMatcher
+from serial_mcp_server.script.matcher import FAIL_PATTERN_OVERLAP_CHARS, OutputMatcher
 from serial_mcp_server.script.model import Script, Step, StepKind
 from serial_mcp_server.script.results import (
     RunFailure,
@@ -42,9 +42,6 @@ _DEFAULT_TIMEOUT_SECONDS = 10.0
 # ``@expect`` consumed, or ``@discard`` dropped, is not in it, so the tail can be shorter than the output
 # that led to the failure.
 _MAX_OUTPUT_TAIL_CHARS = 2048
-# Must equal ``matcher._FAIL_PATTERN_OVERLAP_CHARS``, which is what the matcher actually carries over; see
-# there for the limit this sets.
-_FAIL_PATTERN_OVERLAP_CHARS = 256
 
 
 @dataclass(frozen=True)
@@ -268,7 +265,7 @@ class ScriptRunner:
                 )
                 self._request_stop(cause)
                 raise cause
-        self._fail_overlap_length = min(len(text), _FAIL_PATTERN_OVERLAP_CHARS)
+        self._fail_overlap_length = min(len(text), FAIL_PATTERN_OVERLAP_CHARS)
 
     def _check_runtime(self) -> None:
         self._check_stop()
