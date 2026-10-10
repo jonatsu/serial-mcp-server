@@ -283,7 +283,8 @@ async def handle_open(state: SerialState, args: dict[str, Any]) -> dict[str, Any
     if timeout_ms < 0 or write_timeout_ms < 0:
         return _err("invalid_params", "Timeouts must be non-negative.")
 
-    # Check for duplicate port
+    # Check for duplicate port. This knows only this server's connections: another program can hold the port,
+    # and without ``exclusive`` pyserial opens it shared.
     for conn in state.connections.values():
         if conn.port == port and conn.ser.is_open:
             return _err(
@@ -371,6 +372,8 @@ async def handle_close(state: SerialState, args: dict[str, Any]) -> dict[str, An
     run = state.script_jobs.active_for_connection(connection_id)
     if run is not None:
         run.runner.cancel()
+        # Waits up to 5 s for the runner. If it has not stopped by then, the connection is closed anyway, and
+        # the runner finishes against a stopped writer.
         await anyio.to_thread.run_sync(run.runner.join, SCRIPT_CANCEL_WAIT_SECONDS, abandon_on_cancel=True)
     # Remove the connection on the loop, then join its threads off it.
     conn = state.remove_connection(connection_id)

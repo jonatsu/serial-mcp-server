@@ -36,7 +36,8 @@ from serial_mcp_server.port.pacing import (
 # Constants
 # ---------------------------------------------------------------------------
 
-# Maximum read size to prevent accidental huge allocations.
+# Largest nbytes or max_bytes a read tool honors. A bigger request is clamped without an error, so check
+# n_read in the reply. It equals the read buffer's capacity, so a read can never return more than is held.
 MAX_READ_BYTES = 1_048_576  # 1 MiB
 MAX_WRITE_DELAY_MS = MAX_PACING_DELAY_MS
 PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
@@ -48,7 +49,11 @@ PACING_KEYS = ("inter_char_delay_ms", "chunk_size", "chunk_delay_ms")
 
 
 def _format_data(raw: bytes, fmt: str, encoding: str) -> dict[str, Any]:
-    """Format raw bytes according to *fmt* ("text", "hex", or "base64")."""
+    """Format raw bytes according to *fmt* ("text", "hex", or "base64").
+
+    Any other *fmt* means text. Text is decoded per call with replacement, so invalid bytes, and a multi-byte
+    character split between two reads, become U+FFFD; hex and base64 are exact.
+    """
     if fmt == "hex":
         return {"data": raw.hex(), "format": "hex"}
     if fmt == "base64":
@@ -243,6 +248,12 @@ TOOLS: list[Tool] = [
 
 
 async def handle_read(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+    """Read from the buffer; ``readline`` and ``read_until`` follow the same rules.
+
+    The wait defaults to the connection's read timeout. A request cancelled during the wait abandons its worker
+    thread without stopping it, so the thread can still take bytes that arrive before the timeout, and nobody
+    receives them.
+    """
     conn = state.get_connection(args["connection_id"])
     nbytes = min(int(args.get("nbytes", 256)), MAX_READ_BYTES)
     fmt = args.get("as", "text")
@@ -283,10 +294,12 @@ async def handle_write(state: SerialState, args: dict[str, Any]) -> dict[str, An
             return _err("invalid_value", "data is not valid hex.")
     elif fmt == "base64":
         try:
+            # Not strict: characters outside the base64 alphabet are skipped instead of rejected.
             payload = base64.b64decode(data_str)
         except Exception:
             return _err("invalid_value", "data is not valid base64.")
     else:
+        # A character the encoding cannot represent is replaced (with "?" in most codecs), not rejected.
         payload = data_str.encode(encoding, errors="replace")
 
     if append_newline:

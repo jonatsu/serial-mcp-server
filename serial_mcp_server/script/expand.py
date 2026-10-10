@@ -80,7 +80,11 @@ def _literal(text: str, decode_escapes: bool) -> str:
 
 
 def decode_escape_sequences(text: str) -> str:
-    """Decode ``\\r``, ``\\n``, ``\\t``, ``\\xHH``, and ``\\\\``; any other backslash sequence is an error."""
+    """Decode ``\\r``, ``\\n``, ``\\t``, ``\\xHH``, and ``\\\\``; any other backslash sequence is an error.
+
+    ``\\xHH`` gives the character U+00HH, not a byte. The runner encodes the text with the connection's
+    encoding, so under UTF-8 a value above ``\\x7f`` goes out as two bytes. Use ``@sendhex`` for raw bytes.
+    """
     out: list[str] = []
     index = 0
     while index < len(text):

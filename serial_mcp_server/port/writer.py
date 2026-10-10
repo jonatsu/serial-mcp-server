@@ -25,6 +25,8 @@ logger = logging.getLogger("serial_mcp_server")
 SOURCE_MCP = "mcp"
 SOURCE_MIRROR = "mirror"
 
+# Longest ``join`` waits for the writer thread at close. A thread still blocked in a serial write after that
+# is left running with a warning, and the caller goes on to close the port.
 JOIN_TIMEOUT_S = 3.0
 
 
@@ -45,7 +47,8 @@ class WriteAborted(Exception):
 
 
 # Without pacing, a file still goes out in segments so cancel and bytes_written
-# work as they do for paced writes.
+# work as they do for paced writes. Only file sends use it (``serial.send_file`` and ``@send_file``);
+# an unpaced ``serial.write`` is one segment. Segments follow each other with no delay, each after a flush.
 UNPACED_SEGMENT_BYTES = 4096
 
 
@@ -78,6 +81,12 @@ def write_serial_payload(
     on_sent: Callable[[bytes, int], None] | None = None,
 ) -> int:
     """Write bytes to a serial port, pausing between drained segments when paced.
+
+    Without pacing the whole payload is one segment, and so one ``ser.write`` call. That call runs under the
+    port's write timeout. With pyserial's POSIX backend that is
+    one budget for the whole call, so a payload the OS cannot buffer and send within it fails with
+    ``WriteAborted``. *cancel* is checked only between segments, so an unpaced write cannot be cancelled
+    once it has started.
 
     Returns:
         The number of bytes the port accepted.
@@ -124,8 +133,11 @@ def _fail(job: WriteJob, exc: BaseException) -> None:
 class SerialWriter:
     """Runs write jobs for one serial port, one at a time, in submission order.
 
-    The writer owns the connection's default pacing and taps the bytes the port accepts into the port log. Changing ``pacing``
-    affects jobs submitted afterwards.
+    The writer owns the connection's default pacing and taps the bytes the port accepts into the port log.
+    Changing ``pacing`` affects jobs submitted afterwards.
+
+    The queue has no size limit. Only mirror input is bounded, by the reader (``MIRROR_BACKLOG_LIMIT``), which
+    checks ``pending_bytes``.
     """
 
     def __init__(self, ser: Any, pacing: Pacing = NO_PACING, log_slot: PortLogSlot | None = None) -> None:
@@ -164,7 +176,11 @@ class SerialWriter:
             return self._pending_bytes.get(source, 0)
 
     def discard_pending(self) -> None:
-        """Fail every queued job and cancel the running one."""
+        """Fail every queued job and cancel the running one.
+
+        The cancel takes effect at the next segment boundary or pause, so an unpaced write that has already
+        started still completes.
+        """
         with self._cond:
             queued = self._drain_locked()
         for job in queued:

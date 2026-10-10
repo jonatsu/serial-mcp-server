@@ -16,7 +16,11 @@ from serial_mcp_server.port.writer import WriteAborted, WriterClosed
 
 
 def duration_error(estimate_seconds: float, cap: float) -> dict[str, Any] | None:
-    """Return an error when an estimated transfer time exceeds the server-wide *cap*, in seconds."""
+    """Return an error when an estimated transfer time exceeds the server-wide *cap*, in seconds.
+
+    The cap is ``SERIAL_MCP_MAX_WRITE_SECONDS``, 60 s by default. A zero estimate, which an unpaced
+    ``serial.write`` has, is never rejected.
+    """
     if estimate_seconds <= 0:
         return None
     if estimate_seconds <= cap:

@@ -31,7 +31,9 @@ from serial_mcp_server.script.runner import SCRIPT_CANCEL_WAIT_SECONDS, ScriptRu
 
 logger = logging.getLogger("serial_mcp_server")
 
+# Largest script, in UTF-8 bytes, whether inline or from a file. A larger one is rejected, not cut.
 MAX_SCRIPT_BYTES = 256 * 1024
+# Largest ``wait_ms`` of ``serial.script.run``. A larger value is rejected, not clamped.
 MAX_WAIT_MS = 60_000
 
 _RUN_ID = {"type": "string", "description": "The run_id that serial.script.run returned."}
@@ -230,6 +232,12 @@ def _job_status(run: ScriptRun, *, include_runner_result: bool = False) -> dict[
 
 
 async def handle_script_run(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+    """Parse a script, start it in the background, and optionally wait up to ``wait_ms`` for its end.
+
+    With ``log`` true (the default) the run starts a port log unless the connection already has one, and
+    closes that log when the run ends; a log that was already active is left running. Only the last 20
+    finished runs stay queryable (``ScriptJobs``).
+    """
     connection_id = args["connection_id"]
     if not isinstance(connection_id, str):
         return _err("invalid_params", "connection_id must be a string.")
@@ -363,6 +371,8 @@ async def handle_script_status(state: SerialState, args: dict[str, Any]) -> dict
         identifier = f"run_id {run_id!r}" if run_id is not None else f"connection_id {connection_id!r}"
         return _err("not_found", f"No retained script run for {identifier}.")
     if run.runner.done.is_set() and not run.finished.is_set():
+        # The runner has a result, but its watcher thread may still be closing the run's log. Wait up to 5 s
+        # for it, so the status carries the final result and log paths; after that, report what there is.
         await anyio.to_thread.run_sync(run.finished.wait, 5.0, abandon_on_cancel=True)
     return _job_status(run)
 
@@ -390,6 +400,11 @@ async def handle_script_cancel(state: SerialState, args: dict[str, Any]) -> dict
 
 
 def _list_scripts(root: Path) -> list[dict[str, Any]]:
+    """List the regular files directly in *root*, by name, with their sizes and first comment lines.
+
+    Subdirectories and symbolic links are skipped, and a missing directory gives an empty list. A file that
+    cannot be read is logged and left out.
+    """
     try:
         entries = sorted(root.iterdir(), key=lambda path: path.name)
     except FileNotFoundError:

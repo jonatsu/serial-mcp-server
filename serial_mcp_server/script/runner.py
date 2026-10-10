@@ -32,9 +32,18 @@ from serial_mcp_server.script.results import (
 )
 from serial_mcp_server.script.session import PortSession
 
-SCRIPT_CANCEL_WAIT_SECONDS = 5.0  # how long a cancel waits for the runner thread
+# How long a cancel waits for the runner thread: ``serial.script.cancel``, ``serial.close``, and the command's
+# Ctrl-C. After that they go on; the cancel tool then reports ``cancel_requested`` rather than the result. A
+# regex search already running cannot be interrupted, so the wait may end before it does.
+SCRIPT_CANCEL_WAIT_SECONDS = 5.0
+# The timeout of ``@expect`` and the prompt wait until a script sets ``@timeout``.
 _DEFAULT_TIMEOUT_SECONDS = 10.0
+# Characters of unconsumed device output kept in a failure's ``output_tail``. Output that an earlier
+# ``@expect`` consumed, or ``@discard`` dropped, is not in it, so the tail can be shorter than the output
+# that led to the failure.
 _MAX_OUTPUT_TAIL_CHARS = 2048
+# Must equal ``matcher._FAIL_PATTERN_OVERLAP_CHARS``, which is what the matcher actually carries over; see
+# there for the limit this sets.
 _FAIL_PATTERN_OVERLAP_CHARS = 256
 
 
@@ -78,6 +87,12 @@ class _RunExecution:
 
 @dataclass
 class _ActiveFailPattern:
+    """An ``@fail_on`` pattern in force.
+
+    ``skip_chars`` is the overlap the matcher prepends to the next check, which came from before this pattern
+    was added. Skipping it keeps the pattern from matching output that preceded its directive.
+    """
+
     pattern: _ScriptPattern
     skip_chars: int = 0
 
@@ -108,6 +123,9 @@ class ScriptRunner:
 
     Each pattern search stops at *pattern_timeout_seconds* and releases the interpreter lock while it runs,
     so a pattern that backtracks without end ends its own run and never freezes the server.
+
+    The run also ends once *max_seconds* have passed since it started (reason ``max_duration``). Waits are
+    checked against that deadline, but a step that has begun, such as a write, is not interrupted by it.
     """
 
     def __init__(

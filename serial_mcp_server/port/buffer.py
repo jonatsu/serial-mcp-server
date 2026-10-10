@@ -15,6 +15,7 @@ logger = logging.getLogger("serial_mcp_server")
 # ---------------------------------------------------------------------------
 
 
+# Also the most a single read tool returns (``MAX_READ_BYTES``).
 DEFAULT_BUFFER_BYTES = 1_048_576  # 1 MiB
 
 
@@ -22,7 +23,12 @@ class SerialBuffer:
     """Thread-safe byte buffer with blocking reads.
 
     The background reader writes into this buffer. MCP tool handlers
-    read from it.
+    read from it, and a read removes the bytes it returns.
+
+    The buffer holds at most *max_size* bytes. A write that would pass the limit drops the oldest unread bytes
+    and keeps the newest, so a device that sends faster than tools read loses its earlier output without an
+    error. The writer never blocks and the serial reader is never slowed. The loss shows only in
+    ``dropped_bytes`` (``serial.connection_status``) and as ``buffer_drop`` events in the port log.
     """
 
     def __init__(
@@ -55,7 +61,11 @@ class SerialBuffer:
             self._on_drop(excess)
 
     def read(self, nbytes: int, timeout: float) -> bytes:
-        """Read up to *nbytes*, blocking until data arrives or *timeout* expires."""
+        """Read up to *nbytes*, blocking until data arrives or *timeout* expires.
+
+        Returns as soon as any byte is buffered, so the result can be shorter than *nbytes*; it is empty
+        only on timeout.
+        """
         deadline = time.monotonic() + timeout
         with self._cond:
             while not self._buf:
@@ -69,7 +79,11 @@ class SerialBuffer:
             return result
 
     def read_until(self, delimiter: bytes, max_bytes: int, timeout: float) -> bytes:
-        """Read until *delimiter* is found, *max_bytes* reached, or *timeout* expires."""
+        """Read until *delimiter* is found, *max_bytes* reached, or *timeout* expires.
+
+        On a timeout or at *max_bytes* it returns whatever it has, without the delimiter, and removes those
+        bytes, so a partial reply is not left for the next read.
+        """
         deadline = time.monotonic() + timeout
         with self._cond:
             while True:
@@ -93,7 +107,7 @@ class SerialBuffer:
                 self._cond.wait(timeout=remaining)
 
     def clear(self) -> None:
-        """Discard all buffered data."""
+        """Discard all buffered data. It is not counted in ``dropped_bytes``."""
         with self._lock:
             self._buf.clear()
 

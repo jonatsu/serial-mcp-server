@@ -12,7 +12,9 @@ import stat
 from pathlib import Path, PurePath, PureWindowsPath
 
 READ_CHUNK_BYTES = 64 * 1024
-MAX_CONFINED_FILE_BYTES = 1_048_576  # 1 MiB; a confined file is held in memory whole
+# The size limit for ``serial.send_file`` and ``@send_file``. A larger file is refused, never truncated, and a
+# confined file is held in memory whole.
+MAX_CONFINED_FILE_BYTES = 1_048_576  # 1 MiB
 
 # O_BINARY keeps Windows from translating line endings; the others are absent on some platforms.
 _OPEN_FLAGS = (

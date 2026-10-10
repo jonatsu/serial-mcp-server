@@ -48,7 +48,12 @@ TOOLS: list[Tool] = [
 
 
 def _estimated_seconds(pacing: Pacing, size: int, baudrate: int) -> float:
-    """The larger of a transfer's pauses between segments and its time on the wire."""
+    """The larger of a transfer's pauses between segments and its time on the wire.
+
+    Unlike ``paced_transfer_seconds``, the wire time counts without pacing too. At the default 115200 baud and
+    60 s cap, a file over about 690 000 bytes is rejected even when unpaced; at 9600 baud the limit is
+    57 600 bytes.
+    """
     return max(pacing.estimated_seconds(size), wire_seconds(size, baudrate))
 
 

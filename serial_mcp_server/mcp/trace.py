@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from serial_mcp_server.config import Settings
 
+# Default cut length of a traced payload (SERIAL_MCP_TRACE_MAX_BYTES sets the operator's value). The unit is
+# characters of the value, not encoded bytes; see ``_truncated``.
 DEFAULT_MAX_PAYLOAD_BYTES = 16384
 
 # ---------------------------------------------------------------------------
@@ -30,7 +32,11 @@ _PAYLOAD_KEYS = {"data", "source", "vars"}
 def sanitize_args(
     args: dict[str, Any], *, payloads: bool = False, max_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
 ) -> dict[str, Any]:
-    """Return a copy of *args* with payload values stripped, or cut to *max_bytes* when *payloads* is set."""
+    """Return a copy of *args* with payload values stripped, or cut to *max_bytes* when *payloads* is set.
+
+    Only the top-level ``data``, ``source``, and ``vars`` arguments count as payloads. Every other argument,
+    such as a log mark label or a search query, is kept whole.
+    """
     out = copy.deepcopy(args)
     for key in _PAYLOAD_KEYS:
         if key not in out:
@@ -43,7 +49,11 @@ def sanitize_args(
 
 
 def _truncated(value: Any, max_bytes: int) -> Any:
-    """A string, or the JSON form of any other value, cut to *max_bytes*; short values stay as they are."""
+    """A string, or the JSON form of any other value, cut to *max_bytes*; short values stay as they are.
+
+    *max_bytes* counts characters, not encoded bytes. A non-string value that is cut becomes its truncated JSON
+    text, not a mapping.
+    """
     text = value if isinstance(value, str) else json.dumps(value, default=str)
     if len(text) > max_bytes:
         return text[:max_bytes] + "\u2026"
@@ -56,7 +66,16 @@ def _truncated(value: Any, max_bytes: int) -> Any:
 
 
 class TraceBuffer:
-    """Ring buffer of trace events with optional JSONL file sink."""
+    """Ring buffer of trace events with optional JSONL file sink.
+
+    The ring keeps the newest *max_items* events, 2000 by default and not configurable through ``Settings``;
+    older events leave the ring, so ``tail`` and ``status`` see only those. The file sink keeps every event:
+    it is append-only, has no size cap or rotation, and is created with mode 0o644 before the umask applies.
+
+    Arguments named ``data``, ``source``, or ``vars`` are payloads. ``sanitize`` removes them unless
+    *payloads* is set. When they are traced, a payload longer than *max_payload_bytes* characters (16384 by
+    default) is cut, so a long write or script shows only its start.
+    """
 
     def __init__(
         self,
@@ -101,6 +120,7 @@ class TraceBuffer:
         return items[-n:]
 
     def status(self) -> dict[str, Any]:
+        """Report the settings. ``event_count`` counts events still in the ring, up to *max_items*."""
         return {
             "enabled": True,
             "event_count": len(self._deque),

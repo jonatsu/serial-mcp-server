@@ -27,8 +27,11 @@ class SerialConnection:
     bytesize: int
     parity: str
     stopbits: float
-    timeout: float  # seconds
-    write_timeout: float  # seconds
+    # Seconds. The default wait of the read tools, and pyserial's read timeout, which is how long the reader
+    # thread blocks for one byte before it checks for a stop request. 200 ms unless ``serial.open`` set it.
+    timeout: float
+    # Seconds. How long one ``ser.write`` may block; see ``write_serial_payload``.
+    write_timeout: float
     encoding: str
     newline: str
     ser: pyserial.Serial
@@ -46,7 +49,11 @@ class SerialConnection:
 
 
 def stop_connections(conns: list[SerialConnection]) -> None:
-    """Signal every connection's threads before joining any, then close the logs and ports."""
+    """Signal every connection's threads before joining any, then close the logs and ports.
+
+    Each writer and reader join waits at most 3 s. A thread that has not stopped by then is left running, and
+    its port is closed anyway.
+    """
     for conn in conns:
         conn.writer.stop()
         if conn.reader is not None:

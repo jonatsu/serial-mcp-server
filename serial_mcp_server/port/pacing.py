@@ -5,8 +5,11 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-MAX_PACING_DELAY_MS = 1000  # longest pause between segments that a pacing setting may ask for
-BITS_PER_BYTE_ON_WIRE = 10  # start bit, 8 data bits, stop bit
+# Longest pause between segments that a pacing setting may ask for; a larger value is rejected, not clamped.
+MAX_PACING_DELAY_MS = 1000
+# Start bit, 8 data bits, stop bit. Fixed for every connection, so the wire-time estimate runs low for a port
+# with parity, extra stop bits, or more than 8 data bits.
+BITS_PER_BYTE_ON_WIRE = 10
 
 
 @dataclass(frozen=True)

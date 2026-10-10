@@ -39,6 +39,9 @@ class ScriptRun:
 class ScriptJobs:
     """Track connection claims and the process's most recent script runs."""
 
+    # Finished runs kept for the whole process, across all connections. A twenty-first finish evicts the
+    # oldest run, and ``serial.script.status`` and ``serial.script.cancel`` then answer ``not_found`` for its
+    # run_id. Its result file, if one was written, stays on disk. Nothing is kept across a server restart.
     _MAX_FINISHED = 20
 
     def __init__(self) -> None:

@@ -19,6 +19,7 @@ from serial_mcp_server.port.writer import SOURCE_MCP, UNPACED_SEGMENT_BYTES, Wri
 from serial_mcp_server.portlog.formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.script.matcher import OutputMatcher
 
+# Poll interval of a write wait. A cancel of the run reaches the writer within this long, not at once.
 _WRITE_WAIT_SECONDS = 0.05
 
 
@@ -59,6 +60,11 @@ class ConnectionSession:
         return self._submit(data, pacing, cancel)
 
     def send_file(self, path: Path, pacing: Pacing | None, cancel: threading.Event) -> int:
+        """Send a file of at most ``MAX_CONFINED_FILE_BYTES``, in 4096-byte segments when no pacing applies.
+
+        Unlike ``serial.send_file``, this applies no estimated-time cap. The run's ``max_seconds`` limit is
+        checked only after the file has been sent; a cancel stops it between segments.
+        """
         relative = path.relative_to(self._files_root.resolve()).as_posix()
         _resolved, payload = read_confined_file(self._files_root, relative, MAX_CONFINED_FILE_BYTES)
         effective_pacing = self._conn.writer.pacing if pacing is None else pacing

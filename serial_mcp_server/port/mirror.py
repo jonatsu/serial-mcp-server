@@ -23,9 +23,15 @@ logger = logging.getLogger("serial_mcp_server")
 
 _IS_UNIX = sys.platform != "win32"
 
-# Bytes typed into the mirror that may wait in the writer. Past this, the PTY
-# master leaves the select set and the excess waits in the kernel's PTY buffer.
+# Input from the PTY (rw mode) that may wait in the writer: read from the PTY, not yet written to the port.
+# At 115200 baud, 64 KiB is about six seconds of line time. Once the room left is under _PTY_READ_SIZE, the
+# PTY master leaves the select set. Nothing is dropped: the rest waits in the kernel's PTY buffer, and the
+# program writing to the slave blocks once that buffer is full, so a large paste is slowed to the port's
+# speed.
 MIRROR_BACKLOG_LIMIT = 64 * 1024
+# Bytes per ``os.read`` of the PTY master. Each read becomes one writer job, so a paste longer than this is
+# queued as several jobs and an MCP write submitted in between can run between them. The master is polled only
+# while at least this much room is left, which keeps the backlog at or under MIRROR_BACKLOG_LIMIT.
 _PTY_READ_SIZE = 4096
 
 # sys.platform rather than _IS_UNIX, so type checkers see these imports bound on Unix.
@@ -44,8 +50,17 @@ if sys.platform != "win32":
 class MirrorSession(ReaderThread):
     """Background reader that also tees serial data to a PTY.
 
-    In rw mode, data written to the PTY slave by an external tool
-    is forwarded to the real serial port.
+    Each received chunk goes to the read buffer, the port log, and the subscribers first, then to the PTY
+    master without blocking. That copy is best effort: when no program reads the slave and the PTY buffer is
+    full, it is dropped, and the return value of the write is ignored, so a chunk the PTY accepts only in part
+    loses its tail. The buffer and the log are unaffected.
+
+    In rw mode, data written to the PTY slave by an external tool is forwarded to the real serial port through
+    the writer, with the connection's pacing at that moment. The forward does not check for a running script,
+    so an operator can still send bytes to the device mid-run. Input past ``MIRROR_BACKLOG_LIMIT`` waits in
+    the kernel and is not lost. A forward that fails is only logged and is not retried
+    (``_log_forward_failure``). In ro mode the master is never read: input typed into the slave is neither
+    sent nor discarded, and it stays in the PTY buffer until that buffer is full.
     """
 
     def __init__(
@@ -70,7 +85,7 @@ class MirrorSession(ReaderThread):
         flags = fcntl.fcntl(self._master_fd, fcntl.F_GETFL)
         fcntl.fcntl(self._master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
 
-        # Put slave in raw mode and set baud rate.
+        # Put slave in raw mode and set the speed it reports. A rate with no termios constant reports 115200.
         try:
             tty.setraw(self._slave_fd)
             attrs = termios.tcgetattr(self._slave_fd)
@@ -84,7 +99,8 @@ class MirrorSession(ReaderThread):
         self.pty_slave_path: str = os.ttyname(self._slave_fd)
         self._mirror_index: int | None = None  # Set by create_reader if link is used.
 
-        # Create symlink if requested.
+        # Create symlink if requested. Whatever file or link already has that name is replaced; a directory
+        # is not, and the failure is only logged.
         self._link_created = False
         if self.link_path:
             try:
@@ -209,6 +225,11 @@ class MirrorSession(ReaderThread):
 
 
 def _log_forward_failure(future: Future[int]) -> None:
+    """Warn about a failed forward. Its input is lost, not retried.
+
+    A write timeout, or a ``serial.flush`` of output that discards the queue, fails the job. A closed writer
+    is expected at shutdown, so it does not warn.
+    """
     if future.cancelled():
         return
     exc = future.exception()
@@ -225,7 +246,11 @@ _mirror_indices_in_use: set[int] = set()
 
 
 def _acquire_mirror_index() -> int:
-    """Return the lowest available mirror index."""
+    """Return the lowest available mirror index.
+
+    Only this process tracks the indices. A second server using the same link base gets the same numbers, so
+    its link replaces the first one's, and either server removes the link when its connection closes.
+    """
     with _mirror_indices_lock:
         idx = 0
         while idx in _mirror_indices_in_use:
@@ -252,7 +277,8 @@ def create_reader(
     """Create the appropriate reader for a serial connection.
 
     *mirror_mode*: ``"off"``, ``"ro"``, or ``"rw"``. In ``rw`` mode the mirror
-    forwards PTY input through *writer*.
+    forwards PTY input through *writer*. A mirror needs a Unix platform; on Windows this returns a plain
+    reader without a warning (``config.load`` already turns the mode off with one).
     """
     if mirror_mode == "off" or not _IS_UNIX:
         return ReaderThread(ser, buffer, log_slot)

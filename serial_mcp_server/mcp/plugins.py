@@ -43,7 +43,8 @@ class PluginInfo:
 def load_plugin(plugin_path: Path) -> tuple[str, list[Tool], dict[str, Any], str, dict[str, Any]]:
     """Load a single plugin file/package and validate its exports.
 
-    Returns ``(name, tools, handlers, module_key)``.
+    Returns ``(name, tools, handlers, module_key, meta)``, where *meta* is ``{}`` unless the plugin exports a
+    ``META`` dict. This runs the plugin's top-level code.
     Raises ``ValueError`` on any validation failure.
     """
     resolved = plugin_path.resolve()
@@ -215,7 +216,8 @@ class PluginManager:
                 t.name = t.name.replace(".", self.tool_separator)
             handlers = {k.replace(".", self.tool_separator): v for k, v in handlers.items()}
 
-        # If already loaded, unload first (makes load idempotent)
+        # If already loaded, unload first (makes load idempotent). The collision check below comes after, so a
+        # collision at this point leaves the old version unloaded.
         if name in self.loaded:
             logger.info("Plugin %s already loaded — reloading", name)
             self.unload(name)
@@ -267,6 +269,8 @@ class PluginManager:
 
     def reload(self, name: str) -> PluginInfo:
         """Reload a plugin by name (unload then load).
+
+        If the load fails, the plugin stays unloaded and its tools are gone until a later load succeeds.
 
         Raises ``KeyError`` if the plugin is not loaded.
         """

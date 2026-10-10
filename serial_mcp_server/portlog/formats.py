@@ -37,6 +37,8 @@ class TextTimestamps(StrEnum):
 
 
 TEXT_TIMESTAMP_MODES = tuple(mode.value for mode in TextTimestamps)
+# Silence, in seconds, after which the lines log writes an unfinished line as a partial entry. A prompt that
+# ends without a newline therefore reaches that file only after this wait, or when the log closes.
 PARTIAL_IDLE_S = 0.5
 _EPOCH = datetime.fromtimestamp(0, UTC)
 
@@ -210,7 +212,11 @@ class TextWriter(_FileWriter):
 
 
 class RawWriter(_FileWriter):
-    """Received bytes only, byte-exact, for replay and binary diffing."""
+    """Received bytes only, byte-exact, for replay and binary diffing.
+
+    It records nothing else, not even an overflow marker, so bytes dropped under ``QUEUE_LIMIT_BYTES`` leave
+    a gap that only the log's ``dropped_bytes`` count reveals.
+    """
 
     def __init__(self, fh: BinaryIO, options: WriterOptions) -> None:
         super().__init__(fh)
@@ -221,7 +227,11 @@ class RawWriter(_FileWriter):
 
 
 class JsonlWriter(_FileWriter):
-    """One JSON object per chunk in either direction, plus control events."""
+    """One JSON object per chunk in either direction, plus control events.
+
+    A chunk is what the reader or writer handled at once, not a line. ``hex`` is exact; ``text`` is the same
+    bytes decoded with replacement, so invalid or split multi-byte characters appear as U+FFFD.
+    """
 
     def __init__(self, fh: BinaryIO, options: WriterOptions) -> None:
         super().__init__(fh)
@@ -259,6 +269,10 @@ class LinesWriter(_FileWriter):
     ``"partial": true``, so a prompt such as ``=> `` still appears. Bytes that arrive
     later on the same line start an entry with ``"continued": true``, so joining a
     partial entry with its continuations restores the line.
+
+    A line is held in memory until its newline arrives or its direction goes quiet for ``PARTIAL_IDLE_S``.
+    A device that streams without a newline and never pauses that long keeps one line growing. A trailing
+    carriage return is removed from complete lines only, and text is decoded with replacement.
     """
 
     def __init__(self, fh: BinaryIO, options: WriterOptions, idle_s: float = PARTIAL_IDLE_S) -> None:

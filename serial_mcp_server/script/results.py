@@ -152,6 +152,9 @@ class RunResult:
 def open_result_file(metadata: RunMetadata, started_at: datetime) -> tuple[Path, BinaryIO]:
     """Create the run's result file: ``metadata.result_path`` if set, else a new name in the result directory.
 
+    An explicit path must not exist, and is never overwritten. A generated name carries the start minute in
+    local time, with a number appended after the first file of that minute.
+
     Raises:
         OSError: The file cannot be created, or every name up to the limit is taken.
     """
