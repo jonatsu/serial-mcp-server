@@ -7,7 +7,13 @@ import threading
 import time
 from dataclasses import dataclass
 
+# Most unconsumed output, in decoded characters, that a run keeps for ``@expect`` and ``@prompt``. When output
+# arrives faster than the script consumes it, the oldest characters are dropped, an earlier match can be
+# lost, and the count appears as ``window_overflow`` in the result. ``@discard`` or a matching ``@expect``
+# frees room.
 _MAX_WINDOW_CHARS = 1_048_576
+# Characters of the previous check's text that the next ``@fail_on`` check searches again, so a match split
+# across two checks is still seen. A match longer than this that straddles two checks can be missed.
 _FAIL_PATTERN_OVERLAP_CHARS = 256
 
 
@@ -20,7 +26,13 @@ class OutputSnapshot:
 
 
 class OutputMatcher:
-    """Store decoded output while keeping pattern evaluation on the runner thread."""
+    """Store decoded output while keeping pattern evaluation on the runner thread.
+
+    Bytes are decoded with the connection's encoding as they arrive; an invalid sequence becomes U+FFFD, and a
+    character split between two chunks is held until it completes. Two views of the same output exist: the
+    window that ``@expect`` and ``@prompt`` consume from, which ``@discard`` empties, and a separate feed for
+    ``@fail_on`` that consumption never removes.
+    """
 
     def __init__(self, encoding: str) -> None:
         self._decoder: codecs.IncrementalDecoder = codecs.getincrementaldecoder(encoding)(errors="replace")

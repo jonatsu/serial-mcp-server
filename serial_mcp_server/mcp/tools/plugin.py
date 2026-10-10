@@ -212,6 +212,8 @@ def make_handlers(manager: PluginManager, server: Server) -> dict[str, Any]:
         except ValueError as exc:
             return _err("plugin_error", str(exc))
 
+        # The plugin is already reloaded; a failed notification only means the client was not told. Any error
+        # is swallowed, and ``notified`` reports the outcome. ``handle_plugin_load`` does the same.
         notified = False
         try:
             await server.request_context.session.send_tool_list_changed()

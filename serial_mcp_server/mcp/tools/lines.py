@@ -146,10 +146,17 @@ async def handle_set_rts(state: SerialState, args: dict[str, Any]) -> dict[str, 
     )
 
 
+# Longest pulse, in milliseconds. A larger duration_ms is clamped, not rejected; the reply reports the value
+# used.
 _MAX_PULSE_MS = 10_000
 
 
 async def handle_pulse_dtr(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+    """Pulse DTR low for ``duration_ms`` (100 ms by default, at most ``_MAX_PULSE_MS``), then set it high.
+
+    The wait is an event-loop sleep, so other tools run meanwhile. A request cancelled during the wait skips
+    the final step and leaves the line low. ``handle_pulse_rts`` behaves the same way.
+    """
     conn = state.get_connection(args["connection_id"])
     blocked = script_running_error(state, conn.connection_id)
     if blocked is not None:

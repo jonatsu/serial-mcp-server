@@ -1,11 +1,12 @@
 """Port log: a per-connection recording of the bytes on the wire.
 
-This is separate from the tool-call trace in ``trace.py`` and from the Python
+This is separate from the tool-call trace in ``mcp/trace.py`` and from the Python
 ``logging`` output. A ``PortLog`` owns a queue and one disk thread, so file
 writes never block the reader or writer threads. When the disk falls behind,
-entries are dropped and a marker records how many bytes were lost.
+entries are dropped and a marker records how many bytes were lost
+(``QUEUE_LIMIT_BYTES``).
 
-No MCP imports; the script engine reuses the file-opening helpers.
+No MCP imports. The script runner shares ``private_files`` with this module for creating its files.
 """
 
 from __future__ import annotations
@@ -38,8 +39,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("serial_mcp_server")
 
+# Received and sent payload bytes that may wait for the disk thread. Past this, a new rx or tx entry is
+# dropped whole and counted (``dropped_bytes`` in ``status``); the next entry accepted is preceded by an
+# overflow marker with the count. Events carry no payload, so they are never dropped. The text, jsonl, and
+# lines logs show the marker; the raw log has none, so a gap in it is visible only in ``dropped_bytes``.
+# Neither the reader nor the writer is slowed.
 QUEUE_LIMIT_BYTES = 8 * 1024 * 1024
+# How long ``close`` waits for the disk thread to write the queue and close the files. After that ``close``
+# returns while the thread finishes on its own, so file sizes read right then can fall short.
 CLOSE_JOIN_TIMEOUT_S = 5.0
+# Log files are named ``<prefix>-<DDMMYYYY>-<HHMM>[-<n>]``; see ``private_files.MAX_NAME_COLLISIONS``.
 LOG_FILE_PREFIX = "serial-mcp-log"
 
 # ---------------------------------------------------------------------------
@@ -52,8 +61,10 @@ class PortLog:
 
     ``rx``, ``tx``, and ``event`` never block: when the queued payload would
     exceed *queue_limit*, the entry is dropped and counted, and the next
-    accepted entry is preceded by an overflow marker with the count. After
-    ``close`` all three are no-ops.
+    accepted entry is preceded by an overflow marker with the count. A drop
+    judges each entry on its own size, so a small entry can still be accepted
+    right after a large one was dropped. After ``close`` all three are no-ops.
+    The files have no size limit or rotation.
     """
 
     def __init__(
@@ -103,6 +114,10 @@ class PortLog:
         self._put(KIND_EVENT, name=name, fields=fields)
 
     def status(self) -> dict[str, Any]:
+        """Report the files, the entries the disk thread has written, and the payload bytes dropped so far.
+
+        ``entries`` lags the queue and leaves out overflow markers.
+        """
         with self._cond:
             return {
                 "formats": list(self.files),

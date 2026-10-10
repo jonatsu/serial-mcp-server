@@ -26,7 +26,13 @@ class _ReaderSubscriber(Protocol):
 
 
 class ReaderThread:
-    """Background thread that continuously reads from a serial port into a buffer."""
+    """Background thread that continuously reads from a serial port into a buffer.
+
+    A read takes whatever ``in_waiting`` reports. When nothing is waiting it reads exactly one byte, blocking
+    up to the port's read timeout. The first byte after a quiet
+    period is therefore a chunk of its own, which shows as a one-byte ``rx`` entry in the jsonl port log. Each
+    chunk is logged, then buffered, then fed to the subscribers.
+    """
 
     def __init__(self, ser: Any, buffer: SerialBuffer, log_slot: PortLogSlot | None = None) -> None:
         self.ser = ser
@@ -47,7 +53,11 @@ class ReaderThread:
         self._stop.set()
 
     def join(self) -> None:
-        """Wait for the thread to exit. Call after ``signal_stop``."""
+        """Wait up to 3 s for the thread to exit. Call after ``signal_stop``.
+
+        A thread still blocked in a read with a longer port timeout is not waited for further. The handle is
+        dropped either way, so ``alive`` reports False afterwards.
+        """
         if self._thread is not None:
             self._thread.join(timeout=3)
             self._thread = None
@@ -97,6 +107,9 @@ class ReaderThread:
         for subscriber in subscribers:
             self._close_subscriber(subscriber)
 
+    # Failed reads in a row, 0.1 s apart (about one second), after which the thread gives up for good. It
+    # closes its subscribers and logs a warning; the connection stays registered, nothing else marks it as
+    # failed, and reads return only what was already buffered.
     _MAX_CONSECUTIVE_ERRORS = 10
 
     def _run(self) -> None:

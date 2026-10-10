@@ -31,9 +31,13 @@ EXIT_PASSED = 0
 EXIT_FAILED = 1
 EXIT_ERROR = 2
 EXIT_INTERRUPTED = 130
+# Progress poll interval. A step that starts and ends between two polls is never printed.
 _POLL_SECONDS = 0.2
 _DEFAULT_BAUD = 115200
+# Both the read and the write timeout of the port. Fixed: the command has no option for them, nor for data
+# bits, parity, stop bits, or pacing, which are always 8N1 with no pacing.
 _TIMEOUT_SECONDS = 0.2
+# Encoding and newline are fixed too; a script changes the newline with ``@newline``.
 _ENCODING = "utf-8"
 _NEWLINE = "\r\n"
 _CONNECTION_ID = "cli"

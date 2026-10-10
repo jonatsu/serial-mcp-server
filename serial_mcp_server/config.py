@@ -105,9 +105,15 @@ class Settings(BaseSettings):
     log_formats: Annotated[tuple[LogFormatName, ...], NoDecode] = Field(default=("text",), min_length=1)
     log_text_timestamps: TextTimestampMode = "off"
     log_level: LogLevel = "WARNING"
+    # Open connections in this process; one more fails the open with ``limit_reached``.
     max_connections: int = Field(default=10, gt=0)
+    # Cap on the estimated time of one paced write or file send, checked before any byte is sent. An unpaced
+    # ``serial.write`` has no estimate and is not capped. See ``mcp.writes.duration_error``.
     max_write_seconds: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    # Wall-clock limit of one script run; a run that reaches it ends ``failed`` with reason ``max_duration``.
     script_max_seconds: float = Field(default=DEFAULT_SCRIPT_MAX_SECONDS, gt=0, allow_inf_nan=False)
+    # Limit of one regular-expression search in a script; a pattern that runs longer ends the run ``errored``
+    # with reason ``regex_timeout``.
     script_pattern_seconds: float = Field(default=DEFAULT_SCRIPT_PATTERN_SECONDS, gt=0, allow_inf_nan=False)
     mirror: MirrorMode = "off"
     # A prefix, not a path: the mirror appends a number, so a trailing slash puts the links in a directory.
@@ -116,6 +122,7 @@ class Settings(BaseSettings):
     tool_separator: str = Field(default=".", min_length=1)
     trace_enabled: bool = True
     trace_payloads: bool = False
+    # Characters, not bytes, kept of each traced payload; see ``mcp.trace.TraceBuffer``.
     trace_max_bytes: int = Field(default=16384, gt=0)
 
     @classmethod

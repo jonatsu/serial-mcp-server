@@ -161,6 +161,10 @@ def search_spec(spec_root: Path, spec_id: str, query: str, k: int = 10) -> list[
 
     Returns up to *k* snippets with line numbers and context.
     Scoring: count of query terms found per line (case-insensitive).
+
+    The query splits on whitespace, and a term matches as a substring, not a whole word. Only the best *k*
+    lines come back (10 from the tool unless it passes another), highest score first and then in file order,
+    so a broad query can leave later matches out.
     """
     spec_data = read_spec(spec_root, spec_id)
     content = spec_data["content"]

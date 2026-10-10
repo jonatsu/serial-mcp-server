@@ -22,6 +22,9 @@ class StdinLines:
     a line or closed stdin. The daemon thread here holds up neither; the loop waits only on a memory stream. It reads
     the descriptor with ``os.read`` rather than through ``sys.stdin``, because a daemon thread blocked inside a
     buffered file holds that file's lock, and the interpreter aborts when it cannot take the lock at exit.
+
+    The thread reads ``READ_SIZE`` bytes at a time but hands over only complete lines; see ``_pump``. The
+    stream has no buffer, so the thread stops reading stdin while the server is still working on a line.
     """
 
     def __init__(self, fd: int | None = None) -> None:
@@ -49,11 +52,18 @@ class StdinLines:
             raise StopAsyncIteration from None
 
 
+# Bytes asked of each ``os.read``. A message longer than this arrives over several reads and is held, with no
+# size limit, until its newline arrives.
 READ_SIZE = 65536
 
 
 def _pump(fd: int, send: MemoryObjectSendStream[str], token: EventLoopToken) -> None:
-    """Hand each line read from *fd* to the event loop, then close *send* at end of file."""
+    """Hand each line read from *fd* to the event loop, then close *send* at end of file.
+
+    Bytes are split on the newline byte only, so a carriage return before it stays in the line. A line is
+    decoded as UTF-8 only once its newline has arrived, and invalid bytes become U+FFFD instead of an error. A
+    last line with no newline is sent as it is at end of file, without one.
+    """
     try:
         pending = b""
         while chunk := os.read(fd, READ_SIZE):

@@ -13,6 +13,9 @@ from typing import BinaryIO
 
 FILE_MODE = 0o600
 DIR_MODE = 0o700
+# Numbers tried for one base name before giving up. Names carry the minute and no seconds, so a minute that
+# already holds 1000 files of one kind (port logs sharing a format, or script results) makes the next create
+# fail with OSError.
 MAX_NAME_COLLISIONS = 1000
 
 
