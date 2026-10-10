@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from serial_mcp_server.config import DEFAULT_TRACE_MAX_BYTES
+from serial_mcp_server.private_files import FILE_MODE
 
 if TYPE_CHECKING:
     from serial_mcp_server.config import Settings
@@ -68,7 +69,8 @@ class TraceBuffer:
 
     The ring keeps the newest *max_items* events, 2000 by default and not configurable through ``Settings``;
     older events leave the ring, so ``tail`` and ``status`` see only those. The file sink keeps every event:
-    it is append-only, has no size cap or rotation, and is created with mode 0o644 before the umask applies.
+    it is append-only, has no size cap or rotation, and is readable by its owner only (``FILE_MODE``), like the
+    port logs, because traced payloads are the data sent to the device.
 
     Arguments named ``data``, ``source``, or ``vars`` are payloads. ``sanitize`` removes them unless
     *payloads* is set. When they are traced, a payload longer than *max_payload_bytes* characters
@@ -94,7 +96,9 @@ class TraceBuffer:
             # Open atomically without following symlinks (TOCTOU-safe)
             nofollow = getattr(os, "O_NOFOLLOW", 0)
             if nofollow:
-                fd = os.open(file_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | nofollow, 0o644)
+                fd = os.open(file_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | nofollow, FILE_MODE)
+                # The mode above applies only to a new file; a trace file from an earlier run is tightened too.
+                os.fchmod(fd, FILE_MODE)
                 self._fh = os.fdopen(fd, "a", encoding="utf-8")
             else:
                 # O_NOFOLLOW unavailable (Windows) — fall back to check-then-open

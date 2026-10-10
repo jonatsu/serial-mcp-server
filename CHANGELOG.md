@@ -18,6 +18,9 @@
 
 ### Fixed
 
+- The tool-call trace file, `.serial_mcp/traces/trace.jsonl`, is readable by its owner only (mode `0600`), like the\
+  port logs; a trace file from an earlier version is tightened when the server starts. Before, it was created readable\
+  by every user on the machine, and with `SERIAL_MCP_TRACE_PAYLOADS` it holds the data sent to the device.
 - The server reports its own version to MCP clients when they connect. Before, it reported the MCP SDK's version.
 - The demo device plugin returns an error when a command's write or read fails or its prompt never arrives, instead of\
   an empty success, and `demo.sample` waits long enough for up to 1000 samples. Its README says how to enable plugins\
