@@ -39,7 +39,7 @@ repos:
         args: ["--fix=no"]
       - id: trailing-whitespace
         # Keep two-space hard breaks in Markdown for mdformat, which rewrites them as backslash breaks.
-        args: ["--markdown-linebreak-ext=md,mkd,mkdn,markdown,mdx"]
+        args: ["--markdown-linebreak-ext=md"]
 
   # Secrets in the staged diff only; this does not scan history: https://github.com/betterleaks/betterleaks
   # The `betterleaks` id builds the Go binary; `betterleaks-system` uses an installed one.
