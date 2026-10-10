@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1
+
 ### Fixed
 
 - `serial.pulse_dtr` and `serial.pulse_rts` set the line high again when the request is cancelled during the pulse.\
