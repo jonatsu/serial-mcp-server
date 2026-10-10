@@ -69,7 +69,8 @@ TOOLS: list[Tool] = [
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Use right after serial.open, and whenever a device's commands are unknown: lists the registered "
-            "protocol specs with their metadata and the hints that match a spec to a device."
+            "protocol specs. Returns specs, each with spec_id, path, name, and kind, and a count. Pick the spec "
+            "whose name fits the device, then attach it with serial.spec.attach or read it with serial.spec.read."
         ),
         inputSchema={
             "type": "object",
