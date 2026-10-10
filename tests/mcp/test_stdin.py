@@ -78,3 +78,22 @@ def test_the_server_exits_on_sigint_while_its_client_keeps_stdin_open(tmp_path):
             server.kill()
             server.wait()
         server.stdin.close()
+
+
+async def test_a_line_split_across_reads_inside_a_multibyte_character_arrives_whole(monkeypatch):
+    import serial_mcp_server.mcp.stdin as stdin_module
+
+    monkeypatch.setattr(
+        stdin_module, "READ_SIZE", 1
+    )  # every byte is its own read, so every boundary is tried
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, '{"name": "Jyväskylä €"}\r\n{"b": 2}\n'.encode())
+        os.close(write_fd)
+
+        lines = [line async for line in StdinLines(read_fd)]
+    finally:
+        os.close(read_fd)
+
+    assert lines == ['{"name": "Jyväskylä €"}\r\n', '{"b": 2}\n']
+    assert [json.loads(line) for line in lines] == [{"name": "Jyväskylä €"}, {"b": 2}]
