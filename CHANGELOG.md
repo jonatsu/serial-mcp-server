@@ -107,7 +107,7 @@ interface. Releases are published on GitHub only; install from this repository.
   destructive tools stop asking for them.
 - The schema defaults of `newline` on `serial.open` and `delimiter` on `serial.read_until` are now the real characters\
   (`\r\n` and `\n`) that the server uses, not their backslash spellings.
-- The package's project URLs (homepage, repository, issues, changelog) now point to
+- The package's project URLs (homepage, repository, issues, changelog) now point to\
   <https://github.com/jonatsu/serial-mcp-server>.
 - `serial.write` returns `write_aborted` with `bytes_written` when a write stops early or times out partway. A write\
   still queued when the connection closes returns `connection_closed`, and `serial.flush` with `output` or `both` also\
