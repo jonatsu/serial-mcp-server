@@ -13,6 +13,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Update uv.lock within the ranges in pyproject.toml, never the ranges themselves: each upper cap, such as
+    # mcp<2, is deliberate, and raising one is a code change (see docs/roadmap.md).
+    versioning-strategy: lockfile-only
     groups:
       dependencies:
         patterns: ["*"]
