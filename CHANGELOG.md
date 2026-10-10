@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2
+
 ### Added
 
 - `serial_mcp_server.plugin_api` exports `ToolAnnotations`, so a plugin can mark its tools read-only or destructive\
