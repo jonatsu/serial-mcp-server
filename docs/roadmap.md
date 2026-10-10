@@ -100,3 +100,35 @@ increasing `t` in the log, the 500 ms idle default, the top-level fields of `ser
 `--var`, exit status 2 for a run that ends cancelled without an interrupt, a flush that cancels a running paced
 job, `serial.close` during a paced write at handler level, the next mirror forward after `serial.configure`, the
 forward-failure warning, and signalling every thread before joining.
+
+## From the Package Layout Work
+
+These came from the [package layout plan](plans/package-layout-implementation-plan.md), finished on 9 October 2026.
+
+### Exit on SIGINT alone
+
+After one Ctrl-C the server stays up until stdin closes, because the MCP SDK reads stdin in a worker thread; it
+then exits 0 with closed port logs. MCP clients close stdin to stop a server, so they are unaffected, but a
+person running the server in a terminal has to press Ctrl-D as well.
+
+### A bounded join in the script-run cleanup
+
+When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a
+limit. Bounding it needs a decision on releasing the connection's claim while the runner may still be running.
+
+### Direct tests of `mcp/writes.py`
+
+The `WriterClosed`, `WriteAborted`, and cancel branches of `run_write_job` are tested only through the tools.
+
+### A test of a write cancelled while still queued
+
+No test cancels a write that is still queued behind another, through the `serial.send_file` log path.
+
+### The integration harness on AnyIO
+
+`tests/integration/` still uses `asyncio` directly. It is a separate MCP client, so this is consistency only.
+
+### Write jobs below the MCP layer
+
+`run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner,
+would need them moved down; nothing needs that today.

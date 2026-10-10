@@ -719,4 +719,5 @@ contracts kept; Bandit no issues; `just integration` passed every scenario.
 
 Follow-ups, none blocking: direct tests of `mcp/writes.py`; the integration harness on AnyIO; a server that exits on
 SIGINT alone, before stdin closes; a bounded join in the rare `serial.script.run` cleanup path; and a test of a write
-cancelled while still queued. Nothing is pushed.
+cancelled while still queued. These are tracked in the [roadmap](../roadmap.md). Merged into `main` and pushed on
+10 October 2026.
