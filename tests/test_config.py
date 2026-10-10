@@ -269,3 +269,11 @@ class TestDataRoot:
         monkeypatch.chdir(tmp_path)
         result = config.load({}).data_root
         assert result == tmp_path / ".serial_mcp"
+
+
+def test_every_variable_is_documented_once_and_nothing_else_is():
+    """docs/configuration.md lists exactly the variables that ``Settings`` reads, so a new one cannot go unnoticed."""
+    table = (Path(__file__).parent.parent / "docs" / "configuration.md").read_text(encoding="utf-8")
+    documented = re.findall(r"^\| `(SERIAL_MCP_[A-Z_]+)` \|", table, flags=re.MULTILINE)
+
+    assert sorted(documented) == sorted({config.env_name(name) for name in config.Settings.model_fields})
