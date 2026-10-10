@@ -14,6 +14,7 @@ from serial_mcp_server.mcp.responses import (
     script_running_error,
 )
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID
 
 # ---------------------------------------------------------------------------
 # Tool definitions
@@ -23,13 +24,21 @@ TOOLS: list[Tool] = [
     # ---- set_dtr ----
     Tool(
         name="serial.set_dtr",
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
-        description="Set the DTR (Data Terminal Ready) control line. Usage is device-specific — check the protocol spec or ask the user.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+        ),
+        description=(
+            "Use when the protocol spec or the user says to hold the DTR (Data Terminal Ready) line high or low, "
+            "for example to keep a board in reset or select a boot mode. The effect is device-specific."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "value": {"type": ["boolean", "string"], "description": "True = high, False = low."},
+                "connection_id": CONNECTION_ID,
+                "value": {
+                    "type": ["boolean", "string"],
+                    "description": "true sets the line high, false sets it low.",
+                },
             },
             "required": ["connection_id", "value"],
         },
@@ -37,13 +46,21 @@ TOOLS: list[Tool] = [
     # ---- set_rts ----
     Tool(
         name="serial.set_rts",
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
-        description="Set the RTS (Request To Send) control line. Usage is device-specific — check the protocol spec or ask the user.",
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=True
+        ),
+        description=(
+            "Use when the protocol spec or the user says to hold the RTS (Request To Send) line high or low, "
+            "for example to select a boot mode. The effect is device-specific."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "value": {"type": ["boolean", "string"], "description": "True = high, False = low."},
+                "connection_id": CONNECTION_ID,
+                "value": {
+                    "type": ["boolean", "string"],
+                    "description": "true sets the line high, false sets it low.",
+                },
             },
             "required": ["connection_id", "value"],
         },
@@ -53,14 +70,14 @@ TOOLS: list[Tool] = [
         name="serial.pulse_dtr",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Pulse the DTR line: sets low, waits duration_ms, then sets high. "
-            "Commonly used to reset microcontrollers (e.g. Arduino, ESP32). "
-            "Check the protocol spec or ask the user before pulsing — effect is device-specific."
+            "Use to reset a board that resets on DTR, such as many Arduino and ESP32 boards, when the protocol "
+            "spec or the user confirms it: sets DTR low, waits duration_ms, then sets it high. The effect is "
+            "device-specific, so read the boot output afterwards."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
                 "duration_ms": {
                     "type": ["integer", "string"],
                     "default": 100,
@@ -75,14 +92,13 @@ TOOLS: list[Tool] = [
         name="serial.pulse_rts",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Pulse the RTS line: sets low, waits duration_ms, then sets high. "
-            "Some devices use RTS to enter bootloader mode. "
-            "Check the protocol spec or ask the user before pulsing — effect is device-specific."
+            "Use when the protocol spec or the user says a device resets or enters its bootloader on RTS: sets "
+            "RTS low, waits duration_ms, then sets it high. The effect is device-specific."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
                 "duration_ms": {
                     "type": ["integer", "string"],
                     "default": 100,

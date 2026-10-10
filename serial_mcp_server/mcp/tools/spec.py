@@ -8,18 +8,23 @@ from mcp.types import Tool, ToolAnnotations
 
 from serial_mcp_server.mcp.responses import _err, _ok
 from serial_mcp_server.mcp.state import SerialState
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID
 from serial_mcp_server.specs import store
 
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
 
+_SPEC_ID = {"type": "string", "description": "The spec_id from serial.spec.list or serial.spec.register."}
+
 TOOLS: list[Tool] = [
     Tool(
         name="serial.spec.template",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "Return a markdown template for a new serial protocol spec. Optionally pre-fill with a device name."
+            "Use when a device has no protocol spec and the user wants one: returns a Markdown template to fill "
+            "in with the commands, responses, and flows you learn, and a suggested_path. Save it there and "
+            "register it with serial.spec.register."
         ),
         inputSchema={
             "type": "object",
@@ -34,18 +39,22 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.register",
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        ),
         description=(
-            "Register a spec file in the index. Validates YAML front-matter "
-            "(requires kind: serial-protocol and name). The file path can be "
-            "absolute or relative to CWD."
+            "Use after writing or receiving a protocol spec file, so later sessions find it with "
+            "serial.spec.list: adds the file to the spec index and returns its spec_id. The file must lie inside "
+            "the project directory, the one that holds the data directory (.serial_mcp/ by default), and its "
+            "YAML front matter needs "
+            "kind: serial-protocol and a name. Registering the same file again refreshes its entry."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "Path to the spec markdown file.",
+                    "description": "Path to the spec's Markdown file, absolute or relative to the working directory.",
                 },
             },
             "required": ["path"],
@@ -54,7 +63,10 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.spec.list",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="List all registered specs with their metadata and matching hints.",
+        description=(
+            "Use right after serial.open, and whenever a device's commands are unknown: lists the registered "
+            "protocol specs with their metadata and the hints that match a spec to a device."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -63,9 +75,12 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="serial.spec.attach",
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        ),
         description=(
-            "Attach a registered spec to a connection session (in-memory only). "
+            "Use when serial.spec.list shows a spec that matches the open device. Attaches a registered spec "
+            "to a connection for this session only. "
             "The spec will be available via serial.spec.get for the duration of this connection. "
             "After attaching, check serial.plugin.list for a matching plugin, then present "
             "the user with their options: "
@@ -77,8 +92,11 @@ TOOLS: list[Tool] = [
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "spec_id": {"type": "string", "description": "The spec_id from serial.spec.register."},
+                "connection_id": CONNECTION_ID,
+                "spec_id": {
+                    "type": "string",
+                    "description": "The spec_id from serial.spec.list or serial.spec.register.",
+                },
             },
             "required": ["connection_id", "spec_id"],
         },
@@ -86,11 +104,14 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.spec.get",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Get the attached spec for a connection (returns null if none attached).",
+        description=(
+            "Use to recall which protocol spec applies to a connection: returns the attached spec, or null "
+            "when none is attached."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
             },
             "required": ["connection_id"],
         },
@@ -98,11 +119,14 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.spec.read",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Read full spec content, file path, and metadata by spec_id.",
+        description=(
+            "Use before sending commands to a device with a spec: returns the spec's full content, file path, "
+            "and metadata. For one command or topic, serial.spec.search is shorter."
+        ),
         inputSchema={
             "type": "object",
             "properties": {
-                "spec_id": {"type": "string"},
+                "spec_id": _SPEC_ID,
             },
             "required": ["spec_id"],
         },
@@ -111,13 +135,13 @@ TOOLS: list[Tool] = [
         name="serial.spec.search",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "Full-text search over a spec's content. Returns matching snippets "
+            "Use to look up one command, response, or error in a long spec: returns the matching snippets "
             "with line numbers and surrounding context."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "spec_id": {"type": "string"},
+                "spec_id": _SPEC_ID,
                 "query": {"type": "string", "description": "Search terms (space-separated)."},
                 "k": {
                     "type": ["integer", "string"],

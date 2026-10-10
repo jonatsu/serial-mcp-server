@@ -18,6 +18,7 @@ from serial_mcp_server.confined_files import read_confined_file
 from serial_mcp_server.mcp.responses import _coerce_bool, _err, _ok
 from serial_mcp_server.mcp.state import ScriptRun, SerialState
 from serial_mcp_server.mcp.threads import run_to_completion
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID
 from serial_mcp_server.port.connection import SerialConnection
 from serial_mcp_server.port.stack import conn_config
 from serial_mcp_server.portlog.formats import CLOSE_EVENT, LOG_FORMATS_SCHEMA, OPEN_EVENT
@@ -33,32 +34,44 @@ logger = logging.getLogger("serial_mcp_server")
 MAX_SCRIPT_BYTES = 256 * 1024
 MAX_WAIT_MS = 60_000
 
+_RUN_ID = {"type": "string", "description": "The run_id that serial.script.run returned."}
+
 TOOLS: list[Tool] = [
     Tool(
         name="serial.script.run",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Parse and run a serial script on one open connection. Pass exactly one of a confined script path "
-            "or inline source; the script owns that connection's writes and control lines until it finishes. "
-            "The default starts a port log when none is active. See docs/scripts.md for the language reference."
+            "Use for a repeatable sequence, such as a smoke test, a boot check, or a configuration that sends "
+            "commands and checks each reply, instead of many serial.write and serial.read calls. Runs a serial "
+            "script on one open connection in the background and returns a run_id; serial.script.template "
+            "returns the language reference. Pass exactly one of path or source. Nothing is sent unless the "
+            "whole script parses. The run owns the connection's writes and control lines until it ends; reads "
+            "still work. Poll serial.script.status for the outcome, or pass wait_ms to wait for it here."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "path": {"type": "string", "description": "Script path relative to SERIAL_MCP_SCRIPTS_DIR."},
+                "connection_id": CONNECTION_ID,
+                "path": {
+                    "type": "string",
+                    "description": "Script file relative to the scripts directory (SERIAL_MCP_SCRIPTS_DIR); serial.script.list shows them.",
+                },
                 "source": {"type": "string", "description": "Inline UTF-8 script source, up to 256 KiB."},
                 "vars": {
                     "type": "object",
                     "additionalProperties": {"type": "string"},
-                    "description": "Variables substituted by the script parser.",
+                    "description": "Values for the script's {{NAME}} variables. Results and status list only the names, but a value still reaches the device, the port log, and any @mark label or device echo that contains it.",
                 },
-                "log": {"type": ["boolean", "string"], "default": True},
+                "log": {
+                    "type": ["boolean", "string"],
+                    "default": True,
+                    "description": "Record the run in a port log, unless one is already active (default true).",
+                },
                 "log_formats": LOG_FORMATS_SCHEMA,
                 "wait_ms": {
                     "type": ["integer", "string"],
                     "default": 0,
-                    "description": "Wait at most 0–60000 milliseconds for a result; default 0 returns immediately.",
+                    "description": "Wait at most 0 to 60000 milliseconds for the run to end; default 0 returns at once.",
                 },
             },
             "required": ["connection_id"],
@@ -67,29 +80,43 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.script.status",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Inspect a script run by run_id, or the latest run on a connection_id.",
+        description=(
+            "Use after serial.script.run to follow a run and get its outcome: state, the current line, completed "
+            "steps, and elapsed time; once the run ends, the result, its failure with the device output that "
+            "preceded it, and the result and log file paths. Pass exactly one of run_id or connection_id, which "
+            "selects the latest run on that connection."
+        ),
         inputSchema={
             "type": "object",
-            "properties": {"run_id": {"type": "string"}, "connection_id": {"type": "string"}},
+            "properties": {"run_id": _RUN_ID, "connection_id": CONNECTION_ID},
             "required": [],
         },
     ),
     Tool(
         name="serial.script.cancel",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False),
-        description="Request cancellation of a script run and wait up to five seconds for it to stop.",
-        inputSchema={"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]},
+        description=(
+            "Use when the user wants a running script stopped, or a run is stuck: requests cancellation and "
+            "waits up to five seconds for it to stop. The device stays where the script left it."
+        ),
+        inputSchema={"type": "object", "properties": {"run_id": _RUN_ID}, "required": ["run_id"]},
     ),
     Tool(
         name="serial.script.list",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="List regular script files in SERIAL_MCP_SCRIPTS_DIR with sizes and first comment lines.",
+        description=(
+            "Use before writing a new script, to find one the user already keeps: lists the script files in the "
+            "scripts directory (SERIAL_MCP_SCRIPTS_DIR) with their sizes and first comment lines."
+        ),
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
     Tool(
         name="serial.script.template",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Return the script directive reference and an example script skeleton.",
+        description=(
+            "Use before writing a script: returns the language reference (lines, directives, variables, "
+            "matching) and an example script to adapt."
+        ),
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
 ]

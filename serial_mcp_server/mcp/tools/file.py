@@ -13,6 +13,7 @@ from serial_mcp_server.confined_files import MAX_CONFINED_FILE_BYTES, read_confi
 from serial_mcp_server.mcp.responses import _err, _ok, script_running_error
 from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.mcp.tools.io import parse_write_pacing
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID, pacing_properties
 from serial_mcp_server.mcp.writes import duration_error, run_write_job
 from serial_mcp_server.port.pacing import Pacing, wire_seconds
 from serial_mcp_server.port.writer import UNPACED_SEGMENT_BYTES
@@ -28,27 +29,17 @@ TOOLS: list[Tool] = [
             "Use for long inputs, such as a U-Boot environment or a shell script, that would otherwise go "
             "in serial.write arguments. Sends the file at path with the connection's pacing; pacing arguments "
             "override it, as on serial.write. Accepts regular files of at most 1 MiB inside the operator's "
-            "files directory (SERIAL_MCP_FILES_DIR). Returns bytes_written. "
+            "files directory (SERIAL_MCP_FILES_DIR), so the file must be there "
+            "before the call. Returns bytes_written. "
             "An estimated time over the server cap, or a transfer that stops early, returns the same errors "
             "as serial.write."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
+                "connection_id": CONNECTION_ID,
                 "path": {"type": "string", "description": "File path relative to the files directory."},
-                "inter_char_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override the delay between characters in milliseconds (0 disables; max 1000).",
-                },
-                "chunk_size": {
-                    "type": ["integer", "string"],
-                    "description": "Override bytes per chunk; set with chunk_delay_ms.",
-                },
-                "chunk_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Override the delay after each chunk in milliseconds (0 disables; max 1000).",
-                },
+                **pacing_properties(per_call=True),
             },
             "required": ["connection_id", "path"],
         },

@@ -18,7 +18,10 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.trace.status",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Return tracing config and event count.",
+        description=(
+            "Use to check whether tool-call tracing is on before relying on it: returns the tracing settings, "
+            "the trace file, and the number of recorded events."
+        ),
         inputSchema={
             "type": "object",
             "properties": {},
@@ -28,7 +31,13 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.trace.tail",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
-        description="Return last N trace events (default 50).",
+        description=(
+            "Use to review what happened in this session, for example to debug a failed sequence or to summarize "
+            "the steps for the user: returns the last n trace events, a start event with the arguments and an end "
+            "event with ok, the error code, and the duration for each tool call. "
+            "Written data, script sources, and script variables appear only when the operator turns on "
+            "payload tracing."
+        ),
         inputSchema={
             "type": "object",
             "properties": {

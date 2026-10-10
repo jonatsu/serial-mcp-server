@@ -22,6 +22,7 @@ from serial_mcp_server.mcp.responses import (
 from serial_mcp_server.mcp.state import SerialState
 from serial_mcp_server.mcp.threads import run_to_completion
 from serial_mcp_server.mcp.tools.io import PACING_KEYS, parse_write_pacing
+from serial_mcp_server.mcp.tools.schemas import CONNECTION_ID, pacing_properties
 from serial_mcp_server.port.connection import stop_connections
 from serial_mcp_server.port.stack import PortLogStartError, conn_config, open_port_stack
 from serial_mcp_server.portlog.formats import (
@@ -68,7 +69,11 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.list_ports",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-        description="List available serial ports on the system.",
+        description=(
+            "Use when the user mentions a device but not its port, or a port fails to open: lists the serial "
+            "ports on this machine with their description, USB vendor and product IDs, manufacturer, and serial "
+            "number, which identify the device."
+        ),
         inputSchema={"type": "object", "properties": {}, "required": []},
     ),
     # ---- open ----
@@ -77,23 +82,22 @@ TOOLS: list[Tool] = [
         # Opening a port can assert DTR/RTS and reset the target.
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
         description=(
-            "Open a serial port connection. Returns a connection_id for use with other serial tools. "
-            "The port stays open across tool calls until serial.close is called or the server exits. "
-            "Defaults are 115200 baud, 8N1, \\r\\n line terminator — the most common settings. "
-            "When the user asks to log or record the session, pass log=true; the response lists the log file paths. "
-            "If you don't know the correct settings, check for a protocol spec with serial.spec.list "
-            "or ask the user. Wrong baud rate is the most common cause of garbled data. "
-            "After opening: 1) Use serial.spec.list to check for a matching protocol spec. "
-            "If a match is found, attach it with serial.spec.attach. "
-            "2) Use serial.plugin.list to check for a plugin that matches the device. "
-            "If a matching plugin is loaded, its tools are available to use directly. "
-            "3) Do a serial.read to check for any buffered data — many devices "
-            "send a boot banner, prompt, or status message on connection."
+            "Use first whenever the user wants to talk to a serial device: opens the port and returns the "
+            "connection_id that every other serial tool takes. The port stays open across calls until "
+            "serial.close or the server exits. Defaults are 115200 baud, 8N1, and \\r\\n line endings. A wrong "
+            "baud rate is the usual cause of garbled text, so take the settings from a protocol spec or the user "
+            "when unsure. When the user asks to log or record the session, pass log=true; the response lists the "
+            "log files. After opening: 1) check serial.spec.list for the device's protocol spec and attach it "
+            "with serial.spec.attach; 2) check serial.plugin.list for plugin tools that fit the device; "
+            "3) call serial.read to collect the boot banner or prompt that many devices send on connect."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "port": {"type": "string", "description": "Serial port path (e.g. /dev/ttyUSB0, COM3)."},
+                "port": {
+                    "type": "string",
+                    "description": "Port path from serial.list_ports, such as /dev/ttyUSB0 or COM3.",
+                },
                 "baudrate": {
                     "type": ["integer", "string"],
                     "default": 115200,
@@ -120,52 +124,35 @@ TOOLS: list[Tool] = [
                 "timeout_ms": {
                     "type": ["integer", "string"],
                     "default": 200,
-                    "description": "Read timeout in milliseconds (default 200).",
+                    "description": "How long a read waits for data by default, in milliseconds (default 200).",
                 },
                 "write_timeout_ms": {
                     "type": ["integer", "string"],
                     "default": 200,
-                    "description": "Write timeout in milliseconds (default 200).",
+                    "description": "How long a write may block in the serial layer, in milliseconds (default 200).",
                 },
-                "inter_char_delay_ms": {
-                    "type": ["integer", "string"],
-                    "default": 0,
-                    "description": (
-                        "Delay between transmitted characters in milliseconds (0 disables pacing; max 1000). "
-                        "Applies to serial.write and read/write PTY forwarding. "
-                        "Cannot be combined with chunk pacing."
-                    ),
-                },
-                "chunk_size": {
-                    "type": ["integer", "string"],
-                    "default": 0,
-                    "description": "Bytes per chunk in chunk pacing mode; set with chunk_delay_ms (0 disables).",
-                },
-                "chunk_delay_ms": {
-                    "type": ["integer", "string"],
-                    "default": 0,
-                    "description": "Delay after each drained chunk in milliseconds (0 disables; max 1000).",
-                },
+                **pacing_properties(per_call=False),
                 "exclusive": {
                     "type": ["boolean", "string"],
-                    "description": "Request exclusive access (platform-dependent, ignored if unsupported).",
+                    "description": "Ask the operating system for exclusive access where it supports it.",
                 },
                 "encoding": {
                     "type": "string",
                     "default": "utf-8",
-                    "description": "Default text encoding for this connection (default utf-8).",
+                    "description": "Text encoding for reads and writes on this connection (default utf-8).",
                 },
                 "newline": {
                     "type": "string",
-                    "default": "\\r\\n",
-                    "description": "Default line terminator for readline and append_newline (default \\r\\n).",
+                    "default": "\r\n",
+                    "description": "Line terminator for serial.readline and append_newline (default \\r\\n).",
                 },
                 "log": {
                     "type": ["boolean", "string"],
                     "description": (
                         "Set true when the user asks to log or record the session: the server writes the bytes "
-                        "on the wire to log files it names, and the response lists their paths. "
-                        "Set false to skip logging that SERIAL_MCP_LOG would enable."
+                        "on the wire to log files it names, and the response lists their paths. Passing "
+                        "log_formats also turns logging on. Set false to skip the logging that SERIAL_MCP_LOG "
+                        "turns on by default."
                     ),
                 },
                 "log_formats": LOG_FORMATS_SCHEMA,
@@ -178,12 +165,13 @@ TOOLS: list[Tool] = [
     Tool(
         name="serial.close",
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=True),
-        description="Close a serial port connection and release the port.",
+        description=(
+            "Use when the work with a device is finished, or before another program needs the port: closes the "
+            "connection, stops its port log and any script run on it, and releases the port."
+        ),
         inputSchema={
             "type": "object",
-            "properties": {
-                "connection_id": {"type": "string", "description": "The connection_id from serial.open."},
-            },
+            "properties": {"connection_id": CONNECTION_ID},
             "required": ["connection_id"],
         },
     ),
@@ -192,51 +180,41 @@ TOOLS: list[Tool] = [
         name="serial.connection_status",
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
-            "Check whether a connection is open and return its configuration, buffered_bytes, and log files "
-            "when logging. dropped_bytes counts received bytes discarded because the 1 MiB read buffer filled "
-            "before anything read them; above zero, earlier output is lost, so read more often."
+            "Use to check one connection without reading from it: whether it is open, its settings, "
+            "buffered_bytes waiting to be read, and its log files when logging. dropped_bytes counts received "
+            "bytes discarded because the 1 MiB read buffer filled before anything read them; above zero, earlier "
+            "output is lost, so read more often."
         ),
         inputSchema={
             "type": "object",
-            "properties": {
-                "connection_id": {"type": "string", "description": "The connection_id from serial.open."},
-            },
+            "properties": {"connection_id": CONNECTION_ID},
             "required": ["connection_id"],
         },
     ),
-    # ---- 4b. configure ----
+    # ---- configure ----
     Tool(
         name="serial.configure",
-        annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
+        annotations=ToolAnnotations(
+            readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=False
+        ),
         description=(
-            "Reconfigure an open connection in place: write pacing, text encoding, or newline. "
-            "Use it instead of closing and reopening, which can toggle DTR/RTS and reset the device. "
-            "Pass pacing arguments as a complete set, as on serial.write; they replace the whole pacing mode. "
-            "A change applies to writes submitted afterwards."
+            "Use to change write pacing, text encoding, or newline on an open connection, instead of closing and "
+            "reopening, which can toggle DTR/RTS and reset the device. Pass pacing arguments as a complete set, "
+            "as on serial.write; they replace the whole pacing mode. A change applies to writes submitted "
+            "afterwards."
         ),
         inputSchema={
             "type": "object",
             "properties": {
-                "connection_id": {"type": "string"},
-                "inter_char_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Delay between transmitted characters in milliseconds (0 disables; max 1000).",
-                },
-                "chunk_size": {
-                    "type": ["integer", "string"],
-                    "description": "Bytes per chunk in chunk pacing mode; set with chunk_delay_ms (0 disables).",
-                },
-                "chunk_delay_ms": {
-                    "type": ["integer", "string"],
-                    "description": "Delay after each drained chunk in milliseconds (0 disables; max 1000).",
-                },
+                "connection_id": CONNECTION_ID,
+                **pacing_properties(per_call=False),
                 "encoding": {
                     "type": "string",
                     "description": "Text encoding for reads and writes, such as utf-8.",
                 },
                 "newline": {
                     "type": "string",
-                    "description": "Default line terminator for serial.readline and append_newline, such as \\r\\n.",
+                    "description": "Line terminator for serial.readline and append_newline, such as \\r\\n.",
                 },
             },
             "required": ["connection_id"],

@@ -344,8 +344,7 @@ LOG_FORMATS_SCHEMA: dict[str, Any] = {
         "text: received bytes unchanged. "
         "jsonl: every chunk in both directions plus control events. "
         "lines: one entry per line, with idle prompts flagged partial. "
-        "raw: received bytes, byte-exact. "
-        "Passing this on serial.open also enables logging."
+        "raw: received bytes, byte-exact."
     ),
 }
 LOG_TEXT_TIMESTAMPS_SCHEMA: dict[str, Any] = {
