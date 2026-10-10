@@ -86,7 +86,7 @@ Specs aren't just for the agent — they're structured protocol documentation th
 
 ## Plugins — giving the agent shortcut tools
 
-Plugins add device-specific tools to the server. Instead of the agent manually composing write/read sequences, a plugin provides high-level operations like `gps.get_position` or `sensor.read_temp`.
+Plugins add device-specific tools to the server. Instead of the agent manually composing write/read sequences, a plugin provides high-level operations like `gps.get_position` or `sensor.read_temp`. [Plugins](plugins.md) covers enabling, installing, and writing them; this section explains how they fit with the rest.
 
 ```
 .serial_mcp/
@@ -120,7 +120,7 @@ After opening a connection, the agent checks `serial.plugin.list`. Each plugin i
 
 ### AI-authored plugins
 
-The agent can also **create** plugins. Using `serial.plugin.template`, it generates a skeleton, fills in the implementation based on the device spec, and saves it to `.serial_mcp/plugins/`. After a server restart (or hot-reload), the new tools are available. Review generated plugins before enabling them in sensitive environments.
+The agent can also **create** plugins. Using `serial.plugin.template`, it generates a skeleton, fills in the implementation based on the device spec, and saves it to `.serial_mcp/plugins/`. `serial.plugin.load` then adds the new tools without a server restart, although some clients show them only after their own restart. Review generated plugins before enabling them in sensitive environments.
 
 This is the core loop: the agent explores a device, writes a plugin for it, and future sessions get shortcut tools.
 

@@ -12,7 +12,7 @@ Works out of the box with Claude Code, VS Code with Copilot, and any MCP-compati
 
 > **Example:** Let Claude Code list available serial ports, connect to your microcontroller, reset it via DTR, and read the boot banner from your hardware.
 
-### Demo
+## Demo
 
 [Video walkthrough](https://www.youtube.com/watch?v=FdFdXjoyyAM) — connecting to a serial device, sending commands, reading responses, and creating plugins.
 
@@ -51,17 +51,21 @@ The agent calls these tools, gets structured JSON back, and reasons about what t
 ## Quickstart (Claude Code)
 
 ```bash
-pip install serial-mcp-server
+# Install from this repository (or a wheel from its GitHub releases page)
+pip install git+https://github.com/jonatsu/serial-mcp-server.git
 
 # Register the MCP server with Claude Code
 claude mcp add serial -- serial_mcp
 ```
 
+The `serial-mcp-server` package on PyPI is the upstream project, [es617/serial-mcp-server](https://github.com/es617/serial-mcp-server),
+which does not have the features of this fork yet.
+
 Then in Claude Code, try:
 
 > "List available serial ports and connect to the one on /dev/ttyUSB0 at 115200 baud."
 
-<p align="center"><img src="https://raw.githubusercontent.com/es617/serial-mcp-server/main/docs/assets/scan.gif" alt="Scanning serial ports" width="600"></p>
+<p align="center"><img src="docs/assets/scan.gif" alt="Scanning serial ports" width="600"></p>
 
 ---
 
@@ -90,15 +94,20 @@ You can start with raw serial tools, then move up the stack as your device proto
 
 ---
 
-## Install (development)
+## Documentation
 
-```bash
-# Editable install from repo root
-pip install -e .
+| Document | What it covers |
+|---|---|
+| [Concepts](docs/concepts.md) | How the agent works with devices: the security model, specs, plugins, the PTY mirror, the port log, and scripts. |
+| [Configuration](docs/configuration.md) | Every `SERIAL_MCP_*` variable, and the data directory. |
+| [Tools](docs/tools.md) | Every MCP tool, with its arguments and results. |
+| [Scripts](docs/scripts.md) | The serial script language and the `serial_mcp_script` command. |
+| [Plugins](docs/plugins.md) | What plugins are, enabling and installing them, and writing one. |
+| [Roadmap](docs/roadmap.md) | Known work that is not done yet. |
+| [CHANGELOG](CHANGELOG.md) | What changed in each release. |
+| [Contributing](CONTRIBUTING.md) | Development setup, code layout, conventions, and releases. |
 
-# Or with uv
-uv pip install -e .
-```
+---
 
 > MCP is a protocol — this server works with any MCP-compatible client. Below are setup instructions for the most common ones.
 
@@ -161,30 +170,12 @@ Add to your project's `.cursor/mcp.json` (or create it). Cursor does not support
 }
 ```
 
-## Environment variables
+## Configuration
 
-The server and `serial_mcp_script` read these variables once, when they start. An unset or blank variable means its default. A boolean accepts `1`, `true`, `yes`, or `on`, and `0`, `false`, `no`, or `off`, in any case. Any other invalid value stops the start with exit status 2 and a message that names every invalid variable, so one start reports every mistake.
-
-| Variable | Default | Description |
-|---|---|---|
-| `SERIAL_MCP_SPEC_ROOT` | `.serial_mcp/` | The data directory that holds specs, plugins, scripts, files, logs, and traces. By default, the first `.serial_mcp/` from the working directory upwards, else one next to the nearest `.git/`, else one in the working directory. The directory variables below default to subdirectories of it. |
-| `SERIAL_MCP_MAX_CONNECTIONS` | `10` | Maximum simultaneous open serial connections. |
-| `SERIAL_MCP_PLUGINS` | disabled | Plugin policy: `all` to allow all, or `name1,name2` to allow specific plugins. Unset = disabled. |
-| `SERIAL_MCP_MIRROR` | `off` | PTY mirror mode: `off`, `ro` (read-only), or `rw` (read-write). macOS and Linux only. |
-| `SERIAL_MCP_MIRROR_LINK` | `/tmp/serial-mcp` | Base path for PTY symlinks. Connections get numbered: `/tmp/serial-mcp0`, `/tmp/serial-mcp1`, etc. |
-| `SERIAL_MCP_MAX_WRITE_SECONDS` | `60` | Cap on the estimated duration of a paced `serial.write` and of any `serial.send_file` transfer. The estimate is the larger of the pauses between segments and the time on the wire (ten bits per byte at the connection's baud rate). Longer writes are rejected with `invalid_params` before any byte is sent. Script writes are not subject to it. |
-| `SERIAL_MCP_SCRIPT_MAX_SECONDS` | `3600` | Maximum duration of one script run. A run that exceeds it fails with `max_duration`. |
-| `SERIAL_MCP_SCRIPTS_DIR` | `.serial_mcp/scripts/` | Directory for script files used by `serial.script.run` and `serial.script.list`. |
-| `SERIAL_MCP_FILES_DIR` | `.serial_mcp/files/` | The only directory `serial.send_file` reads from. Files must be regular and at most 1 MiB. Do not put hard links or bind mounts to sensitive files in it: the server cannot tell them from regular files. |
-| `SERIAL_MCP_LOG` | disabled | Set to a true value, such as `1`, to record every connection's bytes in a port log. `serial.open` can override it per connection with `log`. |
-| `SERIAL_MCP_LOG_FORMATS` | `text` | Comma-separated port log formats (`text`, `jsonl`, `lines`, `raw`) used when a connection does not choose its own. |
-| `SERIAL_MCP_LOG_TEXT_TIMESTAMPS` | `off` | Prefix each line of the `text` log with `[time delta]`: `off`, `elapsed`, or `system`. `serial.open` can override it with `log_text_timestamps`. |
-| `SERIAL_MCP_LOG_DIR` | `.serial_mcp/logs/` | Directory for port log and script result files. Files are created with mode `0600`. The server never deletes them, and every `serial.script.run` adds a result file and, when the connection has no active log, a port log. Point this at a directory you clean. There is no log rotation yet; defining one is future work. |
-| `SERIAL_MCP_LOG_LEVEL` | `WARNING` | Python log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). Logs go to stderr. |
-| `SERIAL_MCP_TRACE` | enabled | JSONL tracing of every tool call. Set to a false value, such as `0` or `off`, to disable. |
-| `SERIAL_MCP_TRACE_PAYLOADS` | disabled | Include write `data`, and the `source` and `vars` of `serial.script.run`, in traced args (stripped by default). |
-| `SERIAL_MCP_TRACE_MAX_BYTES` | `16384` | Max payload chars before truncation (only applies when `TRACE_PAYLOADS` is on). |
-| `SERIAL_MCP_TOOL_SEPARATOR` | `.` | Character used to separate tool name segments. Set to `_` for MCP clients that reject dots in tool names (e.g. Cursor). |
+The server reads `SERIAL_MCP_*` environment variables once, when it starts; the examples above set them with `-e` or
+`env`. The common ones are `SERIAL_MCP_PLUGINS` to enable plugins, `SERIAL_MCP_MIRROR` for the PTY mirror,
+`SERIAL_MCP_LOG` to record every connection, and `SERIAL_MCP_TOOL_SEPARATOR` for clients that reject dots in tool
+names. [Configuration](docs/configuration.md) lists every variable and its default.
 
 ---
 
@@ -227,43 +218,18 @@ You can create specs by telling the agent about your device — paste a datashee
 
 ## Plugins
 
-Plugins add device-specific shortcut tools to the server. Instead of the agent composing raw read/write sequences, a plugin provides high-level operations like `mydevice.read_temp` or `ota.upload_firmware`.
-
-The agent can also **generate** Python plugins (with your approval). It explores a device, writes a plugin based on what it learns, and future sessions get shortcut tools — no manual coding required.
-
-To enable plugins:
-
-```bash
-# Enable all plugins
-claude mcp add serial -e SERIAL_MCP_PLUGINS=all -- serial_mcp
-
-# Enable specific plugins only
-claude mcp add serial -e SERIAL_MCP_PLUGINS=mydevice,ota -- serial_mcp
-```
-
-Editing an already-loaded plugin only requires `serial.plugin.reload` — no restart needed.
+Plugins add device-specific shortcut tools to the server. Instead of the agent composing raw read/write sequences, a
+plugin provides high-level operations like `mydevice.read_temp` or `ota.upload_firmware`. They are Python modules in
+`.serial_mcp/plugins/`, off until `SERIAL_MCP_PLUGINS` enables them, and the agent can draft new ones for you to
+review. [Plugins](docs/plugins.md) covers enabling, installing, and writing them.
 
 ---
 
 ## Tracing
 
-Every tool call is traced to `.serial_mcp/traces/trace.jsonl` and an in-memory ring buffer (last 2000 events). Tracing is **on by default** — set `SERIAL_MCP_TRACE=0` to disable.
-
-### Event format
-
-Two events per tool call:
-
-```jsonl
-{"ts":"2025-01-01T00:00:00.000Z","event":"tool_call_start","tool":"serial.read","args":{"connection_id":"s1"},"connection_id":"s1"}
-{"ts":"2025-01-01T00:00:00.050Z","event":"tool_call_end","tool":"serial.read","ok":true,"error_code":null,"duration_ms":50,"connection_id":"s1"}
-```
-
-- `connection_id` is extracted from args when present
-- Write `data`, and the inline `source` and `vars` of `serial.script.run`, are stripped from traced args by default (enable with `SERIAL_MCP_TRACE_PAYLOADS=1`)
-
-### Inspecting the trace
-
-Use `serial.trace.status` to check config and event count, and `serial.trace.tail` to retrieve recent events — no need to read the file directly.
+Every tool call is traced to `.serial_mcp/traces/trace.jsonl` and an in-memory ring buffer of the last 2000 events.
+Tracing is on by default; `SERIAL_MCP_TRACE=0` turns it off. The agent reads recent events with `serial.trace.tail`;
+see [Tracing](docs/tools.md#tracing) for the event format.
 
 ---
 
@@ -290,7 +256,7 @@ screen /tmp/serial-mcp0 115200
 | `ro` | External tools see all serial data but cannot write to the device. |
 | `rw` | External tools can both see data and write to the device. |
 
-**Platform:** macOS and Linux only. On Windows, setting `SERIAL_MCP_MIRROR` to `ro`/`rw` logs a warning and is silently ignored.
+**Platform:** macOS and Linux only. On Windows, setting `SERIAL_MCP_MIRROR` to `ro`/`rw` logs a warning and is silently ignored. [Concepts](docs/concepts.md#pty-mirror--virtual-clone-ports) explains how the mirror works.
 
 ---
 
@@ -330,7 +296,7 @@ This software is provided as-is under the MIT License. You are responsible for w
 
 ## License
 
-This project is licensed under the MIT License — see [LICENSE](https://github.com/es617/serial-mcp-server/blob/main/LICENSE) for details.
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 
