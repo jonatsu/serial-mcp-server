@@ -63,7 +63,7 @@ skip_covered = false
 [tool.importlinter]
 root_package = "serial_mcp_server"
 
-# The layers of docs/plans/package-layout-design.md section 5.2, top first. A module may import from its own layer
+# The layers of docs/plans/archive/package-layout-design.md section 5.2, top first. A module may import from its own layer
 # and the layers below it; a layer whose modules are joined by ":" lets them import each other.
 [[tool.importlinter.contracts]]
 name = "every module imports only from its own layer and the layers below"

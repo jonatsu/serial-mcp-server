@@ -24,7 +24,7 @@ every traced tool call fail. A sink error should disable or report the sink inst
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running. From the\
-[package layout plan](plans/package-layout-implementation-plan.md).
+[package layout plan](plans/archive/package-layout-implementation-plan.md).
 
 ### `serial.trace.tail` with a zero or negative count
 
@@ -125,4 +125,4 @@ inodes and `/proc`, so they are weaker there and untested.
 
 `run_write_job` and the write-duration check live in `mcp/`. A non-MCP caller, such as the command-line runner, would\
 need them moved down; nothing needs that today. From the\
-[package layout plan](plans/package-layout-implementation-plan.md).
+[package layout plan](plans/archive/package-layout-implementation-plan.md).
