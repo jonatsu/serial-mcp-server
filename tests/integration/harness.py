@@ -269,29 +269,52 @@ class Paste:
 class Terminal:
     """Acts as a terminal emulator attached to the mirror's PTY slave."""
 
-    def __init__(self, path: str) -> None:
+    def __init__(
+        self, path: str, *, paused: bool = False, read_size: int = 4096, read_delay_s: float = 0
+    ) -> None:
         self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY)
         tty.setraw(self.fd)
         self.received = bytearray()
+        self._read_size = read_size
+        self._read_delay_s = read_delay_s
+        self._resume = threading.Event()
+        if not paused:
+            self._resume.set()
         self._stop = threading.Event()
         self._reader = threading.Thread(target=self._drain, name="terminal-drain", daemon=True)
         self._reader.start()
 
     def _drain(self) -> None:
         while not self._stop.is_set():
+            if not self._resume.wait(0.05):
+                continue
             ready, _, _ = select.select([self.fd], [], [], 0.05)
             if ready:
                 try:
-                    data = os.read(self.fd, 4096)
+                    data = os.read(self.fd, self._read_size)
                 except OSError:
                     return
                 self.received += data
+                if self._read_delay_s:
+                    self._stop.wait(self._read_delay_s)
+
+    def resume(self) -> None:
+        """Allow the viewer to consume output after a controlled stall."""
+        self._resume.set()
+
+    async def wait_total(self, count: int, timeout: float) -> bool:
+        """Wait for expected output before closing the terminal."""
+        deadline = time.monotonic() + timeout
+        while len(self.received) < count and time.monotonic() < deadline:
+            await anyio.sleep(0.005)
+        return len(self.received) >= count
 
     def paste(self, data: bytes, delay_s: float) -> Paste:
         return Paste(self.fd, data, delay_s)
 
     def close(self) -> None:
         self._stop.set()
+        self._resume.set()
         self._reader.join(2)
         os.close(self.fd)
 

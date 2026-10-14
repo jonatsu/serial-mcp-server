@@ -202,7 +202,14 @@ async def run_paste(
         finally:
             await probe.stop()
     measurements["probe"] = probe
-    measurements["terminal_received"] = len(terminal.received)
+    check.expect(
+        await terminal.wait_total(len(probe.data), 5), "mirror delivers all received output before close"
+    )
+    measurements["terminal_received"] = bytes(terminal.received)
+    check.expect(
+        measurements["terminal_received"] == bytes(probe.data),
+        "mirror output exactly matches the MCP receive stream",
+    )
     terminal.close()
     stop = await srv.call_ok("serial.log.stop", connection_id=cid)
     await srv.call_ok("serial.close", connection_id=cid)
@@ -375,6 +382,111 @@ def analyze_log_agreement(check: Check, log: LogFiles, oracle: bytes, typed: byt
 
 
 # --------------------------------------------------------------------------- bullet 3
+
+
+async def check_mirror_stall(srv: Any, device: Device) -> Check:
+    """A paused and then slow viewer receives long multiline output without gaps."""
+    check = Check("1c", "mirror preserves long multiline output through a controlled viewer stall")
+    opened = await open_device(srv, device)
+    cid = opened["connection_id"]
+    terminal = Terminal(opened["mirror"]["pty_path"], paused=True, read_size=256, read_delay_s=0.002)
+    text = b"wrap-" * 20_000 + b"\x1b[2K\x1b[1Gdone"
+    commands = b"echo " + text + b"\r\necho second line\r\n"
+    expected = text + b"\r\n> second line\r\n> "
+    probe = Probe(srv, cid)
+    try:
+        configured = await srv.call_ok(
+            "serial.configure", connection_id=cid, chunk_size=512, chunk_delay_ms=1
+        )
+        check.expect(configured["config"]["chunk_size"] == 512, "configuration updates the mirror writer")
+        async with anyio.create_task_group() as group:
+            probe.start(group)
+            try:
+                paste = terminal.paste(commands[:-1], 0)
+                await paste.wait(10)
+                # Split the final CRLF between submissions after all earlier input reached the PTY.
+                await terminal.paste(commands[-1:], 0).wait(5)
+                check.expect(
+                    await probe.wait_total(len(expected), 10) is not None,
+                    "MCP receives every device byte while the viewer is paused",
+                )
+                status = await srv.call_ok("serial.connection_status", connection_id=cid)
+                check.expect(
+                    status["mirror"]["state"] == "active" and status["mirror"]["pending_bytes"] > 0,
+                    "the stalled viewer leaves bounded output pending without failing",
+                )
+                terminal.resume()
+                check.expect(
+                    await terminal.wait_total(len(expected), 10), "slow viewer drains the complete stream"
+                )
+            finally:
+                await probe.stop()
+        check.expect(
+            bytes(probe.data) == expected, "MCP output matches the independent device-response oracle"
+        )
+        check.expect(bytes(terminal.received) == expected, "mirror preserves CRLF and escape bytes exactly")
+        stopped = await srv.call_ok("serial.log.stop", connection_id=cid)
+        log = load_log(stopped)
+        tx = [entry for entry in log.jsonl if entry.get("dir") == "tx"]
+        check.expect(
+            bool(tx)
+            and all(
+                entry.get("source") == "mirror" and len(bytes.fromhex(entry["hex"])) <= 512 for entry in tx
+            ),
+            "actual PTY forwarding uses updated chunk pacing and mirror attribution",
+        )
+        check.expect(log.raw == expected, "raw port log agrees with the device and mirror output")
+    finally:
+        terminal.close()
+        await srv.call_ok("serial.close", connection_id=cid)
+    return check
+
+
+async def check_mirror_overflow(srv: Any, device: Device) -> Check:
+    """An unattached viewer fails explicitly while MCP reception and logging continue."""
+    check = Check("1d", "mirror overflow leaves MCP reception, writes, and logging usable")
+    opened = await open_device(srv, device)
+    cid = opened["connection_id"]
+    probe = Probe(srv, cid)
+    line = b"z" * 65536
+    expected = (line + b"\r\n> ") * 20
+    try:
+        async with anyio.create_task_group() as group:
+            probe.start(group)
+            try:
+                for _ in range(20):
+                    await srv.call_ok(
+                        "serial.write", connection_id=cid, data="echo " + line.decode() + "\r\n"
+                    )
+                check.expect(
+                    await probe.wait_total(len(expected), 15) is not None,
+                    "MCP drains all output despite an unattached mirror exceeding its limit",
+                )
+                status = await srv.call_ok("serial.connection_status", connection_id=cid)
+                mirror = status["mirror"]
+                check.expect(
+                    mirror["state"] == "failed" and mirror["failure_reason"] == "output_overflow",
+                    "connection status reports output overflow explicitly",
+                )
+                check.expect(
+                    mirror["pending_bytes"] == 0 and mirror["undelivered_bytes"] > 1024 * 1024,
+                    "failure releases the queue and counts abandoned output",
+                )
+                check.expect(not os.path.lexists(mirror["link"]), "failed mirror symlink is removed")
+                await srv.call_ok("serial.write", connection_id=cid, data="ping\r\n")
+                expected += REPLY
+                check.expect(
+                    await probe.wait_total(len(expected), 5) is not None,
+                    "serial writes and reception remain usable after mirror failure",
+                )
+            finally:
+                await probe.stop()
+        check.expect(bytes(probe.data) == expected, "MCP stream remains byte-exact through mirror overflow")
+        stopped = await srv.call_ok("serial.log.stop", connection_id=cid)
+        check.expect(load_log(stopped).raw == expected, "port logging retains all received device bytes")
+    finally:
+        await srv.call_ok("serial.close", connection_id=cid)
+    return check
 
 
 async def check_send_file(srv: Any, device: Device, work: Path) -> Check:
@@ -975,6 +1087,8 @@ async def run_all(work: Path, fleet: Fleet, report: Report) -> dict[str, Check]:
 
     mcp_result: dict[str, Any] | None = None
     async with mcp_server(server_env(work), work / "server", work / "stderr-main.txt") as srv:
+        add(await guarded(report, "1c", "mirror stall", check_mirror_stall(srv, fleet.start())))
+        add(await guarded(report, "1d", "mirror overflow", check_mirror_overflow(srv, fleet.start())))
         # bullet 3
         add(await guarded(report, "3", "send_file", check_send_file(srv, fleet.start(), work)))
 
@@ -1047,7 +1161,11 @@ async def run_all(work: Path, fleet: Fleet, report: Report) -> dict[str, Check]:
 
 
 BULLETS = [
-    ("1", ["1", "1b"], "4 KiB paste at 8 ms/char does not delay serial.read output"),
+    (
+        "1",
+        ["1", "1b", "1c", "1d"],
+        "mirror bytes survive pacing and viewer stalls; overflow isolates failure",
+    ),
     ("2", ["2", "2b"], "jsonl/text/lines/raw agree on bytes and line boundaries"),
     ("3", ["3"], "send_file chunk pacing: paced tx segments between start and end"),
     ("4", ["4"], "script with prompt waits off passes via serial.script.run"),

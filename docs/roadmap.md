@@ -150,13 +150,8 @@ wait and claim release, the plugin path through `handle_write`, consumption at r
 result, the end-of-stream branch inside a wait, `O_NOFOLLOW` and `O_EXCL` in `open_exclusive` (masked by the\
 symbolic-link pre-check), a strictly increasing `t` in the log, the 500 ms idle default, the top-level fields of\
 `serial.script.status`, repeated `--var`, exit status 2 for a run that ends cancelled without an interrupt, a flush\
-that cancels a running paced job, `serial.close` during a paced write at handler level, the next mirror forward after\
-`serial.configure`, the forward-failure warning, and signalling every thread before joining.
-
-The\
-[mirror coverage unit](plans/mirror-reliability-implementation-plan.md#unit-3-integration-and-adjacent-mirror-coverage)\
-takes up post-configuration mirror pacing and forwarding-failure warnings. Inventory existing coverage before adding\
-tests; these two gaps remain here until their verification lands.
+that cancels a running paced job, `serial.close` during a paced write at handler level, and signalling every thread\
+before joining.
 
 ## Platform Support
 
