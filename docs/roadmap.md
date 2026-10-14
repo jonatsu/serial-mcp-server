@@ -9,6 +9,10 @@ Sections are in priority order, and so are the items within each section: defect
 security and operations, then features, test gaps, platforms, and internal structure and tooling. Place a new item by\
 the same rule.
 
+The [mirror reliability plan](plans/mirror-reliability-implementation-plan.md) owns mirror output preservation, trace\
+sink failures, trace-tail count validation, the port-log memory bound, and two mirror test gaps. These items are\
+planned, not implemented; the plan records their approval decisions and progress.
+
 Most items were collected from the archived\
 [pacing, logging, and script plan](plans/archive/pacing-logging-scripts-implementation-plan.md) and\
 [script runner design](plans/archive/script-runner-design.md) on 10 October 2026. An item with another source names it.
@@ -24,21 +28,11 @@ losing the first SIGINT's cancellation; the other jobs use the locked 4.15.1. Fi
 passed. The test now prints every thread's stack when the hang recurs, so read that output before choosing between a\
 fix and a higher AnyIO floor.
 
-### A trace file error fails the tool call
-
-`TraceBuffer.emit` writes the file sink without handling errors, so a full disk or a removed trace directory makes\
-every traced tool call fail. A sink error should disable or report the sink instead. From the code comment review.
-
 ### An unbounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running. From the\
 [package layout plan](plans/archive/package-layout-implementation-plan.md).
-
-### `serial.trace.tail` with a zero or negative count
-
-`TraceBuffer.tail(0)` returns every event, because `items[-0:]` is the whole list, and a negative count returns an odd\
-slice. The tool passes `n` through unchecked. From the code comment review.
 
 ### Shutdown limit and worker threads
 
@@ -60,11 +54,6 @@ collision-free names stop after 1,000 files with the same timestamp prefix.
 
 `serial.spec.register` reads any file under the project root that has valid front matter and returns its content. If\
 the agent should read nothing outside the data directories, this channel needs its own review.
-
-### Port log memory bound
-
-The queue limit counts payload bytes only, so a stalled disk lets many small entries and events use more memory than\
-the 8 MiB limit.
 
 ### Default data directory
 
@@ -135,8 +124,8 @@ wait and claim release, the plugin path through `handle_write`, consumption at r
 result, the end-of-stream branch inside a wait, `O_NOFOLLOW` and `O_EXCL` in `open_exclusive` (masked by the\
 symbolic-link pre-check), a strictly increasing `t` in the log, the 500 ms idle default, the top-level fields of\
 `serial.script.status`, repeated `--var`, exit status 2 for a run that ends cancelled without an interrupt, a flush\
-that cancels a running paced job, `serial.close` during a paced write at handler level, the next mirror forward after\
-`serial.configure`, the forward-failure warning, and signalling every thread before joining.
+that cancels a running paced job, `serial.close` during a paced write at handler level, and signalling every thread\
+before joining.
 
 ## Platform Support
 
