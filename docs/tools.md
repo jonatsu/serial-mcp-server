@@ -753,10 +753,17 @@ Returns:
   "enabled": true,
   "event_count": 42,
   "file_path": ".serial_mcp/traces/trace.jsonl",
+  "file_state": "active",
+  "file_error": null,
   "payloads_logged": false,
   "max_payload_bytes": 16384
 }
 ```
+
+`file_state` is `disabled`, `active`, `failed`, or `closed`; in-memory tracing remains available when the file sink\
+fails. `file_error` reports a sanitized exception class and errno, without file contents or exception text. A runtime\
+write, flush, or cleanup failure disables the sink and emits one warning without changing tool results. File-sink\
+startup failures retain their existing behavior. Restart the server to retry a failed sink.
 
 ### serial.trace.tail
 

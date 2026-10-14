@@ -267,9 +267,9 @@ evidence and next action.
 | Reproduction and baseline | Complete | Baseline integration passed all eight groups; short-write and EAGAIN regressions failed before the fix. |
 | Reliable mirror delivery | Complete | 25 mirror tests, 822 full-suite tests, zero check errors, all integration groups pass; independent reviewer approved. |
 | Mirror integration coverage | Complete | Slow-viewer and overflow scenarios, 823 tests, zero check errors, full integration, and review pass. |
-| Trace sink isolation | Not started | Unit 4. |
+| Trace sink isolation | Complete | 43 focused tests, 833 full tests, checks, and independent review pass. |
 | Trace-tail validation | Not started | Unit 5. |
-| Port-log admission design | Evidence gathered; approval pending | Proposed admission contract below; implementation waits for its behavior decision. |
+| Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
 | Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
 | Final verification | Not started | Unit 8. |
 
@@ -313,7 +313,7 @@ line to rows 10 and 11, and displayed the following line separately; Minicom exi
 used as a byte oracle. The first smoke timed out during interactive exit; the retry handled the exit confirmation\
 and bounded cleanup. This verifies the tested wrapping configuration, not the user's still-unspecified shell setup.
 
-### Port-Log Admission Proposal for Unit 6
+### Approved Port-Log Admission Contract for Unit 6
 
 Read-only inspection confirmed that `_put` charges only payload bytes, `_run` releases their charge before writers\
 finish, and events and overflow markers have no entry budget. `_Decoder.follow` changes later decoding when a\
@@ -335,5 +335,11 @@ the accepted prefix, emits one warning, and exposes `admission_error`. Device I/
 `serial.log.stop` followed by `serial.log.start` on the same connection; it does not reopen the serial port.
 
 This changes the former guarantee that events are never dropped and charges in-flight payload against the existing\
-cap. These public behavior changes and limits need approval before unit 7. The mirror and trace units are independent\
-and remain authorized while that decision is pending.
+cap. The user approved these limits and the complete policy through the decision prompt. Unit 7 may implement it\
+after the trace units land. No further approval is needed for this accepted contract.
+
+Unit 4: eight new tests failed before the trace sink fix. Runtime write, flush, and close failures now disable file\
+output while retaining memory events and successful or rejected dispatcher results. `file_state` and sanitized\
+`file_error` expose health; the original error remains sticky if cleanup also fails. The focused suite passes 43\
+tests; the full suite passes 833 in 29.19 seconds. Checks report zero errors and 123 existing warnings. Independent\
+correctness review approved without findings. The trace-sink roadmap defect is removed with its changelog entry.

@@ -1,7 +1,10 @@
 """Unit tests for server-level helpers and build_server wiring."""
 
+import errno
 import json
+from unittest.mock import Mock
 
+import pytest
 from mcp.types import ListToolsRequest
 
 from serial_mcp_server.mcp.responses import _err, _ok, _result_text
@@ -188,3 +191,58 @@ class TestBuildServer:
 
         assert "serial_connections_list" in message
         assert "serial.connections.list" not in message
+
+
+@pytest.mark.parametrize("failure_event", ["tool_call_start", "tool_call_end"])
+@pytest.mark.parametrize("handler_fails", [False, True])
+async def test_trace_failure_preserves_handler_result(
+    settings, monkeypatch, caplog, failure_event, handler_fails
+):
+    from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+
+    from serial_mcp_server.mcp.server import build_server
+    from serial_mcp_server.mcp.tools import trace as trace_tools
+    from serial_mcp_server.mcp.trace import get_trace_buffer
+
+    calls = []
+
+    async def handler(_state, _args):
+        calls.append("called")
+        if handler_fails:
+            raise ValueError("handler rejected argument")
+        return _ok(answer="handler result")
+
+    monkeypatch.setitem(trace_tools.HANDLERS, "serial.trace.status", handler)
+    server, _state = build_server(settings)
+    buf = get_trace_buffer()
+    assert buf is not None
+    assert buf._fh is not None
+    buf._fh.close()
+    sink = Mock()
+
+    def write(text):
+        if json.loads(text)["event"] == failure_event:
+            raise OSError(errno.ENOSPC, "private trace content")
+        return len(text)
+
+    sink.write.side_effect = write
+    sink.close.side_effect = OSError(errno.EIO, "private cleanup content")
+    buf._fh = sink
+    request = CallToolRequest(
+        method="tools/call", params=CallToolRequestParams(name="serial.trace.status", arguments={})
+    )
+    result = await server.request_handlers[CallToolRequest](request)
+    assert isinstance(result.root, CallToolResult)
+    assert isinstance(result.root.content[0], TextContent)
+    payload = json.loads(result.root.content[0].text)
+
+    assert calls == ["called"]
+    if handler_fails:
+        assert payload == _err("invalid_params", "handler rejected argument")
+    else:
+        assert payload == _ok(answer="handler result")
+    assert [event["event"] for event in buf.tail()] == ["tool_call_start", "tool_call_end"]
+    assert buf.status()["file_state"] == "failed"
+    assert len(caplog.records) == 1
+    assert "private" not in caplog.text
+    buf.close()

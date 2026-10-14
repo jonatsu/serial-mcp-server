@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import stat
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -218,6 +220,8 @@ class TestHandlersTraceDisabled:
         result = await handle_trace_status(serial_state, {})
         assert result["ok"] is True
         assert result["enabled"] is False
+        assert result["file_state"] == "disabled"
+        assert result["file_error"] is None
 
     async def test_tail_disabled(self, monkeypatch, serial_state):
         monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", None)
@@ -250,3 +254,59 @@ class TestHandlersTraceEnabled:
         assert result["ok"] is True
         assert len(result["events"]) == 1
         assert result["events"][0]["data"] == 42
+
+
+class TestTraceFileFailures:
+    @pytest.mark.parametrize("operation", ["write", "flush", "close"])
+    def test_sink_failure_preserves_memory_and_warns_once(self, tmp_path, caplog, operation):
+        buf = TraceBuffer(file_path=str(tmp_path / "trace.jsonl"))
+        assert buf._fh is not None
+        buf._fh.close()
+        sink = Mock()
+        getattr(sink, operation).side_effect = OSError(errno.ENOSPC, "secret payload")
+        sink.close.side_effect = OSError(errno.ENOSPC, "secret cleanup")
+        buf._fh = sink
+        if operation == "close":
+            buf.close()
+        else:
+            buf.emit({"event": "first"})
+        buf.emit({"event": "after failure"})
+        buf.close()
+        buf.close()
+
+        assert buf.tail()[-1]["event"] == "after failure"
+        assert buf.status()["file_state"] == "failed"
+        assert buf.status()["file_error"] == {"class": "OSError", "errno": errno.ENOSPC}
+        assert len(caplog.records) == 1
+        assert "secret" not in caplog.text
+        assert sink.close.call_count == 1
+        assert sink.write.call_count == (0 if operation == "close" else 1)
+
+    def test_sink_states_follow_lifecycle(self, tmp_path):
+        memory = TraceBuffer()
+        assert memory.status()["file_state"] == "disabled"
+        assert memory.status()["file_error"] is None
+        memory.close()
+        assert memory.status()["file_state"] == "disabled"
+        file_buffer = TraceBuffer(file_path=str(tmp_path / "trace.jsonl"))
+        assert file_buffer.status()["file_state"] == "active"
+        file_buffer.close()
+        assert file_buffer.status()["file_state"] == "closed"
+        assert file_buffer.status()["file_error"] is None
+
+
+@pytest.mark.parametrize("failure", [ValueError("closed secret"), UnicodeError("encoding secret")])
+def test_non_os_file_failure_is_sanitized(tmp_path, caplog, failure):
+    buf = TraceBuffer(file_path=str(tmp_path / "trace.jsonl"))
+    assert buf._fh is not None
+    buf._fh.close()
+    sink = Mock()
+    sink.write.side_effect = failure
+    buf._fh = sink
+
+    buf.emit({"event": "retained"})
+
+    assert buf.status()["file_error"] == {"class": type(failure).__name__, "errno": None}
+    assert buf.tail()[0]["event"] == "retained"
+    assert "secret" not in caplog.text
+    buf.close()

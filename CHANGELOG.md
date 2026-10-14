@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- A runtime trace-file failure no longer prevents a tool from running or replaces its result. In-memory trace events\
+  remain available, and `serial.trace.status` reports the failed file sink.
+
 - PTY mirrors retain and retry output after partial writes or temporary terminal backpressure, instead of silently\
   losing bytes. CR, LF, and escape sequences pass through unchanged. A mirror that exceeds 1 MiB of pending output\
   or encounters an unrecoverable PTY error disconnects and reports its failure in connection status, while MCP reads\
