@@ -20,7 +20,8 @@ TOOLS: list[Tool] = [
         description=(
             "Use when you have lost track of a connection_id, or before opening a port that may already be "
             "open: lists every open connection with its port, baud rate, encoding, buffered bytes, mirror, and "
-            "timestamps. serial.connection_status gives one connection's full configuration."
+            "timestamps. Mirror metadata reports its delivery state, failure reason, and queued-output counters. "
+            "serial.connection_status gives one connection's full configuration."
         ),
         inputSchema={
             "type": "object",

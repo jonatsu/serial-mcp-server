@@ -91,6 +91,7 @@ TOOLS: list[Tool] = [
             "log files. After opening: 1) check serial.spec.list for the device's protocol spec and attach it "
             "with serial.spec.attach; 2) check serial.plugin.list for plugin tools that fit the device; "
             "3) call serial.read to collect the boot banner or prompt that many devices send on connect."
+            " When mirroring is enabled, mirror metadata includes its state and queued-output counters."
         ),
         inputSchema={
             "type": "object",
@@ -184,7 +185,9 @@ TOOLS: list[Tool] = [
             "Use to check one connection without reading from it: whether it is open, its settings, "
             "buffered_bytes waiting to be read, and its log files when logging. dropped_bytes counts received "
             "bytes discarded because the 1 MiB read buffer filled before anything read them; above zero, earlier "
-            "output is lost, so read more often."
+            "output is lost, so read more often. Mirror metadata includes state, failure_reason, pending_bytes, "
+            "and undelivered_bytes. A failed mirror leaves serial I/O running; stop any script, then close and "
+            "reopen the connection to recover the mirror, which can reset the device."
         ),
         inputSchema={
             "type": "object",

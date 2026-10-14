@@ -155,12 +155,19 @@ Returns:
   "mirror": {
     "pty_path": "/dev/ttys004",
     "link": "/tmp/serial-mcp0",
-    "mode": "ro"
+    "mode": "ro",
+    "state": "active",
+    "failure_reason": null,
+    "pending_bytes": 0,
+    "undelivered_bytes": 0
   }
 }
 ```
 
-The `mirror` field is only present when `SERIAL_MCP_MIRROR` is set to `ro` or `rw`.
+The `mirror` field is only present when `SERIAL_MCP_MIRROR` is set to `ro` or `rw`. It also includes `state`\
+(`active`, `failed`, or `closed`), `failure_reason` (null while healthy), `pending_bytes`, and `undelivered_bytes`.\
+A failed mirror retains its historical path and link in metadata; neither is attachable. See\
+[mirror delivery and recovery](concepts.md#architecture) for limits and counter meanings.
 
 ### serial.close
 
@@ -183,7 +190,7 @@ Check whether a serial connection is still open and return its configuration.
 ```
 
 Returns `{ "ok": true, "is_open": true, "config": { ... }, "buffered_bytes": 0, "dropped_bytes": 0 }`. Includes\
-`mirror` when active and `log` when logging.
+`mirror` when configured, including its failure state, and `log` when logging.
 
 `dropped_bytes` counts received bytes the 1 MiB read buffer discarded because nothing read them in time. A value above\
 zero means earlier output is lost, so read more often. Each drop also records a `buffer_drop` event in the port log.
@@ -612,7 +619,11 @@ Returns:
       "mirror": {
         "pty_path": "/dev/ttys004",
         "link": "/tmp/serial-mcp0",
-        "mode": "ro"
+        "mode": "ro",
+        "state": "active",
+        "failure_reason": null,
+        "pending_bytes": 0,
+        "undelivered_bytes": 0
       }
     }
   ],

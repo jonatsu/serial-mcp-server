@@ -215,6 +215,21 @@ mirror reads a paste in pieces of up to 4 KiB, each its own job, so an MCP write
 mode the writer holds at most 64 KiB of mirror input. Past that, the mirror stops reading the PTY, and the excess waits\
 in the kernel's PTY buffer, which slows the pasting terminal instead of losing bytes.
 
+Received output keeps its CR, LF, and escape bytes unchanged. The mirror retains partial writes and retries when the\
+terminal can accept more output. Its pending output is bounded to 1 MiB per connection. Reaching that limit fails the\
+mirror, including when no viewer is attached; it does not stop MCP reads, scripts, or the port log. An unrecoverable\
+PTY error also fails the mirror. The terminal disconnects and the symlink is removed. Writes already submitted from\
+the terminal keep their existing writer semantics; no further terminal input is accepted.
+
+Check the mirror's `state` and `failure_reason` in connection status before relying on it. `pending_bytes` counts\
+output waiting in the application queue. `undelivered_bytes` counts queued output discarded at failure, including\
+the chunk that exceeded the limit, or output abandoned on normal close. It cannot count bytes still in the kernel's\
+PTY buffer, so it is not a complete measure of what the viewer missed. Recover by closing and reopening the serial\
+connection, after stopping any running script. Reopening can toggle DTR or RTS and reset the device.
+
+The external CLI owns display wrapping, local echo, and its own newline settings. The mirror does not insert\
+linefeeds after carriage returns or alter terminal escape sequences.
+
 ### Modes
 
 | Mode | Data flow |
