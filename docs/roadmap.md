@@ -1,23 +1,30 @@
 # Roadmap
 
-This file lists the known work that no plan covers yet: deferred features, accepted limits worth revisiting, and gaps\
-in the tests. Each item says what is missing and why it matters. An item leaves this file when a design or plan takes\
-it up, or when it lands and the CHANGELOG records it. Add new follow-ups here rather than in a plan's execution record,\
-so they stay in one place.
+This file lists unfinished work: defects, deferred features, accepted limits worth revisiting, and test gaps. Each\
+item says what is missing and why it matters. When a plan takes an item up, link its implementation ledger here.\
+Remove the item when its verified fix lands and the CHANGELOG records it. Add new follow-ups here rather than in a\
+plan's execution record.
 
 Sections are in priority order, and so are the items within each section: defects that users can hit come first, then\
 security and operations, then features, test gaps, platforms, and internal structure and tooling. Place a new item by\
 the same rule.
 
-The [mirror reliability plan](plans/mirror-reliability-implementation-plan.md) owns mirror output preservation, trace\
-sink failures, trace-tail count validation, the port-log memory bound, and two mirror test gaps. These items are\
-planned, not implemented; the plan records their approval decisions and progress.
+The [mirror reliability plan](plans/mirror-reliability-implementation-plan.md) owns the selected mirror, trace,\
+port-log admission, and coverage work below. These items remain unfinished; the plan records approval decisions and\
+progress.
 
 Most items were collected from the archived\
 [pacing, logging, and script plan](plans/archive/pacing-logging-scripts-implementation-plan.md) and\
 [script runner design](plans/archive/script-runner-design.md) on 10 October 2026. An item with another source names it.
 
 ## Defects
+
+### Mirror output can lose bytes
+
+The mirror ignores partial PTY writes and discards output when the terminal cannot accept it. Losing CR/LF or escape\
+bytes can corrupt the display. The reported long-command wrapping cause remains unconfirmed.\
+[Mirror delivery and lifecycle](plans/mirror-reliability-implementation-plan.md#unit-2-reliable-mirror-delivery-and-lifecycle)\
+plans retained output and retries; implementation awaits approval.
 
 ### The server sometimes outlives Ctrl-C
 
@@ -28,11 +35,23 @@ losing the first SIGINT's cancellation; the other jobs use the locked 4.15.1. Fi
 passed. The test now prints every thread's stack when the hang recurs, so read that output before choosing between a\
 fix and a higher AnyIO floor.
 
+### A trace file error fails the tool call
+
+`TraceBuffer.emit` writes the file sink without handling errors, so a full disk can make traced tool calls fail.\
+[Trace failure isolation](plans/mirror-reliability-implementation-plan.md#unit-4-trace-file-failure-isolation) plans\
+disabling a failed sink while preserving tool results. From the code comment review; not implemented.
+
 ### An unbounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running. From the\
 [package layout plan](plans/archive/package-layout-implementation-plan.md).
+
+### `serial.trace.tail` with a zero or negative count
+
+`TraceBuffer.tail(0)` returns every event, and a negative count returns an odd slice. The tool passes `n` through\
+unchecked. [Trace-tail validation](plans/mirror-reliability-implementation-plan.md#unit-5-trace-tail-validation) plans\
+explicit count handling. From the code comment review; not implemented.
 
 ### Shutdown limit and worker threads
 
@@ -54,6 +73,20 @@ collision-free names stop after 1,000 files with the same timestamp prefix.
 
 `serial.spec.register` reads any file under the project root that has valid front matter and returns its content. If\
 the agent should read nothing outside the data directories, this channel needs its own review.
+
+### Port log admission memory bound
+
+The queue limit counts payload bytes only, so a stalled disk lets many small entries and events use more memory than\
+the 8 MiB limit.\
+[Port-log admission](plans/mirror-reliability-implementation-plan.md#unit-6-port-log-admission-design-checkpoint) plans\
+entry and metadata bounds after its event policy is settled. Not implemented.
+
+### Lines log buffers a continuously growing line
+
+`LinesWriter` holds each unfinished line until a newline arrives or its direction goes quiet for 500 ms. Continuous\
+output without either condition grows this buffer independently of the admission queue. Design a size-triggered\
+partial-line flush that preserves continuation and decoding semantics. This is separate from the mirror reliability\
+plan's admission bound. Found during that plan's review; not implemented.
 
 ### Default data directory
 
@@ -124,8 +157,13 @@ wait and claim release, the plugin path through `handle_write`, consumption at r
 result, the end-of-stream branch inside a wait, `O_NOFOLLOW` and `O_EXCL` in `open_exclusive` (masked by the\
 symbolic-link pre-check), a strictly increasing `t` in the log, the 500 ms idle default, the top-level fields of\
 `serial.script.status`, repeated `--var`, exit status 2 for a run that ends cancelled without an interrupt, a flush\
-that cancels a running paced job, `serial.close` during a paced write at handler level, and signalling every thread\
-before joining.
+that cancels a running paced job, `serial.close` during a paced write at handler level, the next mirror forward after\
+`serial.configure`, the forward-failure warning, and signalling every thread before joining.
+
+The\
+[mirror coverage unit](plans/mirror-reliability-implementation-plan.md#unit-3-integration-and-adjacent-mirror-coverage)\
+takes up post-configuration mirror pacing and forwarding-failure warnings. Inventory existing coverage before adding\
+tests; these two gaps remain here until their verification lands.
 
 ## Platform Support
 

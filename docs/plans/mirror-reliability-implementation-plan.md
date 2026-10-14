@@ -13,8 +13,8 @@ explicitly when delivery cannot continue. Preserve CR, LF, CRLF, and terminal es
 External terminal programs own rendering, wrapping, local echo, and their own terminal settings.
 
 Then address the selected [roadmap](../roadmap.md) items in this order: trace file failures, invalid trace-tail counts,\
-and the port-log memory bound. Include the mirror forwarding-failure warning and post-configuration pacing test gaps\
-with mirror work. Leave unrelated roadmap items in place.
+and the port-log admission memory bound. Include the mirror forwarding-failure warning and post-configuration pacing\
+test gaps with mirror work. Leave unrelated roadmap items in place.
 
 The observed wrapping defect remains unconfirmed. Local Linux probes preserved CR/LF and escape bytes through the\
 actual mirror in both directions. A separate burst probe delivered only 11,776 of 100,013 bytes to the mirror, losing\
@@ -67,12 +67,17 @@ Proposed trace-tail contract: zero returns an empty list, negative counts return
 retain current behavior. Preserve integer-string support and validate counts even when tracing is disabled. Approval of\
 this plan accepts that contract; update the tool's property description with it.
 
-### Port-Log Memory Bound
+### Port-Log Admission Retention
 
 The current 8 MiB cap counts payload bytes only. Queue entries, event dictionaries, and overflow markers also consume\
 memory. Add an entry-count limit and a bounded charge for retained metadata, retaining the existing payload-byte cap.\
 Account for the entry being processed as well as pending entries, and aggregate overflow evidence outside the queue so\
 reporting does not create another unbounded stream.
+
+This bounds admission retention, including the current disk-thread entry, rather than all memory used by logging.\
+Format-owned buffers are separate: `LinesWriter` can retain a continuously growing unfinished line. Its size-triggered\
+partial-line emission needs a separate behavior design, recorded in the roadmap. Do not claim this plan fixes that\
+format-buffer limit or add forced partial emission to unit 7.
 
 This unit starts with a design checkpoint. Determine conservative limits and metadata accounting from `Entry` and real\
 producers. Large marker labels require a metadata bound; an entry-count cap alone is insufficient. Do not claim an\
@@ -128,8 +133,8 @@ honestly; repair local in-scope defects without bypassing hooks or weakening che
 
 Update this ledger with revisions, evidence, findings, and deviations as each unit lands. Update affected behavior\
 documentation, tool descriptions and property descriptions, and `CHANGELOG.md` under `Unreleased` in the same behavior\
-commit. Roadmap entries transferred here are planned work, not completed fixes. Retain the remaining indirect-coverage\
-list there.
+commit. Keep planned roadmap entries linked to their units until verified fixes land. Remove only completed items\
+with their changelog entries; retain unrelated indirect-coverage items.
 
 The implementer reviews every diff. An independent code reviewer reviews substantive behavior units before dependent\
 work proceeds. Small trace-tail validation may use self-review plus focused behavioral tests. Final integration\
@@ -152,6 +157,9 @@ affected setup is unavailable.
 Run the shared checks and `just integration` for a baseline. Completion requires a regression that fails for the\
 demonstrated output-loss defect and a record separating proven transport behavior from rendering hypotheses. The\
 original wrapping report is not closed without a reproduction and passing evidence, or the user's confirmation.
+
+Keep a failing regression local until unit 2 supplies its fix. Commit it together with the passing implementation;\
+unit 1 is an evidence checkpoint, not a commit that leaves the suite red.
 
 ## Unit 2: Reliable Mirror Delivery and Lifecycle
 
@@ -224,7 +232,7 @@ Record the proposed constants, counters, saturation behavior, and recovery here.
 consequential choice before unit 7; do not silently drop decoding configuration. This checkpoint is complete when the\
 admission contract is concrete enough for regression tests and its behavior is accepted.
 
-## Unit 7: Bound Port-Log Retention
+## Unit 7: Bound Port-Log Admission Retention
 
 Implement the accepted admission contract in `serial_mcp_server/portlog/log.py` and `portlog/formats.py`. Update\
 `mcp/tools/log.py` status and stop responses together so both report complete loss or failure information. Preserve\
@@ -242,8 +250,8 @@ its scope.
 ## Unit 8: Final Verification and Closure
 
 Run shared checks and `just integration` on the combined tree. Review CR/LF preservation, delivery recovery, overflow\
-isolation, trace result preservation, trace-tail validation, and port-log retention against this plan. Obtain final\
-code review and a separate conformance review with the base and head revisions, this plan, and recorded evidence.
+isolation, trace result preservation, trace-tail validation, and port-log admission retention against this plan. Obtain\
+final code review and a separate conformance review with the base and head revisions, this plan, and recorded evidence.
 
 Resolve blocking findings and record limits of any external-CLI smoke test. Do not mark the original wrapping issue\
 fixed solely because byte-level tests pass. Update every affected ledger. When all units are complete, move this plan\
@@ -254,8 +262,8 @@ evidence and next action.
 
 | Work | Status | Evidence or next action |
 | -- | -- | -- |
-| Planning and roadmap transfer | Written and validated | Commit before plan-critic review. |
-| Plan-critic review | Pending | Review the committed draft; record findings and dispositions here. |
+| Planning and roadmap links | Committed | `82e81ce`: initial plan and roadmap ownership; review corrections follow. |
+| Plan-critic review | Complete | Both findings corrected and rechecked; verdict: proceed, subject to user approval. |
 | User approval | Pending | Implementation waits for approval and the mirror overflow decision. |
 | Reproduction and baseline | Not started | Unit 1. Earlier mirror tests: 16 passed. |
 | Reliable mirror delivery | Not started | Unit 2. |
@@ -263,7 +271,7 @@ evidence and next action.
 | Trace sink isolation | Not started | Unit 4. |
 | Trace-tail validation | Not started | Unit 5. |
 | Port-log admission design | Not started | Unit 6; public behavior remains to be settled. |
-| Port-log retention | Not started | Unit 7. |
+| Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
 | Final verification | Not started | Unit 8; no implementation is authorized yet. |
 
 Planning corrections: use only `feat/mirror-reliability` for this work, and preserve the configured shell environment.\
@@ -273,3 +281,14 @@ Planning validation: `just check` passed with zero errors and the existing 123 t
 passed outside the sandbox: 813 tests in 29.27 seconds, with `faulthandler_timeout=60` for stall diagnostics.\
 Pre-commit passed on both planning documents. The earlier sandboxed test run stalled after 69 tests and was\
 interrupted; its result is not a passing baseline. Integration has not run for these documentation-only changes.
+
+Review of `82e81ce`: the critic found the mirror and trace mechanisms feasible. Its first finding identified\
+`LinesWriter._feed` retaining unfinished lines outside the admission queue. The plan now names its limited scope, and\
+the roadmap records a separate partial-line bound. Its second finding identified removal of unfinished roadmap entries\
+contrary to `.agents/rules/plans.md`. Those entries are restored with plan links, and the roadmap's opening now matches\
+the scoped rule. Both corrections change documentation only. Unit 1 also explicitly keeps its failing regression\
+uncommitted until unit 2 passes. Mirror overflow and the later port-log admission policy remain user decisions.
+
+The critic rechecked the corrections and found both findings addressed, with no new contradiction or broken link.\
+Pre-commit passed on the corrected documents. No production code or tests changed, so the planning check and full-suite\
+evidence above remains applicable. Implementation waits for the user's approval.
