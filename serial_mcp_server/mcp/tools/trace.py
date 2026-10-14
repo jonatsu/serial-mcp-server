@@ -38,14 +38,14 @@ TOOLS: list[Tool] = [
             "the steps for the user: returns the last n trace events, a start event with the arguments and an end "
             "event with ok, the error code, and the duration for each tool call. "
             "Written data, script sources, and script variables appear only when the operator turns on "
-            "payload tracing."
+            "payload tracing. Zero requests no events; negative or invalid counts are rejected even when tracing is off."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "n": {
                     "type": ["integer", "string"],
-                    "description": "Number of recent events to return (default 50).",
+                    "description": "Nonnegative count of recent events (default 50); zero returns none. Integer strings are accepted.",
                     "default": 50,
                 },
             },
@@ -67,10 +67,15 @@ async def handle_trace_status(_state: SerialState, _args: dict[str, Any]) -> dic
 
 
 async def handle_trace_tail(_state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
+    count = args.get("n", 50)
+    if isinstance(count, bool) or not isinstance(count, (int, str)):
+        raise ValueError("n must be a nonnegative integer.")
+    n = int(count)
+    if n < 0:
+        raise ValueError("n must be a nonnegative integer.")
     buf = get_trace_buffer()
     if buf is None:
         return _ok(enabled=False)
-    n = int(args.get("n", 50))
     return _ok(events=buf.tail(n))
 
 

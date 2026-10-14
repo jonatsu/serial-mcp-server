@@ -20,6 +20,15 @@ from serial_mcp_server.mcp.trace import TraceBuffer, get_trace_buffer, init_trac
 
 
 class TestTraceBuffer:
+    def test_zero_tail_returns_no_events(self):
+        buf = TraceBuffer()
+        buf.emit({"event": "kept"})
+        assert buf.tail(0) == []
+
+    def test_negative_tail_is_rejected(self):
+        with pytest.raises(ValueError, match="nonnegative"):
+            TraceBuffer().tail(-1)
+
     def test_emit_and_tail(self):
         buf = TraceBuffer()
         buf.emit({"event": "test", "data": 1})
@@ -254,6 +263,30 @@ class TestHandlersTraceEnabled:
         assert result["ok"] is True
         assert len(result["events"]) == 1
         assert result["events"][0]["data"] == 42
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("count", [-1, "-1", "invalid", None, 1.5, True])
+async def test_trace_tail_validates_count_even_when_disabled(monkeypatch, serial_state, enabled, count):
+    from serial_mcp_server.mcp.tools.trace import handle_trace_tail
+
+    monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", TraceBuffer() if enabled else None)
+    with pytest.raises(ValueError):
+        await handle_trace_tail(serial_state, {"n": count})
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"), [({}, 3), ({"n": 0}, 0), ({"n": "0"}, 0), ({"n": "2"}, 2), ({"n": 100}, 3)]
+)
+async def test_trace_tail_keeps_valid_count_behavior(monkeypatch, serial_state, args, expected):
+    from serial_mcp_server.mcp.tools.trace import handle_trace_tail
+
+    buf = TraceBuffer()
+    for index in range(3):
+        buf.emit({"event": "test", "index": index})
+    monkeypatch.setattr("serial_mcp_server.mcp.trace._buffer", buf)
+    result = await handle_trace_tail(serial_state, args)
+    assert len(result["events"]) == expected
 
 
 class TestTraceFileFailures:

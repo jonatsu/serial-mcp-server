@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- `serial.trace.tail` returns no events for zero and rejects negative or invalid counts, including when tracing is\
+  disabled. Before, zero returned every buffered event and negative counts selected an unintended slice.
+
 - A runtime trace-file failure no longer prevents a tool from running or replaces its result. In-memory trace events\
   remain available, and `serial.trace.status` reports the failed file sink.
 

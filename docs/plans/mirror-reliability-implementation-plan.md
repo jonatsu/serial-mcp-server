@@ -268,7 +268,7 @@ evidence and next action.
 | Reliable mirror delivery | Complete | 25 mirror tests, 822 full-suite tests, zero check errors, all integration groups pass; independent reviewer approved. |
 | Mirror integration coverage | Complete | Slow-viewer and overflow scenarios, 823 tests, zero check errors, full integration, and review pass. |
 | Trace sink isolation | Complete | 43 focused tests, 833 full tests, checks, and independent review pass. |
-| Trace-tail validation | Not started | Unit 5. |
+| Trace-tail validation | Complete | 15 pre-fix failures; 68 focused and 858 full tests pass; checks and self-review pass. |
 | Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
 | Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
 | Final verification | Not started | Unit 8. |
@@ -343,3 +343,10 @@ output while retaining memory events and successful or rejected dispatcher resul
 `file_error` expose health; the original error remains sticky if cleanup also fails. The focused suite passes 43\
 tests; the full suite passes 833 in 29.19 seconds. Checks report zero errors and 123 existing warnings. Independent\
 correctness review approved without findings. The trace-sink roadmap defect is removed with its changelog entry.
+
+Unit 5: 15 regressions failed before validation was added. Zero requests return no events; negatives and invalid\
+counts are rejected even while tracing is disabled. Valid integer strings and defaults remain supported. Dispatcher\
+tests prove `invalid_params` responses. The focused trace and server suites pass 68 tests; the full suite passes 858\
+in 29.20 seconds. Checks pass with zero errors and the existing 123 warnings after narrowing new test results.\
+Self-review confirms the count contract and the tool/property documentation. The roadmap defect is removed with its\
+changelog entry. Port-log admission is next under the user's accepted policy.

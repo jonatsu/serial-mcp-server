@@ -130,6 +130,10 @@ class TraceBuffer:
         return sanitize_args(args, payloads=self._payloads, max_bytes=self._max_payload_bytes)
 
     def tail(self, n: int = 50) -> list[dict[str, Any]]:
+        if n < 0:
+            raise ValueError("n must be a nonnegative integer.")
+        if n == 0:
+            return []
         items = list(self._deque)
         return items[-n:]
 
