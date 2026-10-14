@@ -28,12 +28,6 @@ losing the first SIGINT's cancellation; the other jobs use the locked 4.15.1. Fi
 passed. The test now prints every thread's stack when the hang recurs, so read that output before choosing between a\
 fix and a higher AnyIO floor.
 
-### A trace file error fails the tool call
-
-`TraceBuffer.emit` writes the file sink without handling errors, so a full disk can make traced tool calls fail.\
-[Trace failure isolation](plans/mirror-reliability-implementation-plan.md#unit-4-trace-file-failure-isolation) plans\
-disabling a failed sink while preserving tool results. From the code comment review; not implemented.
-
 ### An unbounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\

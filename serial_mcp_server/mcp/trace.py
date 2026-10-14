@@ -9,16 +9,19 @@ from __future__ import annotations
 import collections
 import copy
 import json
+import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from serial_mcp_server.config import DEFAULT_TRACE_MAX_BYTES
 from serial_mcp_server.private_files import FILE_MODE
 
 if TYPE_CHECKING:
     from serial_mcp_server.config import Settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Sanitize args
@@ -68,8 +71,8 @@ class TraceBuffer:
     """Ring buffer of trace events with optional JSONL file sink.
 
     The ring keeps the newest *max_items* events, 2000 by default and not configurable through ``Settings``;
-    older events leave the ring, so ``tail`` and ``status`` see only those. The file sink keeps every event:
-    it is append-only, has no size cap or rotation, and is readable by its owner only (``FILE_MODE``), like the
+    older events leave the ring, so ``tail`` and ``status`` see only those. The file sink keeps every event until it fails; memory tracing continues after failure.
+    It is append-only, has no size cap or rotation, and is readable by its owner only (``FILE_MODE``), like the
     port logs, because traced payloads are the data sent to the device.
 
     Arguments named ``data``, ``source``, or ``vars`` are payloads. ``sanitize`` removes them unless
@@ -90,6 +93,8 @@ class TraceBuffer:
         self._deque: collections.deque[dict[str, Any]] = collections.deque(maxlen=max_items)
         self._file_path = file_path
         self._fh = None
+        self._file_state: Literal["disabled", "active", "failed", "closed"] = "disabled"
+        self._file_error: dict[str, str | int | None] | None = None
         if file_path:
             p = Path(file_path)
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -106,12 +111,19 @@ class TraceBuffer:
                     raise ValueError(f"Trace path is a symlink (refusing to follow): {file_path}")
                 self._fh = open(file_path, "a", encoding="utf-8")  # noqa: SIM115
 
+            self._file_state = "active"
+
     def emit(self, event: dict[str, Any]) -> None:
         event["ts"] = datetime.now(UTC).isoformat()
         self._deque.append(event)
         if self._fh:
-            self._fh.write(json.dumps(event, default=str) + "\n")
-            self._fh.flush()
+            line = json.dumps(event, default=str) + "\n"
+            try:
+                self._fh.write(line)
+                self._fh.flush()
+            except (OSError, ValueError) as exc:
+                self._record_file_failure(exc)
+                self.close()
 
     def sanitize(self, args: dict[str, Any]) -> dict[str, Any]:
         """Return *args* as this buffer records them: payloads stripped or cut, per its settings."""
@@ -122,19 +134,44 @@ class TraceBuffer:
         return items[-n:]
 
     def status(self) -> dict[str, Any]:
-        """Report the settings. ``event_count`` counts events still in the ring, up to *max_items*."""
+        """Report settings and sink health; ``event_count`` counts events still in the ring."""
         return {
             "enabled": True,
             "event_count": len(self._deque),
             "file_path": self._file_path,
+            "file_state": self._file_state,
+            "file_error": dict(self._file_error) if self._file_error else None,
             "payloads_logged": self._payloads,
             "max_payload_bytes": self._max_payload_bytes,
         }
 
+    def _record_file_failure(self, exc: OSError | ValueError) -> None:
+        if self._file_state == "failed":
+            return
+        self._file_state = "failed"
+        self._file_error = {
+            "class": type(exc).__name__,
+            "errno": exc.errno if isinstance(exc, OSError) else None,
+        }
+        # Exception messages can contain traced payloads; report only safe diagnostic fields.
+        logger.warning(
+            "Trace file sink failed; memory tracing continues (class=%s, errno=%s)",
+            self._file_error["class"],
+            self._file_error["errno"],
+        )
+
     def close(self) -> None:
-        if self._fh:
-            self._fh.close()
-            self._fh = None
+        # Detach before closing: a failed flush during close must never be retried by shutdown.
+        fh, self._fh = self._fh, None
+        if fh is None:
+            return
+        try:
+            fh.close()
+        except (OSError, ValueError) as exc:
+            self._record_file_failure(exc)
+        else:
+            if self._file_state == "active":
+                self._file_state = "closed"
 
     def __del__(self) -> None:
         self.close()

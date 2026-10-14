@@ -20,7 +20,9 @@ TOOLS: list[Tool] = [
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Use to check whether tool-call tracing is on before relying on it: returns the tracing settings, "
-            "the trace file, and the number of recorded events."
+            "the trace file, its file_state (disabled, active, failed, or closed), sanitized file_error "
+            "(exception class and errno), and the number of recorded events. A failed file sink leaves memory "
+            "tracing and tool results available."
         ),
         inputSchema={
             "type": "object",
@@ -60,7 +62,7 @@ TOOLS: list[Tool] = [
 async def handle_trace_status(_state: SerialState, _args: dict[str, Any]) -> dict[str, Any]:
     buf = get_trace_buffer()
     if buf is None:
-        return _ok(enabled=False)
+        return _ok(enabled=False, file_state="disabled", file_error=None)
     return _ok(**buf.status())
 
 
