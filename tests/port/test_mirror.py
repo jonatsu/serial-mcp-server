@@ -250,6 +250,24 @@ def rw_session():
 
 @pytest.mark.skipif(not _IS_UNIX, reason="PTY mirror requires Unix")
 class TestMirrorForwarding:
+    def test_failed_forward_warns_without_stopping_reception(self, rw_session, caplog):
+        class FailedWritePort(_PipePort):
+            def write(self, data: bytes) -> int:
+                raise OSError("forward failed")
+
+        port = FailedWritePort()
+        buf, _writer, session = rw_session(port)
+        os.write(session._slave_fd, b"operator input")
+        deadline = time.monotonic() + WAIT_S
+        while not caplog.records and time.monotonic() < deadline:
+            threading.Event().wait(0.005)
+        warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+        assert len(warnings) == 1
+        assert "Forwarding mirror input" in warnings[0].message
+        os.write(port.rx_write, b"still receiving")
+        assert _read_buffer(buf, len(b"still receiving")) == b"still receiving"
+        assert session.alive
+
     def test_received_data_flows_while_a_paced_write_is_held(self, rw_session):
         port = _PipePort(hold_first_write=True)
         buf, _writer, session = rw_session(port, Pacing(chunk_size=1, chunk_delay_ms=8))

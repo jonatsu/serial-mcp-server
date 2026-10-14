@@ -266,10 +266,10 @@ evidence and next action.
 | User approval | Approved | Implementation and the 1 MiB fail-on-overflow policy; port-log policy retains its later checkpoint. |
 | Reproduction and baseline | Complete | Baseline integration passed all eight groups; short-write and EAGAIN regressions failed before the fix. |
 | Reliable mirror delivery | Complete | 25 mirror tests, 822 full-suite tests, zero check errors, all integration groups pass; independent reviewer approved. |
-| Mirror integration coverage | Next | Unit 3: exact output oracle, stalled viewer, and adjacent tests. |
+| Mirror integration coverage | Complete | Slow-viewer and overflow scenarios, 823 tests, zero check errors, full integration, and review pass. |
 | Trace sink isolation | Not started | Unit 4. |
 | Trace-tail validation | Not started | Unit 5. |
-| Port-log admission design | Not started | Unit 6; public behavior remains to be settled. |
+| Port-log admission design | Evidence gathered; approval pending | Proposed admission contract below; implementation waits for its behavior decision. |
 | Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
 | Final verification | Not started | Unit 8. |
 
@@ -300,3 +300,40 @@ accounting, descriptor reuse, and raw-init cleanup. The expanded mirror suite pa
 822 tests in 29.08 seconds. `just check` reports zero errors and the existing 123 warnings. Integration passed all\
 eight groups in 89 seconds. Independent correctness review approved the unit without findings. The output-loss\
 roadmap defect is removed with its changelog entry; the original external-CLI wrapping report remains unconfirmed.
+
+Unit 3: focused real-process scenarios preserve 100 KiB of long multiline output through a paused then slow viewer,\
+and isolate an unattached viewer's overflow during 1.3 MiB of output. Device, mirror, MCP, and raw-log byte oracles\
+agree. Actual PTY forwarding follows a post-configuration 512-byte chunk limit. The forwarding-failure warning\
+regression passes. The full suite passes 823 tests in 29.24 seconds; checks report zero errors and 123 warnings.\
+Independent test correctness review approved the changes. Full integration passed all groups, including the new\
+slow-viewer and overflow scenarios. Both selected mirror coverage gaps are removed from the roadmap with this commit.
+
+A disposable-PTY Minicom smoke used `-o -w -8 -b 115200 -t xterm`. Its emitted display instructions moved the long\
+line to rows 10 and 11, and displayed the following line separately; Minicom exited zero. Its capture file was not\
+used as a byte oracle. The first smoke timed out during interactive exit; the retry handled the exit confirmation\
+and bounded cleanup. This verifies the tested wrapping configuration, not the user's still-unspecified shell setup.
+
+### Port-Log Admission Proposal for Unit 6
+
+Read-only inspection confirmed that `_put` charges only payload bytes, `_run` releases their charge before writers\
+finish, and events and overflow markers have no entry budget. `_Decoder.follow` changes later decoding when a\
+`configure` event carries `encoding`; losing that event while accepting later data is unsafe. User-controlled mark\
+labels and newline strings can make metadata large. `TestOverflow` currently excludes the in-flight entry, so its\
+expectations must change with the proposed retained-payload contract.
+
+Recommend retaining the existing 8 MiB payload limit and adding limits of 4,096 ordinary retained entries and 1 MiB\
+of retained metadata. Include the in-flight entry until every format writer finishes with it. Limit one immutable\
+metadata snapshot to 64 KiB, depth four, and 128 values. Snapshot supported primitive structures before retaining\
+them; reject unsupported or oversized entries rather than truncate log facts. These bounds constrain admission\
+retention and do not claim exact Python heap usage or bound format-owned partial-line buffers.
+
+Under pressure, drop a new data entry or observational event whole and aggregate its loss outside the queue. Keep\
+`dropped_bytes`; add `dropped_entries` and `dropped_events`. Reserve bounded bookkeeping for a loss marker and a\
+terminal failure so reporting cannot grow the queue without limit. Emit loss evidence before the next admitted\
+entry, or during shutdown. A rejected decoding-sensitive configuration event stops further log admission, drains\
+the accepted prefix, emits one warning, and exposes `admission_error`. Device I/O remains usable. Recovery is\
+`serial.log.stop` followed by `serial.log.start` on the same connection; it does not reopen the serial port.
+
+This changes the former guarantee that events are never dropped and charges in-flight payload against the existing\
+cap. These public behavior changes and limits need approval before unit 7. The mirror and trace units are independent\
+and remain authorized while that decision is pending.
