@@ -34,12 +34,6 @@ When starting a run's watcher thread fails, the cleanup in `serial.script.run` w
 Bounding it needs a decision on releasing the connection's claim while the runner may still be running. From the\
 [package layout plan](plans/archive/package-layout-implementation-plan.md).
 
-### `serial.trace.tail` with a zero or negative count
-
-`TraceBuffer.tail(0)` returns every event, and a negative count returns an odd slice. The tool passes `n` through\
-unchecked. [Trace-tail validation](plans/mirror-reliability-implementation-plan.md#unit-5-trace-tail-validation) plans\
-explicit count handling. From the code comment review; not implemented.
-
 ### Shutdown limit and worker threads
 
 `SHUTDOWN_LIMIT_SECONDS` (0.25 s) in `mcp/server.py` abandons `stop_connections` when it runs long, but AnyIO worker\

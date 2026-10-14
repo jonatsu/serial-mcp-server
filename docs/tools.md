@@ -767,7 +767,8 @@ startup failures retain their existing behavior. Restart the server to retry a f
 
 ### serial.trace.tail
 
-Return last N trace events (default 50).
+Return the last N trace events (default 50). Zero returns no events; negative or invalid counts return\
+`invalid_params`, even when tracing is disabled. Positive integer strings are accepted.
 
 ```json
 {

@@ -246,3 +246,23 @@ async def test_trace_failure_preserves_handler_result(
     assert len(caplog.records) == 1
     assert "private" not in caplog.text
     buf.close()
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("count", [-1, "-1", "invalid"])
+async def test_trace_tail_bad_count_becomes_invalid_params(settings, enabled, count):
+    from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+
+    from serial_mcp_server.mcp.server import build_server
+
+    server, _state = build_server(settings.model_copy(update={"trace_enabled": enabled}))
+    request = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="serial.trace.tail", arguments={"n": count}),
+    )
+    result = await server.request_handlers[CallToolRequest](request)
+    assert isinstance(result.root, CallToolResult)
+    assert isinstance(result.root.content[0], TextContent)
+    payload = json.loads(result.root.content[0].text)
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "invalid_params"
