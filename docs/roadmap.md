@@ -19,13 +19,6 @@ Most items were collected from the archived\
 
 ## Defects
 
-### Mirror output can lose bytes
-
-The mirror ignores partial PTY writes and discards output when the terminal cannot accept it. Losing CR/LF or escape\
-bytes can corrupt the display. The reported long-command wrapping cause remains unconfirmed.\
-[Mirror delivery and lifecycle](plans/mirror-reliability-implementation-plan.md#unit-2-reliable-mirror-delivery-and-lifecycle)\
-plans retained output and retries; implementation awaits approval.
-
 ### The server sometimes outlives Ctrl-C
 
 In one CI run on 10 October 2026, the server was still running five seconds after SIGINT while its client held stdin\

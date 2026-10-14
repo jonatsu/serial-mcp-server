@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- PTY mirrors retain and retry output after partial writes or temporary terminal backpressure, instead of silently\
+  losing bytes. CR, LF, and escape sequences pass through unchanged. A mirror that exceeds 1 MiB of pending output\
+  or encounters an unrecoverable PTY error disconnects and reports its failure in connection status, while MCP reads\
+  and logging continue. Recover by closing and reopening the serial connection. Raw-mode initialization failures now\
+  fail the open request instead of leaving a mirror with unintended terminal processing.
+
 ## 0.2.2
 
 ### Added

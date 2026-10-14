@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from concurrent.futures import Future
 from typing import Any
 
@@ -33,6 +34,12 @@ MIRROR_BACKLOG_LIMIT = 64 * 1024
 # queued as several jobs and an MCP write submitted in between can run between them. The master is polled only
 # while at least this much room is left, which keeps the backlog at or under MIRROR_BACKLOG_LIMIT.
 _PTY_READ_SIZE = 4096
+# A stalled or absent viewer may retain at most 1 MiB before its mirror fails. This absorbs temporary
+# terminal backpressure without blocking serial reception or allowing an unbounded output backlog.
+MIRROR_OUTPUT_LIMIT = 1024 * 1024
+# Coalescing output into 16 KiB chunks bounds queue objects and prefix copies after short writes. One chunk
+# is attempted per readiness notification, so a busy viewer cannot monopolize the serial reader.
+_PTY_OUTPUT_CHUNK_SIZE = 16 * 1024
 
 # sys.platform rather than _IS_UNIX, so type checkers see these imports bound on Unix.
 if sys.platform != "win32":
@@ -51,9 +58,10 @@ class MirrorSession(ReaderThread):
     """Background reader that also tees serial data to a PTY.
 
     Each received chunk goes to the read buffer, the port log, and the subscribers first, then to the PTY
-    master without blocking. That copy is best effort: when no program reads the slave and the PTY buffer is
-    full, it is dropped, and the return value of the write is ignored, so a chunk the PTY accepts only in part
-    loses its tail. The buffer and the log are unaffected.
+    master without blocking. Partial writes and temporary backpressure retain their unwritten bytes, up to
+    ``MIRROR_OUTPUT_LIMIT``. Overflow or a permanent PTY error fails only the mirror and closes its endpoints.
+    The buffer, log, and subscribers continue receiving. Closing abandons pending output without waiting for
+    the viewer; status counts application-queued bytes lost, not bytes remaining in the kernel's PTY buffer.
 
     In rw mode, data written to the PTY slave by an external tool is forwarded to the real serial port through
     the writer, with the connection's pacing at that moment. The forward does not check for a running script,
@@ -76,32 +84,40 @@ class MirrorSession(ReaderThread):
         self.writer = writer
         self.mode = mode  # "ro" or "rw"
         self.link_path = link_path
+        self._mirror_lock = threading.Lock()
+        self._state = "active"
+        self._failure_reason: str | None = None
+        self._output: deque[bytearray] = deque()
+        self._pending_bytes = 0
+        self._undelivered_bytes = 0
+        self._mirror_index: int | None = None
+        self._link_created = False
 
         # Create PTY pair.
         self._master_fd, self._slave_fd = os.openpty()
 
-        # Non-blocking master so writes don't stall the reader thread
-        # when nothing is connected to the slave.
-        flags = fcntl.fcntl(self._master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(self._master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
-        # Put slave in raw mode and set the speed it reports. A rate with no termios constant reports 115200.
         try:
+            flags = fcntl.fcntl(self._master_fd, fcntl.F_GETFL)
+            fcntl.fcntl(self._master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
             tty.setraw(self._slave_fd)
+            self.pty_slave_path: str = os.ttyname(self._slave_fd)
+        except BaseException:
+            self._close_pty()
+            raise
+
+        # Report the port's speed when supported; unsupported rates report 115200. This is cosmetic, while
+        # raw mode above is required to keep CR/LF, escape bytes, and terminal input unchanged.
+        try:
             attrs = termios.tcgetattr(self._slave_fd)
             baud = getattr(termios, f"B{ser.baudrate}", termios.B115200)
             attrs[4] = baud  # ispeed
             attrs[5] = baud  # ospeed
             termios.tcsetattr(self._slave_fd, termios.TCSANOW, attrs)
-        except Exception:
+        except (OSError, termios.error):
             pass  # Best-effort baud config.
-
-        self.pty_slave_path: str = os.ttyname(self._slave_fd)
-        self._mirror_index: int | None = None  # Set by create_reader if link is used.
 
         # Create symlink if requested. Whatever file or link already has that name is replaced; a directory
         # is not, and the failure is only logged.
-        self._link_created = False
         if self.link_path:
             try:
                 if os.path.islink(self.link_path) or os.path.exists(self.link_path):
@@ -119,23 +135,58 @@ class MirrorSession(ReaderThread):
             self._release_resources()
 
     def _release_resources(self) -> None:
-        try:
-            os.close(self._master_fd)
-        except OSError:
-            pass
-        try:
-            os.close(self._slave_fd)
-        except OSError:
-            pass
+        with self._mirror_lock:
+            if self._state == "active":
+                self._state = "closed"
+                if self._pending_bytes:
+                    logger.warning(
+                        "Closing mirror for %s abandons %d queued output bytes.",
+                        self.ser.port,
+                        self._pending_bytes,
+                    )
+                self._discard_output()
+            self._close_pty()
+        if self._mirror_index is not None:
+            _release_mirror_index(self._mirror_index)
+            self._mirror_index = None
+
+    def _close_pty(self) -> None:
+        """Release endpoints once. Caller owns the mirror lock after construction."""
+        for name in ("_master_fd", "_slave_fd"):
+            fd = getattr(self, name)
+            setattr(self, name, -1)
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
         if self._link_created and self.link_path:
             try:
                 os.unlink(self.link_path)
                 self._link_created = False
             except OSError:
                 pass
-        if self._mirror_index is not None:
-            _release_mirror_index(self._mirror_index)
-            self._mirror_index = None
+
+    def _discard_output(self) -> None:
+        """Count abandoned application bytes. Caller owns the mirror lock."""
+        self._undelivered_bytes += self._pending_bytes
+        self._output.clear()
+        self._pending_bytes = 0
+
+    def _fail_mirror(self, reason: str, extra_bytes: int = 0) -> None:
+        """Fail only PTY delivery and admission. Caller owns the mirror lock."""
+        if self._state != "active":
+            return
+        self._state = "failed"
+        self._failure_reason = reason
+        self._undelivered_bytes += extra_bytes
+        self._discard_output()
+        self._close_pty()
+        logger.warning(
+            "Mirror for %s failed (%s); close and reopen the serial connection to recover.",
+            self.ser.port,
+            reason,
+        )
 
     def _run(self) -> None:
         ser_fd = self.ser.fileno()
@@ -144,7 +195,7 @@ class MirrorSession(ReaderThread):
 
         while not self._stop.is_set():
             try:
-                readable, _, _ = select.select(self._read_fds(ser_fd), [], [], 0.05)
+                readable, writable, _ = select.select(self._read_fds(ser_fd), self._write_fds(), [], 0.05)
             except (OSError, ValueError):
                 if self._stop.is_set():
                     break
@@ -187,41 +238,93 @@ class MirrorSession(ReaderThread):
                 elif fd == self._master_fd:
                     try:
                         pty_data = os.read(self._master_fd, _PTY_READ_SIZE)
+                    except (BlockingIOError, InterruptedError):
+                        continue
                     except OSError:
-                        continue  # PTY client disconnected.
+                        with self._mirror_lock:
+                            self._fail_mirror("pty_read_failed")
+                        continue
                     if pty_data and not self._forward(pty_data):
                         return
 
+            if writable:
+                with self._mirror_lock:
+                    self._drain_output()
+
     def _read_fds(self, ser_fd: int) -> list[int]:
         """File descriptors to wait on; the PTY master only while the writer has room."""
-        if self.mode != "rw":
-            return [ser_fd]
-        room = MIRROR_BACKLOG_LIMIT - self.writer.pending_bytes(SOURCE_MIRROR)
-        return [ser_fd, self._master_fd] if room >= _PTY_READ_SIZE else [ser_fd]
+        with self._mirror_lock:
+            if self.mode != "rw" or self._state != "active":
+                return [ser_fd]
+            room = MIRROR_BACKLOG_LIMIT - self.writer.pending_bytes(SOURCE_MIRROR)
+            return [ser_fd, self._master_fd] if room >= _PTY_READ_SIZE else [ser_fd]
+
+    def _write_fds(self) -> list[int]:
+        """Wait for output space only while the active mirror has queued bytes."""
+        with self._mirror_lock:
+            return [self._master_fd] if self._state == "active" and self._pending_bytes else []
 
     def _forward(self, data: bytes) -> bool:
         """Queue PTY input for the port. Return False once the writer is closed."""
-        try:
-            job = self.writer.submit(data, source=SOURCE_MIRROR)
-        except WriterClosed:
-            return False
+        with self._mirror_lock:
+            if self._state != "active":
+                return True
+            try:
+                job = self.writer.submit(data, source=SOURCE_MIRROR)
+            except WriterClosed:
+                return False
         job.future.add_done_callback(_log_forward_failure)
         return True
 
     def _on_data(self, data: bytes) -> None:
-        """Write to both the buffer and the PTY master."""
+        """Deliver serial bytes independently of the bounded mirror output queue."""
         self._deliver(data)
+        with self._mirror_lock:
+            if self._state != "active":
+                return
+            if self._pending_bytes + len(data) > MIRROR_OUTPUT_LIMIT:
+                self._fail_mirror("output_overflow", len(data))
+                return
+            self._pending_bytes += len(data)
+            offset = 0
+            while offset < len(data):
+                if not self._output or len(self._output[-1]) == _PTY_OUTPUT_CHUNK_SIZE:
+                    self._output.append(bytearray())
+                room = _PTY_OUTPUT_CHUNK_SIZE - len(self._output[-1])
+                self._output[-1].extend(data[offset : offset + room])
+                offset += min(room, len(data) - offset)
+            self._drain_output()
+
+    def _drain_output(self) -> None:
+        """Attempt one nonblocking chunk. Caller owns the mirror lock."""
+        if self._state != "active" or not self._output:
+            return
         try:
-            os.write(self._master_fd, data)
-        except (OSError, BlockingIOError):
-            pass  # PTY buffer full or client not connected — drop mirror data.
+            written = os.write(self._master_fd, self._output[0])
+        except (BlockingIOError, InterruptedError):
+            return
+        except OSError:
+            self._fail_mirror("pty_write_failed")
+            return
+        if written == 0:
+            self._fail_mirror("pty_write_failed")
+            return
+        self._pending_bytes -= written
+        del self._output[0][:written]
+        if not self._output[0]:
+            self._output.popleft()
 
     def mirror_info(self) -> dict[str, Any] | None:
-        return {
-            "pty_path": self.pty_slave_path,
-            "link": self.link_path,
-            "mode": self.mode,
-        }
+        with self._mirror_lock:
+            return {
+                "pty_path": self.pty_slave_path,
+                "link": self.link_path,
+                "mode": self.mode,
+                "state": self._state,
+                "failure_reason": self._failure_reason,
+                "pending_bytes": self._pending_bytes,
+                "undelivered_bytes": self._undelivered_bytes,
+            }
 
 
 def _log_forward_failure(future: Future[int]) -> None:
@@ -289,8 +392,13 @@ def create_reader(
         mirror_index = _acquire_mirror_index()
         link_path = f"{mirror_link_base}{mirror_index}"
 
-    session = MirrorSession(
-        ser, buffer, mode=mirror_mode, writer=writer, link_path=link_path, log_slot=log_slot
-    )
+    try:
+        session = MirrorSession(
+            ser, buffer, mode=mirror_mode, writer=writer, link_path=link_path, log_slot=log_slot
+        )
+    except BaseException:
+        if mirror_index is not None:
+            _release_mirror_index(mirror_index)
+        raise
     session._mirror_index = mirror_index
     return session

@@ -1,10 +1,10 @@
 # Mirror Reliability Implementation Plan
 
-Status: draft for plan review and user approval. Implementation has not started.
+Status: approved; implementation in progress on `feat/mirror-reliability`.
 
 Basis: repository revision `7eeb44a5ddf03c2d0f018d3c911904e82e9fd9b7` and the user's approved proposal direction. This\
 document combines the bounded proposal, remaining behavior decisions, implementation order, and execution ledger.\
-Approval to write and commit this plan does not authorize implementation.
+The user approved implementation and the 1 MiB fail-on-overflow policy after the plan-critic review.
 
 ## Outcome and Scope
 
@@ -30,7 +30,7 @@ pseudo-terminal (PTY) connects the server's master endpoint to the external CLI'
 tail after a partial write or temporary blocking. Drain a bounded amount per loop iteration so output cannot starve\
 serial reception or mirror input. Bound both queued bytes and queued objects, for example through coalesced chunks.
 
-Proposed limit: 1 MiB of pending output per connection. On overflow or an unrecoverable PTY error, fail the mirror,\
+Approved limit: 1 MiB of pending output per connection. On overflow or an unrecoverable PTY error, fail the mirror,\
 stop accepting its input, close both PTY descriptors, and remove its symlink. Keep the serial reader, MCP buffer,\
 writer, scripts, and port log running. Remove failed descriptors from every select set. Already-submitted mirror writes\
 retain their existing writer semantics; failure prevents new submissions.
@@ -46,11 +46,10 @@ requires stopping a running script first. Do not add a mirror-restart tool in th
 can exhaust the limit too, because the server keeps the slave endpoint open. This is a deliberate consequence of the\
 proposed fail-on-overflow policy.
 
-User decision before implementing this policy: approve failure at the bounded limit, including with no viewer attached,\
-or choose continued delivery with explicitly counted gaps. Failure prevents an interactive session continuing with\
-silently corrupted output. Counted gaps preserve availability but cannot promise an intact display. Unbounded buffering\
-risks process memory; blocking the serial reader risks device-side receive loss. Disk spooling adds storage failure and\
-retention design, so it is outside this plan.
+The user approved failure at the bounded limit, including with no viewer attached. Failure prevents an interactive\
+session continuing with silently corrupted output. Counted gaps preserve availability but cannot promise an intact\
+display. Unbounded buffering risks process memory; blocking the serial reader risks device-side receive loss. Disk\
+spooling adds storage failure and retention design, so it is outside this plan.
 
 Required raw-mode initialization must fail mirror construction on error and release descriptors, symlinks, and any\
 factory-allocated index. Baud reporting remains best effort. Initialization and runtime failure are distinct:\
@@ -264,15 +263,15 @@ evidence and next action.
 | -- | -- | -- |
 | Planning and roadmap links | Committed | `82e81ce`: initial plan and roadmap ownership; review corrections follow. |
 | Plan-critic review | Complete | Both findings corrected and rechecked; verdict: proceed, subject to user approval. |
-| User approval | Pending | Implementation waits for approval and the mirror overflow decision. |
-| Reproduction and baseline | Not started | Unit 1. Earlier mirror tests: 16 passed. |
-| Reliable mirror delivery | Not started | Unit 2. |
-| Mirror integration coverage | Not started | Unit 3. |
+| User approval | Approved | Implementation and the 1 MiB fail-on-overflow policy; port-log policy retains its later checkpoint. |
+| Reproduction and baseline | Complete | Baseline integration passed all eight groups; short-write and EAGAIN regressions failed before the fix. |
+| Reliable mirror delivery | Complete | 25 mirror tests, 822 full-suite tests, zero check errors, all integration groups pass; independent reviewer approved. |
+| Mirror integration coverage | Next | Unit 3: exact output oracle, stalled viewer, and adjacent tests. |
 | Trace sink isolation | Not started | Unit 4. |
 | Trace-tail validation | Not started | Unit 5. |
 | Port-log admission design | Not started | Unit 6; public behavior remains to be settled. |
 | Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
-| Final verification | Not started | Unit 8; no implementation is authorized yet. |
+| Final verification | Not started | Unit 8. |
 
 Planning corrections: use only `feat/mirror-reliability` for this work, and preserve the configured shell environment.\
 The sandbox restricted the configured uv cache earlier; escalate required tooling instead of overriding `UV_CACHE_DIR`.
@@ -291,4 +290,13 @@ uncommitted until unit 2 passes. Mirror overflow and the later port-log admissio
 
 The critic rechecked the corrections and found both findings addressed, with no new contradiction or broken link.\
 Pre-commit passed on the corrected documents. No production code or tests changed, so the planning check and full-suite\
-evidence above remains applicable. Implementation waits for the user's approval.
+evidence above remains applicable. The user subsequently approved starting implementation and the mirror overflow\
+policy.
+
+Units 1 and 2: test-first failures delivered only `lon` after a short write and no bytes after temporary blocking.\
+The implementation retains coalesced chunks and retries writable PTYs; nine new tests pass, including a real\
+100,013-byte burst, bidirectional newline/escape preservation, overflow isolation, read/write failures, pending-close\
+accounting, descriptor reuse, and raw-init cleanup. The expanded mirror suite passes 25 tests; the full suite passes\
+822 tests in 29.08 seconds. `just check` reports zero errors and the existing 123 warnings. Integration passed all\
+eight groups in 89 seconds. Independent correctness review approved the unit without findings. The output-loss\
+roadmap defect is removed with its changelog entry; the original external-CLI wrapping report remains unconfirmed.
