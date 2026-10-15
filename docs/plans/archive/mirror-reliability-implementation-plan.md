@@ -1,6 +1,6 @@
 # Mirror Reliability Implementation Plan
 
-Status: implemented and software-verified on `feat/mirror-reliability`. Hardware validation is deferred by the user.
+Status: implemented and software-verified on `feat/mirror-reliability`; limited hardware validation completed.
 
 Basis: repository revision `7eeb44a5ddf03c2d0f018d3c911904e82e9fd9b7` and the user's approved proposal direction. This\
 document combines the bounded proposal, remaining behavior decisions, implementation order, and execution ledger.\
@@ -119,7 +119,8 @@ regressions. Load `writing-documentation` and `writing-for-humans` for documenta
 before changing a symbol's contract, confirmed by text searches for string-based patch targets. Keep imports within the\
 configured package layers and environment reads in `config.py`.
 
-Use only fake ports and pseudo-terminals. Never open a real serial device. Run the repository checks before each commit:
+Use fake ports and pseudo-terminals unless the user grants a temporary hardware exception. Run checks before each\
+commit:
 
 ```bash
 just check
@@ -271,8 +272,8 @@ evidence and next action.
 | Trace-tail validation | Complete | 15 pre-fix failures; 68 focused and 858 full tests pass; checks and self-review pass. |
 | Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
 | Port-log admission retention | Complete | `b5a184d` bounds retained log admission; 170 affected and 878 full tests, checks, integration, and reviews pass. |
-| Final verification | Complete | Correctness, maintainability, and behavioral conformance reviews pass; software evidence below; wrapping/Pi 5 follow-up remains in roadmap. |
-| Real-target validation | Deferred by user | Raspberry Pi 5 project; temporary permission and target details will be supplied later. No real device access is authorized. |
+| Final verification | Complete | Correctness, maintainability, and behavioral conformance reviews pass; software evidence below; remaining rendering qualification is in the roadmap. |
+| Real-target validation | Limited comparison complete | Long commands and backspace editing match direct Minicom; multiline execution and mirror delivery pass; rendering qualification remains open. |
 
 Planning corrections: use only `feat/mirror-reliability` for this work, and preserve the configured shell environment.\
 The sandbox restricted the configured uv cache earlier; escalate required tooling instead of overriding `UV_CACHE_DIR`.
@@ -359,11 +360,10 @@ and failure state. Verification uses private bounded snapshots and charges retai
 The initial test command hit the sandbox's cache restriction; escalation preserved `UV_CACHE_DIR` and produced the\
 expected behavior failures. Earlier mirror and trace maintainability review completed without findings.
 
-The user noted that real serial targets are available. Hardware validation is a separate follow-up to software\
-qualification: obtain the dedicated port, settings, shell, safe commands, affected external CLI configuration, and\
-explicit authorization to override the repository's no-real-device rule. Opening can toggle DTR/RTS and reset the\
-target. The user subsequently deferred testing against their Raspberry Pi 5 project and will supply temporary\
-permission and details later. No real device was opened or is authorized by this plan.
+The user initially deferred hardware validation, then authorized a limited direct-versus-mirrored console comparison.\
+The exception covered opening and closing the port, possible reset, passive reads, and harmless output commands.\
+Device identity, connection details, and captures must not enter retained files or Git history. Further access needs\
+fresh permission; this completed test does not grant continuing hardware access.
 
 Unit 7 green evidence: 170 affected tests pass, covering immutable metadata, the three retained budgets, reserved\
 terminal records, encoding-change rejection, and stop/start recovery using the connection's current Latin-1 encoding.\
@@ -372,10 +372,10 @@ Final software verification passes 878 tests in 29.35 seconds. `just check` repo
 admission accounting, ordered loss markers, bounded failure bookkeeping, API results, and cross-unit behavior.
 
 The separate conformance review found no material behavioral mismatch. Coverage limits are the absence of a separate\
-requirements specification and the user's deferred Raspberry Pi 5/affected-CLI validation. Its closure actions were\
-roadmap cleanup, an explicit hardware/wrapping follow-up, and final ledger/archive updates. Completed work is removed\
-from the roadmap, which retains the hardware/wrapping follow-up and the independent unfinished-line buffer issue.\
-The final closure commit archives this ledger and repairs its links. Review reports are summarized here so the\
+requirements specification and the hardware/affected-CLI validation that was deferred at closure. Its closure actions\
+were roadmap cleanup, an explicit hardware/wrapping follow-up, and final ledger/archive updates. Completed work is\
+removed from the roadmap, which retains the hardware/wrapping follow-up and the independent unfinished-line buffer\
+issue. The final closure commit archives this ledger and repairs its links. Review reports are summarized here so the\
 ledger does not depend on temporary files surviving the session.
 
 The final maintainability review found no concrete standards violations in port-log admission or its tests. Earlier\
@@ -384,4 +384,19 @@ variable was introduced. All work remained on the requested branch, and no chang
 
 The conformance reviewer rechecked the closing documents: roadmap cleanup, the deferred hardware/wrapping follow-up,\
 the completed ledger, and repaired archive links are all addressed. No findings or user decisions remain for the\
-software implementation. Hardware qualification remains outside this completed software scope until the user resumes it.
+software implementation. Hardware qualification was deferred at that software closure.
+
+### Limited hardware validation
+
+Direct and mirrored Minicom emitted identical terminal bytes for long commands and backspace editing across wraps.\
+Marker-delimited output confirmed correct execution and complete output for both cases and a multiline paste.\
+Every received serial byte matched the bytes accepted by the mirror PTY, including existing CR/LF behavior.\
+The mirror remained active with zero pending bytes, undelivered bytes, and MCP buffer drops.
+
+Minicom's multiline display streams differed between runs despite correct command results and exact mirror delivery.\
+Identical multiline rendering and reproduction of the original defect remain unconfirmed; the roadmap retains this gap.\
+An initial output matcher missed the console's existing newline conversion; marker-delimited checks resolved that\
+test assumption. No transport normalization was added.
+
+Captured output stayed in process memory. Temporary generic Minicom configuration was removed, all test processes\
+exited, and the port was released. No device identity, connection details, or captures were added to repository files.

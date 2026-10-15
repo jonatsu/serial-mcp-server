@@ -15,14 +15,14 @@ Most items were collected from the archived\
 
 ## Defects
 
-### Verify long-command wrapping on the Raspberry Pi 5
+### Confirm multiline rendering with the affected CLI configuration
 
-The reported long-command wrapping problem remains unconfirmed with the affected device shell and external CLI. The\
-user has a Raspberry Pi 5 project for later validation and will provide target details and temporary permission to open\
-its serial device. No real-device access is authorized yet. Compare direct and mirrored connections using the same CLI\
-settings, safe commands, and byte oracles; retain the failing setup if rendering still differs. The\
-[mirror reliability ledger](plans/archive/mirror-reliability-implementation-plan.md) records software qualification and\
-the disposable-PTY Minicom smoke test.
+An authorized hardware comparison matched direct and mirrored Minicom output for long commands and backspace editing.\
+Multiline commands executed correctly, and received serial bytes reached the mirror unchanged without reported loss.\
+The multiline display streams differed between runs, so identical rendering remains unconfirmed. Reproduce the\
+original display defect with the affected CLI configuration before attributing any remaining difference to transport.\
+Further hardware access requires fresh permission. Keep device details and captures out of retained files and history.\
+The [mirror reliability ledger](plans/archive/mirror-reliability-implementation-plan.md) records the generic results.
 
 ### The server sometimes outlives Ctrl-C
 
