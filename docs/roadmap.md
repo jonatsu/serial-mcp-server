@@ -17,11 +17,11 @@ Most items were collected from the archived\
 
 ### Verify long-command wrapping on the Raspberry Pi 5
 
-The reported long-command wrapping problem remains unconfirmed with the affected device shell and external CLI.\
-The user has a Raspberry Pi 5 project for later validation and will provide target details and temporary permission\
-to open its serial device. No real-device access is authorized yet. Compare direct and mirrored connections using\
-the same CLI settings, safe commands, and byte oracles; retain the failing setup if rendering still differs.\
-The [mirror reliability ledger](plans/mirror-reliability-implementation-plan.md) records software qualification and\
+The reported long-command wrapping problem remains unconfirmed with the affected device shell and external CLI. The\
+user has a Raspberry Pi 5 project for later validation and will provide target details and temporary permission to open\
+its serial device. No real-device access is authorized yet. Compare direct and mirrored connections using the same CLI\
+settings, safe commands, and byte oracles; retain the failing setup if rendering still differs. The\
+[mirror reliability ledger](plans/archive/mirror-reliability-implementation-plan.md) records software qualification and\
 the disposable-PTY Minicom smoke test.
 
 ### The server sometimes outlives Ctrl-C

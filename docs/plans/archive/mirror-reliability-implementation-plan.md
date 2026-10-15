@@ -1,6 +1,6 @@
 # Mirror Reliability Implementation Plan
 
-Status: implementation verified; final documentation closure in progress on `feat/mirror-reliability`.
+Status: implemented and software-verified on `feat/mirror-reliability`. Hardware validation is deferred by the user.
 
 Basis: repository revision `7eeb44a5ddf03c2d0f018d3c911904e82e9fd9b7` and the user's approved proposal direction. This\
 document combines the bounded proposal, remaining behavior decisions, implementation order, and execution ledger.\
@@ -12,9 +12,9 @@ Preserve mirrored serial bytes during normal operation and temporary terminal ba
 explicitly when delivery cannot continue. Preserve CR, LF, CRLF, and terminal escape sequences without conversion.\
 External terminal programs own rendering, wrapping, local echo, and their own terminal settings.
 
-Then address the selected [roadmap](../roadmap.md) items in this order: trace file failures, invalid trace-tail counts,\
-and the port-log admission memory bound. Include the mirror forwarding-failure warning and post-configuration pacing\
-test gaps with mirror work. Leave unrelated roadmap items in place.
+Then address the selected [roadmap](../../roadmap.md) items in this order: trace file failures, invalid trace-tail\
+counts, and the port-log admission memory bound. Include the mirror forwarding-failure warning and post-configuration\
+pacing test gaps with mirror work. Leave unrelated roadmap items in place.
 
 The observed wrapping defect remains unconfirmed. Local Linux probes preserved CR/LF and escape bytes through the\
 actual mirror in both directions. A separate burst probe delivered only 11,776 of 100,013 bytes to the mirror, losing\
@@ -113,7 +113,7 @@ per change. Use separate commits for independently verified outcomes. Preserve t
 and other tooling settings. Investigate sandbox failures and request tool-level escalation where required instead of\
 replacing those settings.
 
-Before editing, follow [AGENTS.md](../../AGENTS.md), [CONTRIBUTING.md](../../CONTRIBUTING.md), and matching\
+Before editing, follow [AGENTS.md](../../../AGENTS.md), [CONTRIBUTING.md](../../../CONTRIBUTING.md), and matching\
 `.agents/rules/` files. Load `coding-standards`, the relevant Python skills, and `test-driven-development` for focused\
 regressions. Load `writing-documentation` and `writing-for-humans` for documentation. Use language-server references\
 before changing a symbol's contract, confirmed by text searches for string-based patch targets. Keep imports within the\
@@ -261,17 +261,17 @@ evidence and next action.
 
 | Work | Status | Evidence or next action |
 | -- | -- | -- |
-| Planning and roadmap links | Committed | `82e81ce`: initial plan and roadmap ownership; review corrections follow. |
+| Planning and roadmap links | Complete | `82e81ce` records the initial plan; `2c8b0aa` resolves the planning review findings. |
 | Plan-critic review | Complete | Both findings corrected and rechecked; verdict: proceed, subject to user approval. |
-| User approval | Approved | Implementation and the 1 MiB fail-on-overflow policy; port-log policy retains its later checkpoint. |
+| User approval | Approved | Implementation, the 1 MiB mirror fail-on-overflow policy, and the complete port-log admission contract below. |
 | Reproduction and baseline | Complete | Baseline integration passed all eight groups; short-write and EAGAIN regressions failed before the fix. |
 | Reliable mirror delivery | Complete | 25 mirror tests, 822 full-suite tests, zero check errors, all integration groups pass; independent reviewer approved. |
 | Mirror integration coverage | Complete | Slow-viewer and overflow scenarios, 823 tests, zero check errors, full integration, and review pass. |
 | Trace sink isolation | Complete | 43 focused tests, 833 full tests, checks, and independent review pass. |
 | Trace-tail validation | Complete | 15 pre-fix failures; 68 focused and 858 full tests pass; checks and self-review pass. |
 | Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
-| Port-log admission retention | Verified | 170 affected tests and 878 full tests pass; checks, integration, and correctness review pass. |
-| Final verification | Documentation closure in progress | Conformance confirms behavior; finish roadmap and archive updates, then recheck documentation closure. |
+| Port-log admission retention | Complete | `b5a184d` bounds retained log admission; 170 affected and 878 full tests, checks, integration, and reviews pass. |
+| Final verification | Complete | Correctness, maintainability, and behavioral conformance reviews pass; software evidence below; wrapping/Pi 5 follow-up remains in roadmap. |
 | Real-target validation | Deferred by user | Raspberry Pi 5 project; temporary permission and target details will be supplied later. No real device access is authorized. |
 
 Planning corrections: use only `feat/mirror-reliability` for this work, and preserve the configured shell environment.\
@@ -287,7 +287,8 @@ Review of `82e81ce`: the critic found the mirror and trace mechanisms feasible. 
 the roadmap records a separate partial-line bound. Its second finding identified removal of unfinished roadmap entries\
 contrary to `.agents/rules/plans.md`. Those entries are restored with plan links, and the roadmap's opening now matches\
 the scoped rule. Both corrections change documentation only. Unit 1 also explicitly keeps its failing regression\
-uncommitted until unit 2 passes. Mirror overflow and the later port-log admission policy remain user decisions.
+uncommitted until unit 2 passes. At that review, mirror overflow and port-log admission still needed user decisions;\
+the user subsequently approved both policies as recorded below.
 
 The critic rechecked the corrections and found both findings addressed, with no new contradiction or broken link.\
 Pre-commit passed on the corrected documents. No production code or tests changed, so the planning check and full-suite\
@@ -371,7 +372,16 @@ Final software verification passes 878 tests in 29.35 seconds. `just check` repo
 admission accounting, ordered loss markers, bounded failure bookkeeping, API results, and cross-unit behavior.
 
 The separate conformance review found no material behavioral mismatch. Coverage limits are the absence of a separate\
-requirements specification and the user's deferred Raspberry Pi 5/affected-CLI validation. Its closure actions are\
-roadmap cleanup, an explicit hardware/wrapping follow-up, and final ledger/archive updates. These are being completed\
-before the final documentation commit. Review reports are summarized here so the ledger does not depend on temporary\
-review files surviving the session.
+requirements specification and the user's deferred Raspberry Pi 5/affected-CLI validation. Its closure actions were\
+roadmap cleanup, an explicit hardware/wrapping follow-up, and final ledger/archive updates. Completed work is removed\
+from the roadmap, which retains the hardware/wrapping follow-up and the independent unfinished-line buffer issue.\
+The final closure commit archives this ledger and repairs its links. Review reports are summarized here so the\
+ledger does not depend on temporary files surviving the session.
+
+The final maintainability review found no concrete standards violations in port-log admission or its tests. Earlier\
+mirror and trace correctness and maintainability reviews also passed. No new package dependency or environment\
+variable was introduced. All work remained on the requested branch, and no changes were pushed.
+
+The conformance reviewer rechecked the closing documents: roadmap cleanup, the deferred hardware/wrapping follow-up,\
+the completed ledger, and repaired archive links are all addressed. No findings or user decisions remain for the\
+software implementation. Hardware qualification remains outside this completed software scope until the user resumes it.
