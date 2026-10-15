@@ -28,13 +28,14 @@ The [mirror reliability ledger](plans/archive/mirror-reliability-implementation-
 
 In one CI run on 10 October 2026, the server was still running five seconds after SIGINT while its client held stdin\
 open (`test_the_server_exits_on_sigint_while_its_client_keeps_stdin_open`, run 38062908269). The root cause is not\
-known. Only the lowest-dependency job failed, so the leading suspect is AnyIO 4.11.0, the floor in `pyproject.toml`,\
-losing the first SIGINT's cancellation; the other jobs use the locked 4.15.1. Fifty local runs in the same environment\
-passed. The test now prints every thread's stack when the hang recurs, so read that output before choosing between a\
-fix and a higher AnyIO floor.
+known. Only the lowest-dependency job failed, which initially suggested AnyIO 4.11.0; no version-specific defect has\
+been established. Fifty local runs in the same environment passed. The test now prints every thread's stack when the\
+hang recurs.
 
-The [shutdown design draft](plans/sigint-shutdown-design.md) records the lifecycle boundaries and evidence gaps.\
-An isolated floor-AnyIO baseline passes on the available interpreter; no root cause or production correction is settled.
+The [shutdown design proposal](plans/sigint-shutdown-design.md) reproduces a missing test precondition: a child that\
+inherits ignored SIGINT never requests shutdown. Child-only signal normalization makes the regression pass with both\
+minimum and locked AnyIO. A test-harness correction is proposed; production behavior remains unchanged. The historical\
+run did not capture signal disposition, so keep attribution open and inspect any recurrence after normalization.
 
 ### An unbounded join in the script-run cleanup
 
