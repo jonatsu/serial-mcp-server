@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.3
+
 ### Fixed
 
 - Port-log admission now bounds entries and metadata as well as payload bytes, including the entry being written.\
