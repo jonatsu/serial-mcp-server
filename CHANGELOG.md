@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- The Ctrl-C shutdown check no longer reports a server hang solely because its launcher ignores SIGINT. It now enables\
+  the signal in the test child and covers that background-launcher case explicitly.
+
 ## 0.2.3
 
 ### Fixed

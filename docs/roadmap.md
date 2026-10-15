@@ -24,19 +24,6 @@ original display defect with the affected CLI configuration before attributing a
 Further hardware access requires fresh permission. Keep device details and captures out of retained files and history.\
 The [mirror reliability ledger](plans/archive/mirror-reliability-implementation-plan.md) records the generic results.
 
-### The server sometimes outlives Ctrl-C
-
-In one CI run on 10 October 2026, the server was still running five seconds after SIGINT while its client held stdin\
-open (`test_the_server_exits_on_sigint_while_its_client_keeps_stdin_open`, run 38062908269). The root cause is not\
-known. Only the lowest-dependency job failed, which initially suggested AnyIO 4.11.0; no version-specific defect has\
-been established. Fifty local runs in the same environment passed. The test now prints every thread's stack when the\
-hang recurs.
-
-The [shutdown design proposal](plans/sigint-shutdown-design.md) reproduces a missing test precondition: a child that\
-inherits ignored SIGINT never requests shutdown. Child-only signal normalization makes the regression pass with both\
-minimum and locked AnyIO. A test-harness correction is proposed; production behavior remains unchanged. The historical\
-run did not capture signal disposition, so keep attribution open and inspect any recurrence after normalization.
-
 ### An unbounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
