@@ -17,12 +17,30 @@ class PortSession(Protocol):
     newline: str
     encoding: str
 
-    def write(self, data: bytes, pacing: Pacing | None, cancel: threading.Event) -> int:
-        """Write bytes and return the amount accepted by the port."""
+    def write(
+        self,
+        data: bytes,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
+        """Write bytes, polling *check_runtime* on the caller's thread while waiting.
+
+        The checkpoint signals *cancel* instead of raising. Wait for the write to settle before returning
+        or raising, so the caller keeps ownership of the connection until writing stops.
+        """
         ...
 
-    def send_file(self, path: Path, pacing: Pacing | None, cancel: threading.Event) -> int:
-        """Send a confined file and return the amount accepted by the port."""
+    def send_file(
+        self,
+        path: Path,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
+        """Send a confined file, using the same checkpoint and settlement contract as ``write``."""
         ...
 
     def set_line(self, line: Literal["dtr", "rts"], value: bool) -> None:

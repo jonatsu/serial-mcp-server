@@ -15,6 +15,14 @@ Most items were collected from the archived\
 
 ## Defects
 
+### Intermittent mirror transmit-log mismatch
+
+One local integration run logged 4,303 mirror-input bytes where the harness expected 4,304. Received output matched\
+the expected device replies, log formats agreed on received bytes, and no admission loss was reported. Earlier runs\
+and the evidence-retaining recheck logged all expected input. The failed run's temporary files were removed, so the\
+missing byte and cause remain unknown. Retain failed harness artifacts and locate the first transmit-byte mismatch\
+before deciding whether input transport or log accounting needs a fix.
+
 ### Confirm multiline rendering with the affected CLI configuration
 
 An authorized hardware comparison matched direct and mirrored Minicom output for long commands and backspace editing.\
@@ -35,6 +43,19 @@ Bounding it needs a decision on releasing the connection's claim while the runne
 `SHUTDOWN_LIMIT_SECONDS` (0.25 s) in `mcp/server.py` abandons `stop_connections` when it runs long, but AnyIO worker\
 threads are not daemon threads, so the interpreter may still wait for it at exit. Not verified end to end. From the\
 code comment review.
+
+### Script termination still waits for blocking I/O
+
+Script runtime checks can stop queued jobs and pacing pauses, but an active serial write or flush must settle before\
+the run releases its connection. Synchronous file reads also finish before runtime checks resume. The run deadline\
+therefore does not bound these operations. Investigate bounded I/O or safe interruption without releasing ownership\
+while a writer can still touch the port.
+
+### File-send counts after unexpected transport errors
+
+A script file send records `bytes_written=0` on generic transport exceptions, even if earlier segments were accepted.\
+Cooperative aborts retain their partial count. Preserve accepted-byte progress when a serial write or flush fails\
+unexpectedly, so file-send events do not underreport completed work.
 
 ## Security and Operations
 
@@ -79,12 +100,6 @@ receives only critical and security fixes, and only in its newest release.
 The demo plugin reads up to the first `> ` prompt, so the boot banner left in the buffer answers the first command, and\
 a failed read leaves a reply that the next command then receives. Clearing the buffer before each command would fix the\
 reference example; whether plugins need a helper for it is the design question.
-
-### Limits on a write already in flight under a script
-
-The stop event ends such a write between segments, but `SERIAL_MCP_SCRIPT_MAX_SECONDS` and fail patterns are checked\
-only when it returns, and a script's writes skip `SERIAL_MCP_MAX_WRITE_SECONDS`. A long paced `@send_file` can\
-therefore outlast the run's maximum duration.
 
 ### A cleanup block for scripts
 

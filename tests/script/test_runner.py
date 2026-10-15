@@ -9,7 +9,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -100,11 +100,24 @@ class FakePortSession:
 
         return unsubscribe
 
-    def write(self, data: bytes, pacing: Pacing | None, cancel: threading.Event) -> int:
+    def write(
+        self,
+        data: bytes,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
         self.write_started.set()
+        if check_runtime is not None:
+            check_runtime()
         if self.block_write:
-            if cancel.wait(timeout=5.0):
-                raise WriteAborted("fake write cancelled", 0)
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                if check_runtime is not None:
+                    check_runtime()
+                if cancel.wait(timeout=0.05):
+                    raise WriteAborted("fake write cancelled", 0)
             raise TimeoutError("fake write did not receive cancellation")
         if cancel.is_set():
             raise WriteAborted("fake write cancelled", 0)
@@ -122,8 +135,15 @@ class FakePortSession:
                 self.matcher.feed(response)
         return written
 
-    def send_file(self, path: Path, pacing: Pacing | None, cancel: threading.Event) -> int:
-        return self.write(path.read_bytes(), pacing, cancel)
+    def send_file(
+        self,
+        path: Path,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
+        return self.write(path.read_bytes(), pacing, cancel, check_runtime=check_runtime)
 
     def set_line(self, line: str, value: bool) -> None:
         self.lines.append((line, value))

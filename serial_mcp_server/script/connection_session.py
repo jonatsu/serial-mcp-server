@@ -19,7 +19,8 @@ from serial_mcp_server.port.writer import SOURCE_MCP, UNPACED_SEGMENT_BYTES, Wri
 from serial_mcp_server.portlog.formats import SEND_FILE_END_EVENT, SEND_FILE_START_EVENT
 from serial_mcp_server.script.matcher import OutputMatcher
 
-# Poll interval of a write wait. A cancel of the run reaches the writer within this long, not at once.
+# Seconds between runtime checks and cancellation forwarding: responsive without busy-waiting.
+# Pattern searches can add their own bounded wait.
 _WRITE_WAIT_SECONDS = 0.05
 
 
@@ -34,11 +35,20 @@ class ConnectionSession:
         self.newline = conn.newline
         self.encoding = conn.encoding
 
-    def _submit(self, payload: bytes, pacing: Pacing | None, cancel: threading.Event) -> int:
+    def _submit(
+        self,
+        payload: bytes,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        check_runtime: Callable[[], None] | None,
+    ) -> int:
         job = self._conn.writer.submit(payload, pacing, source=SOURCE_MCP)
         # Poll instead of blocking on result(): this is the runner thread, and it must
-        # wake periodically to forward the run's cancel event to the writer job.
+        # wake periodically to check run limits and forward cancellation. Keep waiting for a running job:
+        # releasing the run's claim while a serial call is still active would let another caller overlap it.
         while True:
+            if check_runtime is not None:
+                check_runtime()
             if cancel.is_set():
                 if job.future.cancel():  # still queued: the writer skips it, so none of it is written
                     raise WriteAborted("Write cancelled before it started.", 0)
@@ -56,14 +66,28 @@ class ConnectionSession:
             raise RuntimeError("The serial connection has no reader thread.")
         return self._conn.reader.subscribe(matcher)
 
-    def write(self, data: bytes, pacing: Pacing | None, cancel: threading.Event) -> int:
-        return self._submit(data, pacing, cancel)
+    def write(
+        self,
+        data: bytes,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
+        return self._submit(data, pacing, cancel, check_runtime)
 
-    def send_file(self, path: Path, pacing: Pacing | None, cancel: threading.Event) -> int:
+    def send_file(
+        self,
+        path: Path,
+        pacing: Pacing | None,
+        cancel: threading.Event,
+        *,
+        check_runtime: Callable[[], None] | None = None,
+    ) -> int:
         """Send a file of at most ``MAX_CONFINED_FILE_BYTES``, in 4096-byte segments when no pacing applies.
 
-        Unlike ``serial.send_file``, this applies no estimated-time cap. The run's ``max_seconds`` limit is
-        checked only after the file has been sent; a cancel stops it between segments.
+        Unlike ``serial.send_file``, this applies no estimated-time cap. The runner checkpoint checks its
+        runtime limits while waiting; cancellation stops the writer between segments or during pacing pauses.
         """
         relative = path.relative_to(self._files_root.resolve()).as_posix()
         _resolved, payload = read_confined_file(self._files_root, relative, MAX_CONFINED_FILE_BYTES)
@@ -72,7 +96,7 @@ class ConnectionSession:
             effective_pacing = Pacing(chunk_size=UNPACED_SEGMENT_BYTES)
         self.log_event(SEND_FILE_START_EVENT, path=relative, size=len(payload))
         try:
-            written = self._submit(payload, effective_pacing, cancel)
+            written = self._submit(payload, effective_pacing, cancel, check_runtime)
         except WriteAborted as exc:
             self.log_event(SEND_FILE_END_EVENT, path=relative, bytes_written=exc.bytes_written)
             raise
