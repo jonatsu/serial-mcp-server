@@ -92,6 +92,7 @@ TOOLS: list[Tool] = [
             "with serial.spec.attach; 2) check serial.plugin.list for plugin tools that fit the device; "
             "3) call serial.read to collect the boot banner or prompt that many devices send on connect."
             " When mirroring is enabled, mirror metadata includes its state and queued-output counters."
+            " The lines log format splits long lines into partial/continued records to bound buffering."
         ),
         inputSchema={
             "type": "object",

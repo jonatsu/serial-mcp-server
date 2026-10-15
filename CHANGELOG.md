@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- The `lines` port-log format emits long unfinished lines as bounded partial records instead of growing memory\
+  indefinitely during continuous output. Continuations preserve multibyte characters across size boundaries and\
+  retain CRLF handling. Pending text is decoded with its original encoding before an encoding change.
+
 ## 0.2.3
 
 ### Fixed

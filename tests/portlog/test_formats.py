@@ -156,6 +156,89 @@ def lines_writer(idle_s: float = 0.5) -> tuple[LinesWriter, Sink]:
 
 
 class TestLinesWriter:
+    @pytest.mark.parametrize("make_entry", [rx, tx])
+    def test_continuous_output_is_written_in_bounded_continuations(self, make_entry):
+        writer, sink = lines_writer()
+        chunk = b"x" * 8192
+        for index in range(24):
+            writer.write(make_entry(index * 0.01, chunk))
+        records = lines_of(sink)
+        assert len(records) == 3
+        assert all(len(record["text"]) == 64 * 1024 for record in records)
+        assert all(record["partial"] for record in records)
+        assert [record.get("continued", False) for record in records] == [False, True, True]
+        writer.write(make_entry(0.25, b"\nnext\n"))
+        records = lines_of(sink)
+        assert "".join(record["text"] for record in records[:-1]) == chunk.decode() * 24
+        assert records[-2]["continued"] is True
+        assert records[-1]["text"] == "next" and "continued" not in records[-1]
+
+    def test_size_flush_preserves_split_utf8_and_crlf(self):
+        writer, sink = lines_writer()
+        text = "a" * (64 * 1024 - 1) + "€" + "b" * (64 * 1024 - 3)
+        writer.write(rx(0.0, text.encode() + b"\r"))
+        assert sink.getvalue()
+        writer.write(rx(0.1, b"\nnext\n"))
+        records = lines_of(sink)
+        assert "".join(record["text"] for record in records[:-1]) == text
+        assert records[-1]["text"] == "next"
+
+    def test_size_flush_keeps_decoder_carry_separate_for_each_direction(self):
+        writer, sink = lines_writer()
+        prefix = b"x" * (64 * 1024 - 1)
+        writer.write(rx(0.0, prefix + b"\xe2"))
+        writer.write(tx(0.1, prefix + b"\xc3"))
+        writer.write(rx(0.2, b"\x82\xac\n"))
+        writer.write(tx(0.3, b"\xa9\n"))
+        records = lines_of(sink)
+        for direction, suffix in [("rx", "€"), ("tx", "é")]:
+            assert "".join(record["text"] for record in records if record["dir"] == direction) == (
+                prefix.decode() + suffix
+            )
+
+    def test_size_continuation_uses_the_first_carried_bytes_timestamp(self):
+        writer, sink = lines_writer()
+        writer.write(rx(0.0, b"x" * 65533 + b"\xf0\x9f"))
+        writer.write(rx(0.1, b"\x92"))
+        writer.write(rx(0.2, b"\xa9\n"))
+        records = lines_of(sink)
+        assert records[-1]["text"] == "💩"
+        assert records[-1]["t"] == 0.0
+
+    @pytest.mark.parametrize("finish", ["idle", "mark", "close", "configure"])
+    def test_decoder_carry_is_finalized_at_existing_flush_boundaries(self, finish):
+        writer, sink = lines_writer()
+        writer.write(rx(0.0, b"x" * (64 * 1024 - 1) + b"\xe2"))
+        assert writer.pending_deadline() == 0.5
+        if finish == "idle":
+            writer.tick(0.5)
+        elif finish == "close":
+            writer.close()
+        else:
+            fields = {"encoding": "latin-1"} if finish == "configure" else {}
+            writer.write(event(0.1, finish, **fields))
+        records = [record for record in lines_of(sink) if "text" in record]
+        assert [record["text"] for record in records] == ["x" * (64 * 1024 - 1), "�"]
+        assert records[-1]["partial"] and records[-1]["continued"]
+        assert writer.pending_deadline() is None
+
+    def test_configure_flushes_pending_bytes_with_the_previous_encoding(self):
+        writer, sink = lines_writer()
+        writer.write(rx(0.0, "é".encode()))
+        writer.write(event(0.1, "configure", encoding="latin-1"))
+        writer.write(rx(0.2, b"\xe9\n"))
+        assert [record["text"] for record in lines_of(sink)] == ["é", "é"]
+
+    def test_an_unterminated_encoded_sequence_cannot_grow_decoder_carry_without_limit(self):
+        sink = Sink()
+        writer = LinesWriter(sink, WriterOptions(encoding="utf-7"))
+        chunk = b"+" + b"A" * (64 * 1024 - 1)
+        writer.write(rx(0.0, chunk))
+        records = lines_of(sink)
+        assert len(records) == 1 and records[0]["text"]
+        assert records[0]["partial"]
+        assert writer.pending_deadline() is None
+
     def test_records_each_direction_with_the_line_start_time_and_strips_the_terminator(self):
         writer, sink = lines_writer()
         drive(writer, [rx(1.0, b"U-Boot 2024.01\r\n"), tx(1.5, b"version\n"), rx(2.0, b"a\r\r\n")])
