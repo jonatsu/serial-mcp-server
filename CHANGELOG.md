@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.4
+
 ### Fixed
 
 - Script deadlines and `@fail_on` patterns now interrupt paced writes and file sends instead of waiting for the\
