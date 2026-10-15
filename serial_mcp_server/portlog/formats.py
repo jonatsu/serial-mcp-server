@@ -24,6 +24,7 @@ CLOSE_EVENT = "close"
 MARK_EVENT = "mark"
 BUFFER_DROP_EVENT = "buffer_drop"
 CONFIGURE_EVENT = "configure"
+LOG_ADMISSION_FAILED_EVENT = "log_admission_failed"
 SEND_FILE_START_EVENT = "send_file_start"
 SEND_FILE_END_EVENT = "send_file_end"
 
@@ -183,7 +184,15 @@ class TextWriter(_FileWriter):
         elif entry.kind == KIND_OVERFLOW:
             lead = b"" if self._at_line_start else b"\n"
             count = entry.fields["dropped_bytes"]
-            self._fh.write(lead + f"--- serial-mcp: {count} bytes not logged ---\n".encode("ascii"))
+            events = entry.fields.get("dropped_events", 0)
+            loss = f"{count} bytes not logged"
+            if events:
+                loss += f"; {events} events not logged"
+            self._fh.write(lead + f"--- serial-mcp: {loss} ---\n".encode("ascii"))
+            self._at_line_start = True
+        elif entry.name == LOG_ADMISSION_FAILED_EVENT:
+            lead = b"" if self._at_line_start else b"\n"
+            self._fh.write(lead + f"--- serial-mcp: {entry.fields['reason']} ---\n".encode("ascii"))
             self._at_line_start = True
 
     def _write_received(self, entry: Entry) -> None:
@@ -284,7 +293,7 @@ class LinesWriter(_FileWriter):
     def write(self, entry: Entry) -> None:
         if entry.kind in self._lines:
             self._feed(entry)
-        elif entry.kind == KIND_OVERFLOW or entry.name == MARK_EVENT:
+        elif entry.kind == KIND_OVERFLOW or entry.name in (MARK_EVENT, LOG_ADMISSION_FAILED_EVENT):
             # Keep the marker where it happened, even if that interrupts a line.
             self._flush_partials()
             _write_json_line(self._fh, _event_record(entry))

@@ -278,10 +278,17 @@ writer thread → serial port ─┴→ tx tap ─┴→ queue → disk thread �
 
 The reader thread records each received chunk once, before it reaches the buffer, whether or not anything reads. The\
 writer thread records each segment after the port accepts it, so a paced write appears with its real timing. A single\
-disk thread writes the files, so a slow disk never blocks receiving or sending. If the queue holds 8 MiB, new entries\
-are dropped and counted. The `jsonl` and `lines` files record a `log_overflow` event with the count, and the `text`\
-file records a marker line. The `raw` file records nothing, so check the `dropped_bytes` that `serial.log.status`\
-reports. A log is complete only when `dropped_bytes` is zero.
+disk thread writes the files, so a slow disk never blocks receiving or sending. Admission retains at most 8 MiB of\
+payload, 4,096 ordinary entries, and 1 MiB of metadata, including the entry being written. Each metadata snapshot is\
+limited to 64 KiB, depth four, and 128 values. New data or observational events that exceed a limit are dropped whole\
+and counted. Bounded loss markers record `dropped_bytes`, `dropped_entries`, and `dropped_events`; raw files have no\
+markers, so check `serial.log.status` before relying on them.
+
+If an encoding-change event cannot be retained, the log stops admitting entries and reports `admission_error`. It\
+drains the accepted prefix while serial I/O continues, rather than decode later data with stale settings. Stop and\
+restart the log on the same connection to recover. A complete log requires zero dropped entries and no admission\
+error. These bounds cover admission retention; the `lines` format's unfinished-line buffer has a separate limit\
+gap when output never pauses or includes a newline.
 
 ---
 

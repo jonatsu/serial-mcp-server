@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Port-log admission now bounds entries and metadata as well as payload bytes, including the entry being written.\
+  Stalled disks no longer allow event-only or tiny-entry traffic to grow the queue without limit. Status and stop\
+  results report lost entries and events. If an encoding-change event cannot be retained, logging stops admitting\
+  data explicitly while serial I/O continues; stop and restart the log to recover.
+
 - `serial.trace.tail` returns no events for zero and rejects negative or invalid counts, including when tracing is\
   disabled. Before, zero returned every buffered event and negative counts selected an unintended slice.
 

@@ -1,6 +1,6 @@
 # Mirror Reliability Implementation Plan
 
-Status: approved; implementation in progress on `feat/mirror-reliability`.
+Status: implementation verified; final documentation closure in progress on `feat/mirror-reliability`.
 
 Basis: repository revision `7eeb44a5ddf03c2d0f018d3c911904e82e9fd9b7` and the user's approved proposal direction. This\
 document combines the bounded proposal, remaining behavior decisions, implementation order, and execution ledger.\
@@ -270,8 +270,9 @@ evidence and next action.
 | Trace sink isolation | Complete | 43 focused tests, 833 full tests, checks, and independent review pass. |
 | Trace-tail validation | Complete | 15 pre-fix failures; 68 focused and 858 full tests pass; checks and self-review pass. |
 | Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
-| Port-log admission retention | Not started | Unit 7. Format-owned partial-line buffering stays on the roadmap. |
-| Final verification | Not started | Unit 8. |
+| Port-log admission retention | Verified | 170 affected tests and 878 full tests pass; checks, integration, and correctness review pass. |
+| Final verification | Documentation closure in progress | Conformance confirms behavior; finish roadmap and archive updates, then recheck documentation closure. |
+| Real-target validation | Deferred by user | Raspberry Pi 5 project; temporary permission and target details will be supplied later. No real device access is authorized. |
 
 Planning corrections: use only `feat/mirror-reliability` for this work, and preserve the configured shell environment.\
 The sandbox restricted the configured uv cache earlier; escalate required tooling instead of overriding `UV_CACHE_DIR`.
@@ -350,3 +351,27 @@ tests prove `invalid_params` responses. The focused trace and server suites pass
 in 29.20 seconds. Checks pass with zero errors and the existing 123 warnings after narrowing new test results.\
 Self-review confirms the count contract and the tool/property documentation. The roadmap defect is removed with its\
 changelog entry. Port-log admission is next under the user's accepted policy.
+
+Unit 7 red evidence: all 14 new admission regressions failed against the previous implementation. They showed\
+in-flight payload outside the cap, mutable caller metadata changing written output, and missing entry/metadata bounds\
+and failure state. Verification uses private bounded snapshots and charges retained until each writer finishes.\
+The initial test command hit the sandbox's cache restriction; escalation preserved `UV_CACHE_DIR` and produced the\
+expected behavior failures. Earlier mirror and trace maintainability review completed without findings.
+
+The user noted that real serial targets are available. Hardware validation is a separate follow-up to software\
+qualification: obtain the dedicated port, settings, shell, safe commands, affected external CLI configuration, and\
+explicit authorization to override the repository's no-real-device rule. Opening can toggle DTR/RTS and reset the\
+target. The user subsequently deferred testing against their Raspberry Pi 5 project and will supply temporary\
+permission and details later. No real device was opened or is authorized by this plan.
+
+Unit 7 green evidence: 170 affected tests pass, covering immutable metadata, the three retained budgets, reserved\
+terminal records, encoding-change rejection, and stop/start recovery using the connection's current Latin-1 encoding.\
+Final software verification passes 878 tests in 29.35 seconds. `just check` reports zero errors and the existing\
+123 warnings; the full integration harness passes all eight groups in 91 seconds. The correctness reviewer approved\
+admission accounting, ordered loss markers, bounded failure bookkeeping, API results, and cross-unit behavior.
+
+The separate conformance review found no material behavioral mismatch. Coverage limits are the absence of a separate\
+requirements specification and the user's deferred Raspberry Pi 5/affected-CLI validation. Its closure actions are\
+roadmap cleanup, an explicit hardware/wrapping follow-up, and final ledger/archive updates. These are being completed\
+before the final documentation commit. Review reports are summarized here so the ledger does not depend on temporary\
+review files surviving the session.

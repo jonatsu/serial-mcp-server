@@ -16,6 +16,7 @@ from serial_mcp_server.portlog.formats import (
     KIND_OVERFLOW,
     KIND_RX,
     KIND_TX,
+    LOG_ADMISSION_FAILED_EVENT,
     Entry,
     LinesWriter,
     RawWriter,
@@ -68,6 +69,15 @@ def text_writer(mode: str) -> tuple[TextWriter, Sink]:
 
 
 class TestTextTimestamps:
+    def test_event_loss_and_terminal_admission_failure_have_visible_markers(self):
+        writer, sink = text_writer("off")
+        loss = Entry(KIND_OVERFLOW, WALL, 1.0, fields={"dropped_bytes": 0, "dropped_events": 2})
+        drive(writer, [rx(0.0, b"prefix"), loss, event(2.0, LOG_ADMISSION_FAILED_EVENT, reason="Stopped.")])
+        assert sink.getvalue() == (
+            b"prefix\n--- serial-mcp: 0 bytes not logged; 2 events not logged ---\n"
+            b"--- serial-mcp: Stopped. ---\n"
+        )
+
     def test_off_leaves_the_received_bytes_untouched(self):
         writer, sink = text_writer("off")
         drive(writer, [rx(1.0, b"a\nb"), rx(2.0, b"c\n"), tx(2.5, b"ls\n")])
@@ -272,6 +282,17 @@ class TestLinesWriter:
             ("tial", None),
         ]
         assert lines_of(sink)[1]["label"] == "step 2"
+
+    def test_admission_failure_flushes_prefix_and_records_terminal_reason(self):
+        writer, sink = lines_writer()
+        writer.write(rx(1.0, b"prefix"))
+        writer.write(event(1.1, LOG_ADMISSION_FAILED_EVENT, reason="Stopped."))
+        records = lines_of(sink)
+        assert [(r.get("text"), r.get("event")) for r in records] == [
+            ("prefix", None),
+            (None, "log_admission_failed"),
+        ]
+        assert records[-1]["reason"] == "Stopped."
 
     def test_overflow_is_recorded_and_other_control_events_are_not(self):
         writer, sink = lines_writer()
