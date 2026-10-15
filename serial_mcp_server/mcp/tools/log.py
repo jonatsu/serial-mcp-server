@@ -40,6 +40,7 @@ TOOLS: list[Tool] = [
             "Use it when the user asks to log or record a session that is already running; "
             "serial.open with log=true does the same at open time. "
             "The server names the files, and the response lists their paths. "
+            "The lines format splits long lines into partial/continued records to bound buffering. "
             "A connection that already has a log returns already_logging. "
             "To recover from admission_error, stop that log and start a new one on the same connection."
         ),

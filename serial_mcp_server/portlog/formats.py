@@ -7,7 +7,9 @@ format needs no change to the log's queue or disk thread.
 
 from __future__ import annotations
 
+import codecs
 import json
+from collections import deque
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -39,8 +41,11 @@ class TextTimestamps(StrEnum):
 
 TEXT_TIMESTAMP_MODES = tuple(mode.value for mode in TextTimestamps)
 # Silence, in seconds, after which the lines log writes an unfinished line as a partial entry. A prompt that
-# ends without a newline therefore reaches that file only after this wait, or when the log closes.
+# ends without a newline therefore reaches that file after this wait, a size flush, a marker, or log close.
 PARTIAL_IDLE_S = 0.5
+# Emit size-triggered partials at 64 KiB per direction, keeping sustained output bounded without tiny records.
+# Decoder carry is bounded by the same limit; oversized encoded sequences are finalized with replacement.
+LINE_BUFFER_BYTES = 64 * 1024
 _EPOCH = datetime.fromtimestamp(0, UTC)
 
 
@@ -269,6 +274,20 @@ class _Line:
     offset: float = 0.0  # when the first pending byte arrived
     last_offset: float = 0.0  # when the latest pending byte arrived
     continued: bool = False  # an earlier part of this line was already written as a partial
+    # Each span accounts for at least one pending byte, so byte bounds also bound timestamp metadata.
+    spans: deque[tuple[int, datetime, float]] = field(default_factory=deque)
+
+    def retain_tail(self, size: int) -> None:
+        """Keep the source times of bytes carried through a size flush, including decoder-owned bytes."""
+        retained: deque[tuple[int, datetime, float]] = deque()
+        while size:
+            count, wall, offset = self.spans.pop()
+            count = min(count, size)
+            retained.appendleft((count, wall, offset))
+            size -= count
+        self.spans = retained
+        if retained:
+            _, self.wall, self.offset = retained[0]
 
 
 class LinesWriter(_FileWriter):
@@ -279,14 +298,18 @@ class LinesWriter(_FileWriter):
     later on the same line start an entry with ``"continued": true``, so joining a
     partial entry with its continuations restores the line.
 
-    A line is held in memory until its newline arrives or its direction goes quiet for ``PARTIAL_IDLE_S``.
-    A device that streams without a newline and never pauses that long keeps one line growing. A trailing
-    carriage return is removed from complete lines only, and text is decoded with replacement.
+    ``LINE_BUFFER_BYTES`` also triggers a partial, carrying decoder state into the next segment. Decoder carry
+    has the same bound; a sequence that fills it is finalized with replacement. A trailing carriage return is
+    held across size flushes so complete lines still omit CRLF. Other text is decoded with replacement.
     """
 
     def __init__(self, fh: BinaryIO, options: WriterOptions, idle_s: float = PARTIAL_IDLE_S) -> None:
         super().__init__(fh)
-        self._decoder = _Decoder(options.encoding)
+        self._encoding = options.encoding if is_text_encoding(options.encoding) else "utf-8"
+        self._decoders = {
+            kind: codecs.getincrementaldecoder(self._encoding)(errors="replace")
+            for kind in (KIND_RX, KIND_TX)
+        }
         self._idle_s = idle_s
         self._lines = {KIND_RX: _Line(), KIND_TX: _Line()}
 
@@ -297,16 +320,22 @@ class LinesWriter(_FileWriter):
             # Keep the marker where it happened, even if that interrupts a line.
             self._flush_partials()
             _write_json_line(self._fh, _event_record(entry))
-        else:
-            self._decoder.follow(entry)
+        elif entry.name == CONFIGURE_EVENT and is_text_encoding(entry.fields.get("encoding")):
+            self._flush_partials()
+            self._encoding = entry.fields["encoding"]
+            self._decoders = {
+                kind: codecs.getincrementaldecoder(self._encoding)(errors="replace") for kind in self._lines
+            }
 
     def pending_deadline(self) -> float | None:
-        waiting = [line.last_offset + self._idle_s for line in self._lines.values() if line.data]
+        waiting = [
+            line.last_offset + self._idle_s for kind, line in self._lines.items() if self._pending(kind)
+        ]
         return min(waiting) if waiting else None
 
     def tick(self, offset: float) -> None:
         for kind, line in self._lines.items():
-            if line.data and offset - line.last_offset >= self._idle_s:
+            if self._pending(kind) and offset - line.last_offset >= self._idle_s:
                 self._emit(kind, line, partial=True)
 
     def close(self) -> None:
@@ -320,27 +349,52 @@ class LinesWriter(_FileWriter):
         # Judge silence by the entries' own times, so the result does not depend on how far the disk thread lags.
         self.tick(entry.offset)
         for part, ends_line in _split_lines(entry.data):
-            if not line.data:
-                line.wall, line.offset = entry.wall, entry.offset
-            line.data += part
-            line.last_offset = entry.offset
+            remaining = memoryview(part)
+            while remaining:
+                if not self._pending(entry.kind):
+                    line.wall, line.offset = entry.wall, entry.offset
+                count = min(len(remaining), LINE_BUFFER_BYTES - len(line.data))
+                line.data += remaining[:count]
+                line.spans.append((count, entry.wall, entry.offset))
+                remaining = remaining[count:]
+                line.last_offset = entry.offset
+                if len(line.data) == LINE_BUFFER_BYTES and (remaining or not ends_line):
+                    self._emit(entry.kind, line, partial=True, size_flush=True)
             if ends_line:
+                if not self._pending(entry.kind):
+                    line.wall, line.offset = entry.wall, entry.offset
                 self._emit(entry.kind, line, partial=False)
+
+    def _pending(self, kind: str) -> bool:
+        return bool(self._lines[kind].data or self._decoders[kind].getstate()[0])
 
     def _flush_partials(self) -> None:
         for kind, line in self._lines.items():
-            if line.data:
+            if self._pending(kind):
                 self._emit(kind, line, partial=True)
 
-    def _emit(self, kind: str, line: _Line, *, partial: bool) -> None:
+    def _emit(self, kind: str, line: _Line, *, partial: bool, size_flush: bool = False) -> None:
         raw = bytes(line.data) if partial else bytes(line.data).removesuffix(b"\r")
-        record = {**_stamp(line.wall, line.offset), "dir": kind, "text": self._decoder.decode(raw)}
+        carry_cr = size_flush and raw.endswith(b"\r")
+        if carry_cr:
+            raw = raw[:-1]
+        decoder = self._decoders[kind]
+        text = decoder.decode(raw, final=not size_flush)
+        if size_flush and len(decoder.getstate()[0]) >= LINE_BUFFER_BYTES:
+            text += decoder.decode(b"", final=True)
+            decoder.reset()
+        elif not size_flush:
+            decoder.reset()
+        record = {**_stamp(line.wall, line.offset), "dir": kind, "text": text}
         if partial:
             record["partial"] = True
         if line.continued:
             record["continued"] = True
         _write_json_line(self._fh, record)
         line.data.clear()
+        if carry_cr:
+            line.data += b"\r"
+        line.retain_tail(len(decoder.getstate()[0]) + int(carry_cr))
         line.continued = partial
 
 
@@ -366,7 +420,7 @@ LOG_FORMATS_SCHEMA: dict[str, Any] = {
         "Port log file formats; default text. "
         "text: received bytes unchanged. "
         "jsonl: every chunk in both directions plus control events. "
-        "lines: one entry per line, with idle prompts flagged partial. "
+        "lines: one entry per line, with idle or 64 KiB segments flagged partial and later segments continued. "
         "raw: received bytes, byte-exact."
     ),
 }

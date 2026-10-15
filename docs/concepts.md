@@ -287,8 +287,8 @@ markers, so check `serial.log.status` before relying on them.
 If an encoding-change event cannot be retained, the log stops admitting entries and reports `admission_error`. It\
 drains the accepted prefix while serial I/O continues, rather than decode later data with stale settings. Stop and\
 restart the log on the same connection to recover. A complete log requires zero dropped entries and no admission\
-error. These bounds cover admission retention; the `lines` format's unfinished-line buffer has a separate limit\
-gap when output never pauses or includes a newline.
+error. These bounds cover admission retention. The `lines` format separately flushes unfinished lines at 64 KiB,\
+using partial and continuation records rather than discarding output.
 
 ---
 

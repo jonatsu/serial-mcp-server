@@ -51,13 +51,6 @@ collision-free names stop after 1,000 files with the same timestamp prefix.
 `serial.spec.register` reads any file under the project root that has valid front matter and returns its content. If\
 the agent should read nothing outside the data directories, this channel needs its own review.
 
-### Lines log buffers a continuously growing line
-
-`LinesWriter` holds each unfinished line until a newline arrives or its direction goes quiet for 500 ms. Continuous\
-output without either condition grows this buffer independently of the admission queue. Design a size-triggered\
-partial-line flush that preserves continuation and decoding semantics. This is separate from the mirror reliability\
-plan's admission bound. Found during that plan's review; not implemented.
-
 ### Default data directory
 
 The default log directory, `<spec root>/logs/`, can sit inside another project's tree, where `.gitignore` does not\

@@ -94,6 +94,13 @@ after 500 ms of silence is written with `"partial": true`, so a prompt such as `
 later on the same line start a new entry with `"continued": true`, so joining a partial entry with its continuations\
 restores the line. A `mark` event written by the log tools keeps its place between lines.
 
+Long lines also produce partial records at 64 KiB of pending bytes per direction, even when output never pauses.\
+Size flushes carry decoder state into the next segment and retain a trailing CR until the next segment, preserving\
+multibyte characters and CRLF. Decoder carry is separately limited to 64 KiB per direction; an encoded sequence that\
+fills that limit is finalized with replacement. Idle flushes, markers, newlines, and log close finalize pending\
+decoding with replacement. An encoding change flushes pending text with the previous encoding first. These limits\
+bound retained input, not the exact Python heap or the size of decoded JSON records.
+
 Set `log_text_timestamps` to `elapsed` or `system` to prefix each line of the `text` log in the style of `grabserial`,\
 a serial capture tool by Tim Bird: `[<time> <delta>] `, stamped when the line's first byte arrives. With `elapsed`,\
 `<time>` is seconds since the first received byte; with `system` it is the UTC wall-clock time. `<delta>` is seconds\
@@ -493,8 +500,8 @@ means the recording is incomplete.
 
 The metadata size is the serialized ASCII JSON size, including source, event name, and fields. Keys and containers\
 count toward the value limit. Depth is measured within each source, name, or fields value, excluding their synthetic\
-wrapper. These are admission-retention bounds, not an exact Python heap limit or a bound on unfinished lines held by\
-the `lines` format.
+wrapper. These are admission-retention bounds, not an exact Python heap limit. The `lines` format has separate\
+64 KiB limits for unfinished bytes and decoder carry in each direction, described with the log formats above.
 
 ### serial.log.mark
 
