@@ -33,6 +33,9 @@ losing the first SIGINT's cancellation; the other jobs use the locked 4.15.1. Fi
 passed. The test now prints every thread's stack when the hang recurs, so read that output before choosing between a\
 fix and a higher AnyIO floor.
 
+The [shutdown design draft](plans/sigint-shutdown-design.md) records the lifecycle boundaries and evidence gaps.\
+An isolated floor-AnyIO baseline passes on the available interpreter; no root cause or production correction is settled.
+
 ### An unbounded join in the script-run cleanup
 
 When starting a run's watcher thread fails, the cleanup in `serial.script.run` waits for the runner without a limit.\
