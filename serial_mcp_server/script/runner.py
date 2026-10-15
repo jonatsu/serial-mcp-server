@@ -122,7 +122,8 @@ class ScriptRunner:
     so a pattern that backtracks without end ends its own run and never freezes the server.
 
     The run also ends once *max_seconds* have passed since it started (reason ``max_duration``). Waits are
-    checked against that deadline, but a step that has begun, such as a write, is not interrupted by it.
+    checked against that deadline, including while waiting for writes. Writes stop at segment boundaries or
+    pacing pauses; a serial call already blocked in the operating system must settle before the run finishes.
     """
 
     def __init__(
@@ -356,11 +357,23 @@ class ScriptRunner:
             raise termination
         raise termination from error
 
+    def _poll_write_runtime(self) -> None:
+        """Latch a runtime failure without unwinding the adapter's wait for an active writer job."""
+        try:
+            self._check_runtime()
+        except Exception as exc:
+            self._request_stop(self._termination_for_exception(exc))
+
     def _write(self, data: bytes, pacing: Pacing | None) -> None:
         try:
-            accepted = self._session.write(data, pacing, self._stop_event)
+            accepted = self._session.write(
+                data, pacing, self._stop_event, check_runtime=self._poll_write_runtime
+            )
         except Exception as exc:
+            if not isinstance(exc, WriterClosed):
+                self._check_stop()
             self._raise_termination(exc)
+        self._check_stop()
         if accepted != len(data):
             raise _RunTermination(
                 RunState.ERRORED,
@@ -374,9 +387,14 @@ class ScriptRunner:
         except Exception as exc:
             self._raise_termination(exc, default_reason="file_error")
         try:
-            accepted = self._session.send_file(path, pacing, self._stop_event)
+            accepted = self._session.send_file(
+                path, pacing, self._stop_event, check_runtime=self._poll_write_runtime
+            )
         except Exception as exc:
+            if not isinstance(exc, WriterClosed):
+                self._check_stop()
             self._raise_termination(exc, classify_file_errors=True)
+        self._check_stop()
         if accepted != expected:
             raise _RunTermination(
                 RunState.ERRORED,

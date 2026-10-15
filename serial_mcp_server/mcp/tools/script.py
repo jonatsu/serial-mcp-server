@@ -49,6 +49,8 @@ TOOLS: list[Tool] = [
             "returns the language reference. Pass exactly one of path or source. Nothing is sent unless the "
             "whole script parses. The run owns the connection's writes and control lines until it ends; reads "
             "still work. Poll serial.script.status for the outcome, or pass wait_ms to wait for it here."
+            " Run deadlines and failure patterns remain active while writes wait; a stop cancels queued writes "
+            "or interrupts pacing, then waits for any active serial call to settle before the run ends."
         ),
         inputSchema={
             "type": "object",

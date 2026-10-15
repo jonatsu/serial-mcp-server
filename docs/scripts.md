@@ -120,10 +120,17 @@ backtracks without end, such as `(a|aa)+$` against a long run of `a` characters,
 while it runs. A cancel that arrives during a search takes effect when the search returns, at the latest at the limit.\
 If a pattern hits the limit, rewrite it without nested or overlapping quantifiers.
 
-`SERIAL_MCP_SCRIPT_MAX_SECONDS` and `@fail_on` are checked between steps and when output arrives, not while a single\
-write is in flight. A long paced `@send` or `@send_file` therefore runs to its end unless the run is cancelled, and a\
-`@fail_on` pattern that appears during the write is noticed only afterwards. A script's writes are not subject to\
-`SERIAL_MCP_MAX_WRITE_SECONDS`.
+`SERIAL_MCP_SCRIPT_MAX_SECONDS` and `@fail_on` remain active while writes wait, including paced `@send` and\
+`@send_file`. Runtime checks poll every 50 ms during a write wait; a running regex search can add its configured\
+search limit. A detected failure cancels a queued write or stops a running write between segments or during pacing\
+pauses. The run waits for the writer to settle before finishing. Detected runtime failures keep their reason if\
+the serial call later returns short or raises; writer closure retains the existing `writer_closed` cancellation\
+precedence. Cooperative aborts preserve the accepted byte count in file-send log events. Unexpected transport errors\
+can still report zero there even after earlier segments were accepted.
+
+A serial write or flush already blocked in the operating system must return before the run can finish. File reads\
+also remain synchronous, so the run deadline is not a hard bound on these calls. A script's writes use the run\
+deadline and are not subject to the separate `SERIAL_MCP_MAX_WRITE_SECONDS` estimate cap.
 
 Text that the connection's encoding cannot encode is found when its step runs, after earlier steps were sent. The run\
 then ends `errored` with the reason `serial_error`.

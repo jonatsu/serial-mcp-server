@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- Script deadlines and `@fail_on` patterns now interrupt paced writes and file sends instead of waiting for the\
+  whole transfer to finish. Queued writes are cancelled, cooperative aborts retain the accepted byte count in\
+  file-send logs, and the run keeps the connection until any active serial call settles.
+
 - The `lines` port-log format emits long unfinished lines as bounded partial records instead of growing memory\
   indefinitely during continuous output. Continuations preserve multibyte characters across size boundaries and\
   retain CRLF handling. Pending text is decoded with its original encoding before an encoding change.

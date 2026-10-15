@@ -254,7 +254,8 @@ DIRECTIVES: dict[str, Directive] = dict(
         _directive(
             "fail_on",
             "@fail_on REGEX | @fail_on --clear",
-            "From now on, any output matching REGEX fails the run. Several patterns may be active.",
+            "From now on, any output matching REGEX fails the run, including during paced writes. "
+            "Several patterns may be active.",
             _switchable_pattern(StepKind.FAIL_ON, "--clear", "@fail_on REGEX | @fail_on --clear"),
         ),
         _directive(
