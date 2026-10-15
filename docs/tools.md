@@ -121,15 +121,18 @@ entry looks like this:
 ```
 
 The `source` is `mcp` or `mirror`. Other entries have an `event` field instead of `dir`: `open`, `close`, `dtr`, `rts`,\
-`flush`, `configure`, `mark`, `buffer_drop`, `send_file_start`, `send_file_end`, `script_start`, `script_end`, and\
-`log_overflow`. If the disk falls more than 8 MiB behind, the log drops entries rather than block the port, and\
-`serial.log.status` and `serial.log.stop` report the dropped byte count as `dropped_bytes`. The formats record the drop\
-differently. The `jsonl` and `lines` files get a `log_overflow` event with the exact byte count, and the `text` file\
-gets a `--- serial-mcp: <n> bytes not logged ---` line. The `raw` file records nothing, so a gap in it is silent; check\
-`dropped_bytes`. When logging, the response and `serial.connection_status` include `log`, with the `formats` and the\
-`files` paths. A port log holds everything on the wire, including passwords typed into a console and any terminal\
-control sequences the device sends. Treat the files as sensitive, and view them with a pager that does not interpret\
-escape sequences. `serial.open` also rejects an `encoding` that is not a text codec, such as `hex`.
+`flush`, `configure`, `mark`, `buffer_drop`, `send_file_start`, `send_file_end`, `script_start`, `script_end`,\
+`log_overflow` and `log_admission_failed`. If admission exceeds its payload, entry, or metadata limit, the log drops\
+whole new data or observational events rather than block the port. `serial.log.status` and `serial.log.stop` report\
+`dropped_bytes`, `dropped_entries`, and `dropped_events`. The formats record the drop differently. The `jsonl` and\
+`lines` files get `log_overflow` events with byte, entry, and event loss counts. The `text` file gets a\
+`--- serial-mcp: <n> bytes not logged ---` line, with an event-loss count when relevant. An admission failure adds a\
+`log_admission_failed` event in JSONL and lines files, and a diagnostic marker in text. The `raw` file records nothing,\
+so a gap in it is silent; check the loss counters and `admission_error`. When logging, the response and\
+`serial.connection_status` include `log`, with the `formats` and the `files` paths. A port log holds everything on the\
+wire, including passwords typed into a console and any terminal control sequences the device sends. Treat the files as\
+sensitive, and view them with a pager that does not interpret escape sequences. `serial.open` also rejects an\
+`encoding` that is not a text codec, such as `hex`.
 
 Returns:
 
@@ -466,7 +469,8 @@ Flush and close the log files. The connection stays open, and a later `serial.lo
 
 Returns\
 `{ "ok": true, "files": [{ "format": "text", "path": "<path>", "bytes": 1234 }], "entries": 12, "dropped_bytes": 0 }`.\
-A connection that is not logging returns `not_logging`.
+A connection that is not logging returns `not_logging`. The response also includes `dropped_entries`,\
+`dropped_events`, and `admission_error`, preserving the recording's failure evidence after stop.
 
 ### serial.log.status
 
@@ -478,9 +482,19 @@ Report whether the connection is logging.
 }
 ```
 
-Returns `{ "ok": true, "logging": false }`, or, while logging, `logging: true` with `formats`, `files`, `entries`, and\
-`dropped_bytes`. `entries` counts logged chunks and events; `dropped_bytes` counts bytes lost because the disk fell\
-behind.
+Returns `{ "ok": true, "logging": false }`, or, while logging, `logging: true` with `formats`, `files`, `entries`,\
+`dropped_bytes`, `dropped_entries`, `dropped_events`, and `admission_error`. `entries` counts logged chunks and\
+events; the drop counters report payload bytes, complete entries, and observational events not admitted. The limits\
+are 8 MiB retained payload, 4,096 ordinary entries, and 1 MiB retained metadata, including the entry being written.\
+Each private metadata snapshot is limited to 64 KiB, depth four, and 128 values. A rejected encoding-change event\
+sets `admission_error` and stops further admission, so later data is not recorded with stale decoding. Stop and\
+restart the log to recover; the serial connection remains open. A non-null admission error or any dropped entries\
+means the recording is incomplete.
+
+The metadata size is the serialized ASCII JSON size, including source, event name, and fields. Keys and containers\
+count toward the value limit. Depth is measured within each source, name, or fields value, excluding their synthetic\
+wrapper. These are admission-retention bounds, not an exact Python heap limit or a bound on unfinished lines held by\
+the `lines` format.
 
 ### serial.log.mark
 
@@ -495,7 +509,7 @@ Write a labelled marker into the log between the surrounding traffic, for exampl
 
 The `jsonl` format records `{"event": "mark", "label": "step 2: boot"}` and the `lines` format records the same event.\
 The `text` and `raw` files stay byte-identical to the received data. A connection that is not logging returns\
-`not_logging`.
+`not_logging`. A rejected marker returns `log_failed`; it is not reported as successfully recorded.
 
 ---
 

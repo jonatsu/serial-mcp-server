@@ -40,7 +40,8 @@ TOOLS: list[Tool] = [
             "Use it when the user asks to log or record a session that is already running; "
             "serial.open with log=true does the same at open time. "
             "The server names the files, and the response lists their paths. "
-            "A connection that is already logging returns already_logging."
+            "A connection that already has a log returns already_logging. "
+            "To recover from admission_error, stop that log and start a new one on the same connection."
         ),
         inputSchema={
             "type": "object",
@@ -57,7 +58,8 @@ TOOLS: list[Tool] = [
         annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False),
         description=(
             "Use when the user wants the recording to end, or to hand them finished log files: flushes and "
-            "closes the port log's files and returns their paths and sizes. The connection stays open."
+            "closes the port log's files and returns their paths, sizes, loss counters, and admission_error. "
+            "The connection stays open; stopping also releases a log whose admission failed."
         ),
         inputSchema={
             "type": "object",
@@ -70,7 +72,10 @@ TOOLS: list[Tool] = [
         annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
         description=(
             "Use to find a connection's log files or check that logging works: reports whether it is logging, "
-            "with its formats, file paths, entry count, and the bytes dropped because the disk fell behind."
+            "with its formats, file paths, completed entry count, dropped_bytes, dropped_entries, "
+            "dropped_events, and admission_error. Loss counters include rejected metadata and pressure "
+            "against retained payload, entry, and metadata limits. An admission_error means no further "
+            "traffic is admitted; stop and restart logging to recover while keeping the serial connection open."
         ),
         inputSchema={
             "type": "object",
@@ -85,13 +90,17 @@ TOOLS: list[Tool] = [
             "Use to make a log easy to navigate, for example at the start of each test step or before a "
             "command whose output matters: writes a labelled marker into the port log between the surrounding "
             "traffic. "
-            "The jsonl and lines logs carry markers; the text and raw logs stay byte-exact."
+            "The jsonl and lines logs carry markers; the text and raw logs skip markers. "
+            "Returns log_failed if bounded admission rejects the marker, without claiming it was recorded."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "connection_id": CONNECTION_ID,
-                "label": {"type": "string", "description": "Short text to record, such as 'step 2: boot'."},
+                "label": {
+                    "type": "string",
+                    "description": "Short text to record, such as 'step 2: boot'; oversized metadata is rejected.",
+                },
             },
             "required": ["connection_id", "label"],
         },
@@ -176,6 +185,9 @@ async def handle_log_stop(state: SerialState, args: dict[str, Any]) -> dict[str,
         files=files,
         entries=status["entries"],
         dropped_bytes=status["dropped_bytes"],
+        dropped_entries=status["dropped_entries"],
+        dropped_events=status["dropped_events"],
+        admission_error=status["admission_error"],
     )
 
 
@@ -184,9 +196,13 @@ async def handle_log_status(state: SerialState, args: dict[str, Any]) -> dict[st
     log = conn.log_slot.log
     if log is None:
         return _ok(message=f"{conn.port} is not logging.", connection_id=conn.connection_id, logging=False)
-    return _ok(
-        message=f"{conn.port} is logging.", connection_id=conn.connection_id, logging=True, **log.status()
+    status = log.status()
+    message = (
+        f"{conn.port} has a log with stopped admission."
+        if status["admission_error"]
+        else f"{conn.port} is logging."
     )
+    return _ok(message=message, connection_id=conn.connection_id, logging=True, **status)
 
 
 async def handle_log_mark(state: SerialState, args: dict[str, Any]) -> dict[str, Any]:
@@ -194,9 +210,12 @@ async def handle_log_mark(state: SerialState, args: dict[str, Any]) -> dict[str,
     label = args["label"]
     if not isinstance(label, str):
         return _err("invalid_params", "label must be a string.")
-    if conn.log_slot.log is None:
+    log = conn.log_slot.log
+    if log is None:
         return _not_logging(conn)
-    conn.log_slot.event(MARK_EVENT, label=label)
+    if not log.event(MARK_EVENT, label=label):
+        reason = log.status()["admission_error"] or "Metadata was unsupported or exceeded an admission limit."
+        return _err("log_failed", f"Marker was not recorded. {reason}")
     return _ok(message=f"Marked {conn.port}.", connection_id=conn.connection_id, label=label)
 
 

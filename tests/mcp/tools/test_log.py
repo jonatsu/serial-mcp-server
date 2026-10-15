@@ -11,7 +11,7 @@ import pytest
 
 from serial_mcp_server import config
 from serial_mcp_server.config import Settings
-from serial_mcp_server.mcp.tools.connection import handle_connection_status, handle_open
+from serial_mcp_server.mcp.tools.connection import handle_configure, handle_connection_status, handle_open
 from serial_mcp_server.mcp.tools.log import (
     HANDLERS,
     TOOLS,
@@ -183,6 +183,46 @@ class TestStatus:
 
 
 class TestMark:
+    async def test_oversized_marker_reports_rejection_and_counts_loss(self, connected_entry, log_env):
+        state, _ = connected_entry
+        await handle_log_start(state, {**SID, "log_formats": ["jsonl"]})
+        result = await handle_log_mark(state, {**SID, "label": "x" * (1024 * 1024)})
+        stopped = await handle_log_stop(state, SID)
+
+        assert result["error"]["code"] == "log_failed"
+        assert "not recorded" in result["error"]["message"]
+        assert stopped["dropped_events"] == stopped["dropped_entries"] == 1
+        records = read_jsonl(files_by_suffix(log_env)["jsonl"])
+        assert not any(record.get("event") == "mark" for record in records)
+
+    async def test_admission_failure_is_reported_and_stop_start_recovers_same_connection(
+        self, connected_entry
+    ):
+        state, conn = connected_entry
+        await handle_log_start(state, {**SID, "log_formats": ["jsonl"]})
+        old_log = conn.log_slot.log
+        assert old_log is not None
+        old_log.event("configure", encoding="latin-1", extra="x" * (1024 * 1024))
+        configured = await handle_configure(state, {**SID, "encoding": "latin-1"})
+        conn.log_slot.rx(b"not admitted")
+        status = await handle_log_status(state, SID)
+        rejected = await handle_log_mark(state, {**SID, "label": "after failure"})
+        stopped = await handle_log_stop(state, SID)
+        restarted = await handle_log_start(state, {**SID, "log_formats": ["jsonl"]})
+        conn.log_slot.rx("recovered é\r\n".encode("latin-1"))
+        new_log = conn.log_slot.log
+        await handle_log_stop(state, SID)
+
+        assert status["admission_error"] == stopped["admission_error"]
+        assert stopped["dropped_events"] == stopped["dropped_entries"] == 1
+        assert rejected["error"]["code"] == "log_failed"
+        assert configured["ok"]
+        assert restarted["log"]["admission_error"] is None
+        assert state.connections["s1"] is conn
+        assert new_log is not None
+        rx = [record for record in read_jsonl(new_log.files["jsonl"]) if record.get("dir") == "rx"]
+        assert [record["text"] for record in rx] == ["recovered é\r\n"]
+
     async def test_mark_lands_between_traffic_in_jsonl_and_lines_only(self, connected_entry, log_env):
         state, conn = connected_entry
         await handle_log_start(state, {**SID, "log_formats": ["text", "jsonl", "lines", "raw"]})

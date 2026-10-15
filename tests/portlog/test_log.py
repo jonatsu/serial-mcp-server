@@ -253,10 +253,10 @@ class TestOverflow:
         return PortLog({"text": gate, "jsonl": jsonl}, paths, queue_limit=queue_limit), gate, paths
 
     def test_a_stalled_disk_drops_entries_without_blocking_and_leaves_exact_markers(self, tmp_path):
-        log, gate, paths = self.make_stalled_log(tmp_path, queue_limit=10)
+        log, gate, paths = self.make_stalled_log(tmp_path, queue_limit=13)
         log.rx(b"aaaa")
         assert gate.entered.wait(WAIT_S)  # the disk thread holds the first entry
-        log.rx(b"b" * 8)  # queued: 8 of 10
+        log.rx(b"b" * 8)  # retained: 12 of 13, including the in-flight entry
         log.tx(b"x" * 5, "mcp")  # would exceed the limit: dropped
         log.rx(b"c" * 4)  # dropped
         assert log.status()["dropped_bytes"] == 9
@@ -282,11 +282,11 @@ class TestOverflow:
         gate.release.set()
         log.close()
 
-        assert paths["text"].read_bytes().endswith(b"\n--- serial-mcp: 2 bytes not logged ---\n")
+        assert paths["text"].read_bytes().endswith(b"\n--- serial-mcp: 6 bytes not logged ---\n")
         assert read_jsonl(paths["jsonl"])[-1] == {
             **read_jsonl(paths["jsonl"])[-1],
             "event": "log_overflow",
-            "dropped_bytes": 2,
+            "dropped_bytes": 6,
         }
 
     def test_marker_does_not_add_a_blank_line_after_a_complete_line(self, tmp_path):

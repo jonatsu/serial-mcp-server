@@ -9,15 +9,20 @@ Sections are in priority order, and so are the items within each section: defect
 security and operations, then features, test gaps, platforms, and internal structure and tooling. Place a new item by\
 the same rule.
 
-The [mirror reliability plan](plans/mirror-reliability-implementation-plan.md) owns the selected mirror, trace,\
-port-log admission, and coverage work below. These items remain unfinished; the plan records approval decisions and\
-progress.
-
 Most items were collected from the archived\
 [pacing, logging, and script plan](plans/archive/pacing-logging-scripts-implementation-plan.md) and\
 [script runner design](plans/archive/script-runner-design.md) on 10 October 2026. An item with another source names it.
 
 ## Defects
+
+### Verify long-command wrapping on the Raspberry Pi 5
+
+The reported long-command wrapping problem remains unconfirmed with the affected device shell and external CLI.\
+The user has a Raspberry Pi 5 project for later validation and will provide target details and temporary permission\
+to open its serial device. No real-device access is authorized yet. Compare direct and mirrored connections using\
+the same CLI settings, safe commands, and byte oracles; retain the failing setup if rendering still differs.\
+The [mirror reliability ledger](plans/mirror-reliability-implementation-plan.md) records software qualification and\
+the disposable-PTY Minicom smoke test.
 
 ### The server sometimes outlives Ctrl-C
 
@@ -54,13 +59,6 @@ collision-free names stop after 1,000 files with the same timestamp prefix.
 
 `serial.spec.register` reads any file under the project root that has valid front matter and returns its content. If\
 the agent should read nothing outside the data directories, this channel needs its own review.
-
-### Port log admission memory bound
-
-The queue limit counts payload bytes only, so a stalled disk lets many small entries and events use more memory than\
-the 8 MiB limit.\
-[Port-log admission](plans/mirror-reliability-implementation-plan.md#unit-6-port-log-admission-design-checkpoint) plans\
-entry and metadata bounds after its event policy is settled. Not implemented.
 
 ### Lines log buffers a continuously growing line
 
