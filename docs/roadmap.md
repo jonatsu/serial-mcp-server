@@ -23,14 +23,12 @@ and the evidence-retaining recheck logged all expected input. The failed run's t
 missing byte and cause remain unknown. Retain failed harness artifacts and locate the first transmit-byte mismatch\
 before deciding whether input transport or log accounting needs a fix.
 
-### Confirm multiline rendering with the affected CLI configuration
+### Long command lines overwrite the mirrored terminal
 
-An authorized hardware comparison matched direct and mirrored Minicom output for long commands and backspace editing.\
-Multiline commands executed correctly, and received serial bytes reached the mirror unchanged without reported loss.\
-The multiline display streams differed between runs, so identical rendering remains unconfirmed. Reproduce the\
-original display defect with the affected CLI configuration before attributing any remaining difference to transport.\
-Further hardware access requires fresh permission. Keep device details and captures out of retained files and history.\
-The [mirror reliability ledger](plans/archive/mirror-reliability-implementation-plan.md) records the generic results.
+The user reports that long command lines overwrite the current row through the mirror while direct serial access works.\
+The symptom disappeared after the serial device rebooted, with no Minicom changes. The cause remains unconfirmed.\
+The [open investigation](investigations/mirror-long-line-overwrite.md) records the working terminal state, local\
+reproduction, hypotheses, and evidence needed on recurrence. Further hardware access requires fresh permission.
 
 ### An unbounded join in the script-run cleanup
 
