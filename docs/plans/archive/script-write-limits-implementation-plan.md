@@ -5,7 +5,7 @@ Status: implemented, verified, and archived. The user authorized this roadmap fi
 ## Outcome and design basis
 
 Enforce the existing script deadline and active failure patterns while a write waits, including paced file sends.\
-The basis is the runtime checks and first-stop-cause policy in `script/runner.py` at commit `8a583dd`, plus the\
+The basis is the runtime checks and first-stop-cause policy in `script/runner.py` at commit `6e92179`, plus the\
 existing cancellation polling and terminal-future wait in `script/connection_session.py`. No new execution thread,\
 configuration variable, result reason, or estimated write cap is needed. The MCP-only estimated write cap remains\
 separate from the script run deadline.

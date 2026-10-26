@@ -2,7 +2,7 @@
 
 Status: implemented and software-verified on `feat/mirror-reliability`; limited hardware validation completed.
 
-Basis: repository revision `7eeb44a5ddf03c2d0f018d3c911904e82e9fd9b7` and the user's approved proposal direction. This\
+Basis: repository revision `8f36e8fa8b950e4e6ed9648ffe172212f60427e5` and the user's approved proposal direction. This\
 document combines the bounded proposal, remaining behavior decisions, implementation order, and execution ledger.\
 The user approved implementation and the 1 MiB fail-on-overflow policy after the plan-critic review.
 
@@ -262,7 +262,7 @@ evidence and next action.
 
 | Work | Status | Evidence or next action |
 | -- | -- | -- |
-| Planning and roadmap links | Complete | `82e81ce` records the initial plan; `2c8b0aa` resolves the planning review findings. |
+| Planning and roadmap links | Complete | `f431bcf` records the initial plan; `a462701` resolves the planning review findings. |
 | Plan-critic review | Complete | Both findings corrected and rechecked; verdict: proceed, subject to user approval. |
 | User approval | Approved | Implementation, the 1 MiB mirror fail-on-overflow policy, and the complete port-log admission contract below. |
 | Reproduction and baseline | Complete | Baseline integration passed all eight groups; short-write and EAGAIN regressions failed before the fix. |
@@ -271,7 +271,7 @@ evidence and next action.
 | Trace sink isolation | Complete | 43 focused tests, 833 full tests, checks, and independent review pass. |
 | Trace-tail validation | Complete | 15 pre-fix failures; 68 focused and 858 full tests pass; checks and self-review pass. |
 | Port-log admission design | Approved | User accepted the bounded admission contract and failure policy below. |
-| Port-log admission retention | Complete | `b5a184d` bounds retained log admission; 170 affected and 878 full tests, checks, integration, and reviews pass. |
+| Port-log admission retention | Complete | `b1af204` bounds retained log admission; 170 affected and 878 full tests, checks, integration, and reviews pass. |
 | Final verification | Complete | Correctness, maintainability, and behavioral conformance reviews pass; software evidence below; remaining rendering qualification is in the roadmap. |
 | Real-target validation | Limited comparison complete | Long commands and backspace editing match direct Minicom; multiline execution and mirror delivery pass; rendering qualification remains open. |
 
@@ -283,7 +283,7 @@ passed outside the sandbox: 813 tests in 29.27 seconds, with `faulthandler_timeo
 Pre-commit passed on both planning documents. The earlier sandboxed test run stalled after 69 tests and was\
 interrupted; its result is not a passing baseline. Integration has not run for these documentation-only changes.
 
-Review of `82e81ce`: the critic found the mirror and trace mechanisms feasible. Its first finding identified\
+Review of `f431bcf`: the critic found the mirror and trace mechanisms feasible. Its first finding identified\
 `LinesWriter._feed` retaining unfinished lines outside the admission queue. The plan now names its limited scope, and\
 the roadmap records a separate partial-line bound. Its second finding identified removal of unfinished roadmap entries\
 contrary to `.agents/rules/plans.md`. Those entries are restored with plan links, and the roadmap's opening now matches\

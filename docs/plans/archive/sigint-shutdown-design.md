@@ -2,7 +2,7 @@
 
 Status: implemented, verified, and archived. The accepted test-harness correction is complete.
 
-Basis: the user's request to select and design the next roadmap fix, from `v0.2.3` (`f546f02`). The scope is the Ctrl-C\
+Basis: the user's request to select and design the next roadmap fix, from `v0.2.3` (`466cde9`). The scope is the Ctrl-C\
 shutdown regression. This follows the repository's arc42 design convention. No separate specification governs this\
 bounded defect repair; existing behavior supplies the compatibility contract. The user approved the test-only\
 correction and did not require historical CI attribution as a closure condition. A separate implementation plan is\
@@ -193,7 +193,7 @@ handlers exceed five seconds without entering cleanup. Async task snapshots show
 memory-stream input; the worker is idle, and the daemon stdin reader awaits bytes. This establishes the controlled\
 failure's cause but cannot recover the historical CI process's signal disposition.
 
-At investigation revision `4dd0939`, this command reproduced the missing signal precondition without editing files.\
+At investigation revision `498a425`, this command reproduced the missing signal precondition without editing files.\
 After the correction it passes, including when pytest itself inherits ignored SIGINT:
 
 ```bash

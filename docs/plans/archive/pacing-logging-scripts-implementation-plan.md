@@ -9,8 +9,8 @@ Status: accepted by the user on 8 October 2026, after plan-critic review. Units 
 Amendments after acceptance, each following a user decision recorded in the Execution Record (units 8 to 11): the P4\
 reviewer wording, the preface of the Script Runner Units (the user waived a dedicated security review), and the Final\
 Integration bullets and reviewer paragraph. Unit 8's Changes paragraph was later corrected to the as-built order of\
-argument splitting and substitution. Basis: `main` at `bceb725` (feat(mcp): require SDK 1.30 and annotate tools), the\
-pacing review of commits `690b8a6` and `fcf1d72`, the decisions recorded in [Design Basis](#design-basis), and the\
+argument splitting and substitution. Basis: `main` at `c638652` (feat(mcp): require SDK 1.30 and annotate tools), the\
+pacing review of commits `f5a71d8` and `9a7e45b`, the decisions recorded in [Design Basis](#design-basis), and the\
 [script runner design](script-runner-design.md) for units 8 to 12. Execution record:\
 [Execution Record](#execution-record) at the end of this plan; the repository has no other tracker.
 
@@ -152,7 +152,7 @@ uv run --with ruff ruff format --check .
 uv run --with bandit bandit -r serial_mcp_server/ -c pyproject.toml
 ```
 
-These are the checks the CI workflow in `.github/workflows/cicd.yml` runs. The baseline at `bceb725` is 243 passing\
+These are the checks the CI workflow in `.github/workflows/cicd.yml` runs. The baseline at `c638652` is 243 passing\
 tests. Record any other result in the execution record before editing. `uv.lock` is ignored by `.gitignore`, so\
 `uv run` leaves the tree clean.
 
@@ -175,7 +175,7 @@ Follow `CONTRIBUTING.md` for tool registration: each tool is a `Tool` in a `hand
 `async def handle_x(state, args)` handler in that file's `HANDLERS` map, named `serial.<action>` or\
 `serial.<category>.<action>`. Handlers return `_ok(...)` or `_err(code, message)` from `serial_mcp_server/helpers.py`.\
 Accept string-typed numbers and booleans as the existing schemas do, since some MCP clients send every argument as a\
-string. Set `ToolAnnotations` on every new tool, as commit `bceb725` did for the existing ones.
+string. Set `ToolAnnotations` on every new tool, as commit `c638652` did for the existing ones.
 
 ### P3: Documentation and Change Log
 
@@ -261,7 +261,7 @@ events rather than sleeps, so the tests stay deterministic:
 
 - Run a `MirrorSession` in `rw` mode with a real PTY and a real file descriptor behind `ser.fileno()`, as\
   `tests/test_mirror.py` does near line 332. Block the mock port's `write` on an event to hold a paced write open.\
-  While it is held, bytes delivered on the port must reach `SerialBuffer`. This test fails on `bceb725`, where the\
+  While it is held, bytes delivered on the port must reach `SerialBuffer`. This test fails on `c638652`, where the\
   reader thread is the one blocked. A plain `ReaderThread` never forwarded writes and never had the defect.
 - In `rw` mode, data written to the PTY slave reaches the mock port's `write` calls in order.
 - Pasting more than 64 KiB into the PTY slave while the port is blocked keeps the writer's mirror bytes at or under the\
@@ -806,7 +806,7 @@ pseudo-terminal device. Start `examples/demo-device/pty_server.py`. Start the se
 The default `code-reviewer` reviews the combined diff for cross-unit correctness.
 
 A fresh reviewer runs `conformance-review` against this plan and the [script runner design](script-runner-design.md),\
-using base `bceb725` and the integrated head. No separate spec exists, so conformance coverage is limited.
+using base `c638652` and the integrated head. No separate spec exists, so conformance coverage is limited.
 
 Record both reviews and close both gates before integration. Merging and pushing still require the user's authorization.
 
@@ -820,7 +820,7 @@ disposition, and any authorized deviation from this plan.
 Branch `fix/serial-writer-thread`, based on `docs/pacing-logging-plan`. Guidance applied: `coding-standards`,\
 `python-style`, `python-async-patterns`, `python-testing`.
 
-P1 results. Baseline at `bceb725`: 243 tests passed, `ruff check` and `bandit` clean, and `ruff format --check` flagged\
+P1 results. Baseline at `c638652`: 243 tests passed, `ruff check` and `bandit` clean, and `ruff format --check` flagged\
 2 files (`CONTRIBUTING.md` and `docs/concepts.md` line 101; neither touched by this plan). After the unit: 264 tests\
 passed on five consecutive runs, `ruff check` clean, `ruff format --check` clean on `serial_mcp_server` and `tests`,\
 `bandit` clean.
@@ -1187,7 +1187,7 @@ for one; design section 7 and `docs/scripts.md` now say exactly that. The design
 exists: `ConnectionSession` is the one adapter for the tools and the command (design 5.1 and 6.5 edited). An existing\
 `--result` path fails with exit 2 before the port opens (the Unit 10 obligation), and a run that ends `cancelled`\
 without an interrupt exits 2. Only SIGINT is handled; SIGTERM ends the command at once with no result file, which\
-`docs/scripts.md` states. The `justfile` recipes gained optional path arguments (`767a1de`), so changed files can be\
+`docs/scripts.md` states. The `justfile` recipes gained optional path arguments (`0ff4c9b`), so changed files can be\
 formatted and checked without touching the two baseline files. Billing: the account's default `task` and `reviewer`\
 routes failed with `402 ... can only afford ~23.7k tokens`, so the implementation, harness, and code-review lanes ran\
 on the session's model (`@default`); the code reviewer therefore shares the author's model family, and I checked every\
@@ -1195,17 +1195,17 @@ report against my own runs (the lane's suite count, red run, and test claims all
 on its default route. Known and not fixed here: the cleanup branches of `handle_open` that await\
 `asyncio.to_thread(ser.close)` can be skipped if a cancellation lands in the same loop iteration, and cancelling during\
 `asyncio.to_thread(pyserial.Serial, ...)` leaves the port to garbage collection (both exposures already existed before\
-this unit, at `767a1de`). An earlier draft of this paragraph said an unusable `SERIAL_MCP_SCRIPT_MAX_SECONDS` reaches\
+this unit, at `0ff4c9b`). An earlier draft of this paragraph said an unusable `SERIAL_MCP_SCRIPT_MAX_SECONDS` reaches\
 MCP clients as an `internal` error; the final code review showed that `_call_tool` reports a `ValueError` as\
 `invalid_params` with the message, so the draft was wrong. The final-integration entry records the fix for a blank\
 value.
 
 ### Final Integration
 
-Run on `feat/pacing-logging-scripts` at `ed99b86`, then on the tree after the review fixes below, which are committed\
+Run on `feat/pacing-logging-scripts` at `2d141d6`, then on the tree after the review fixes below, which are committed\
 as `fix(script): close the final-integration review findings`.
 
-P1 results. Full suite: 697 passed (`uv run --extra test --locked python -m pytest tests/ -q`; 679 at `ed99b86`).\
+P1 results. Full suite: 697 passed (`uv run --extra test --locked python -m pytest tests/ -q`; 679 at `2d141d6`).\
 `just lint`: clean. `just format-check serial_mcp_server tests`: clean (57 files). The whole-repository format check\
 still reports only the baseline drift in `CONTRIBUTING.md` and `docs/concepts.md` (~line 101), because Ruff 0.16\
 formats the Python fences in those two Markdown files. Bandit: no issues. A `python -I` import of\
@@ -1213,7 +1213,7 @@ formats the Python fences in those two Markdown files. Bandit: no issues. A `pyt
 
 Runtime evidence. A lane wrote `.scratch/final_integration/run.py`: the real demo device\
 (`examples/demo-device/pty_server.py`), the real MCP server over stdio, and the real `serial_mcp_script` process, with\
-a control for each check that shows it can fail. I read it and re-ran it three times (twice at `ed99b86`, once on the\
+a control for each check that shows it can fail. I read it and re-ran it three times (twice at `2d141d6`, once on the\
 fixed tree); every run exited 0 with all seven plan bullets passing. On the fixed tree: a 4,096-byte paste (512 `ping`\
 lines at 8 ms per byte) took 32.76 s, and replies were readable with p95 latency 1.3 ms against a no-paste baseline p95\
 of 1.4 ms and a worst case of 2.5 ms; 511 of 512 replies were read before the paste ended and the last 0.9 ms after; a\
@@ -1275,12 +1275,12 @@ merging await your authorization.
 ### After Final Integration
 
 Three commits followed the integration record, each from a user decision on 9 October 2026. The regular-expression\
-stall in design risk 1 is fixed rather than accepted (`9e441b3`): the user chose the `regex` package, so script\
+stall in design risk 1 is fixed rather than accepted (`4cebc65`): the user chose the `regex` package, so script\
 patterns compile with it and search with `timeout=2.0` and `concurrent=True`, and a runaway pattern ends its run\
 `errored` with `regex_timeout` while the server keeps answering. This adds one runtime dependency, which the design had\
 excluded; design decision D10 records the choice. An interim implementation that ran each search in a child process was\
 replaced before it was committed. The end-to-end harness from the final integration became `tests/integration/`, run\
-with `just integration` (`96a77e1`), and covers the regex limit as an eighth scenario. `README.md`, `docs/tools.md`,\
-and design risk 6 now say that logs and results are never rotated (`ee42742`); defining rotation stays open. P1 results\
-at `ee42742`: 704 tests passed, `just check` clean, and `just integration` exited 0 with every scenario passing.\
+with `just integration` (`67e637e`), and covers the regex limit as an eighth scenario. `README.md`, `docs/tools.md`,\
+and design risk 6 now say that logs and results are never rotated (`0fe1728`); defining rotation stays open. P1 results\
+at `0fe1728`: 704 tests passed, `just check` clean, and `just integration` exited 0 with every scenario passing.\
 Pushing and merging still await the user.

@@ -1,7 +1,7 @@
 # Package Layout and Configuration Implementation Plan
 
 Status: implemented, 9 October 2026. Units 1 to 11 and the final integration gate are done; the\
-[Execution Record](#execution-record) holds the results. Basis: `main` at `2a13952`, and the accepted\
+[Execution Record](#execution-record) holds the results. Basis: `main` at `21afcf1`, and the accepted\
 [package layout design](package-layout-design.md) on branch `refactor/package-layout`. The design owns the target\
 structure, the configuration model, the plugin interface, and the switch to AnyIO; this plan owns the order and the\
 checks.
@@ -60,7 +60,7 @@ just integration
 
 `just check` runs Ruff's lint and format checks, and from unit 3 on also `lint-imports`. `just integration` runs the\
 end-to-end harness in `tests/integration/` against the demo device over real pseudo-terminals; it takes about 90\
-seconds and needs Linux. The baseline at `2a13952` is 704 passing tests, clean checks, and a passing harness. Record\
+seconds and needs Linux. The baseline at `21afcf1` is 704 passing tests, clean checks, and a passing harness. Record\
 any other result before editing. `uv.lock` is ignored, so `uv run` leaves the tree clean.
 
 ### P2: Guidance
@@ -340,7 +340,7 @@ declares it.
 
 ### Verification and Completion
 
-The suite passes with the new tests. Compare `tools/list` with the base: create a worktree at `2a13952` with\
+The suite passes with the new tests. Compare `tools/list` with the base: create a worktree at `21afcf1` with\
 `git worktree add`, start the server from each tree with the same environment, request `tools/list` from both over\
 stdio, and diff the JSON, which must match exactly, including order. Then remove the worktree. `just integration`\
 passes with the demo plugin loaded. Independent review per P4, because this unit changes entry points, tool\
@@ -459,7 +459,7 @@ environment outside the checkout, and check three things there: `python -m seria
 `serial_mcp_script --help` exits 0, and `import serial_mcp_server.port.writer` succeeds, which proves the subpackages\
 are in the wheel. Check the top level of `serial_mcp_server/` against design section 5.1.
 
-Then run two separate reviews on `2a13952..HEAD`: a final `code-reviewer` pass with `model: opus` and effort `medium`\
+Then run two separate reviews on `21afcf1..HEAD`: a final `code-reviewer` pass with `model: opus` and effort `medium`\
 over the combined diff, and a fresh conformance review whose brief names the `conformance-review` skill, this plan, the\
 design, and both revisions. Record both reviews' findings and dispositions in the Execution Record; both close before\
 the work is done. Update the design to the as-built structure where it differs.
@@ -572,7 +572,7 @@ read and write handlers; the plugin template and the demo plugin import from it 
 breaking change. Tests moved to `tests/mcp/` and `tests/mcp/tools/`; the spec tool tests left\
 `tests/specs/test_store.py` for `tests/mcp/tools/test_spec.py`, with shared helpers in `tests/specs/samples.py`.
 
-Two earlier defects surfaced here. Unit 3's import rewrite (`2fc8aa5`) had also rewritten the import block inside the\
+Two earlier defects surfaced here. Unit 3's import rewrite (`059df96`) had also rewritten the import block inside the\
 plugin template's text, so a generated plugin did not compile; the new template replaces it, and a new test loads a\
 generated plugin and runs its tool. The forbidden contracts still named `state`, `server`, `helpers`, and the handler\
 modules, which no longer existed, and import-linter keeps such a contract without checking anything; the contracts now\
@@ -582,9 +582,9 @@ module (checked by renaming one).
 P1 results: 781 tests passed (the new plugin interface, shadowing, and contract tests); `just check` clean with six\
 contracts kept, three of which a temporary `port/writer.py` import of `mcp.state` broke; Bandit no issues; the extended\
 no-`mcp` probe failed when `script_cli.py` imported `mcp.responses` and passed without it. A server started from a\
-worktree at `2a13952` and one started from this tree returned identical `tools/list` JSON over stdio: 38 tools, in the\
+worktree at `21afcf1` and one started from this tree returned identical `tools/list` JSON over stdio: 38 tools, in the\
 same order. `just integration` failed once in scenario 8b, because the catastrophic pattern `(a|aa)+$` could match the\
-`a` characters of a partial read; the harness fix (`8d91fcf`) uses `(a|aa)+c`, which cannot match, and two further runs\
+`a` characters of a partial read; the harness fix (`e372cee`) uses `(a|aa)+c`, which cannot match, and two further runs\
 passed every scenario.
 
 Review: an independent `code-reviewer` approved, with three optional notes. A stale comment was fixed. The contract\
@@ -606,7 +606,7 @@ piece of `serial.py` reaches the 50 percent similarity at which it reports one, 
 history.
 
 P1 results: 785 tests passed (781 plus the per-module registration tests); `just check` clean with six contracts kept.\
-Servers started from a worktree at `945a77b` and from this tree returned identical `tools/list` JSON: 38 tools, in the\
+Servers started from a worktree at `74c9c7f` and from this tree returned identical `tools/list` JSON: 38 tools, in the\
 same order. A line-by-line comparison of the old and new test files differs only in the registration tests, file\
 headers, imports, and the formatter's wrapping of two patch targets.
 
@@ -680,36 +680,36 @@ old `connection.py`, four of the five open-cleanup tests fail, including a reque
 opened the port, which used to leave the port to garbage collection. Removing the checkpoint in `log.py` or `script.py`\
 fails its new test. `just check` clean; Bandit no issues; `just integration` passed every scenario, including the\
 mirror- and status-latency checks that show the loop stays free. A stdio server with one open PTY port exits 0.164 s\
-after its client closes stdin, the same as at `57320d4` (three runs each, each tree confirmed to import its own code).
+after its client closes stdin, the same as at `081b77e` (three runs each, each tree confirmed to import its own code).
 
 Review: an independent `code-reviewer` on Opus at medium effort approved. Its one optional finding, an unbounded\
 `runner.join` inside the shield in the `serial.script.run` cleanup, is reachable only when starting the runner's\
 watcher thread fails; bounding it needs a decision on releasing the claim while the runner may still run, so it is a\
-follow-up. It also asked how Ctrl-C behaves. Measured at `57320d4` and here, alike: after one SIGINT the server stays\
+follow-up. It also asked how Ctrl-C behaves. Measured at `081b77e` and here, alike: after one SIGINT the server stays\
 up until stdin closes, because the SDK reads stdin in a worker thread, then exits 0 with no traceback and a closed port\
 log. Not exiting on SIGINT alone predates this unit and is a follow-up. A test of a write cancelled while still queued,\
 through `serial.send_file`'s log path, is also a follow-up.
 
 ### Final Integration
 
-Run on 9 October 2026 at `cb39707`, then on the fixes below. A wheel built from `cb39707` and installed in a fresh\
+Run on 9 October 2026 at `c03e202`, then on the fixes below. A wheel built from `c03e202` and installed in a fresh\
 virtual environment outside the checkout imported every subpackage from `site-packages`; its\
 `python -m serial_mcp_server` listed 38 tools and exited 0 when stdin closed, and `serial_mcp_script --help` exited 0.\
-The package's top level matches design section 5.1. `just integration` passed every scenario at `cb39707`.
+The package's top level matches design section 5.1. `just integration` passed every scenario at `c03e202`.
 
 The conformance review (`conformance-review`, a fresh Opus agent) found that the code conforms, with five ledger and\
 leftover findings, all fixed. The plan's status line still said no unit had started. Design section 6.2 described CLI\
 wiring that was not built; it now describes the code, and the unit 1 record names the deviation. Unit 3 had left a\
-second `NO_PACING` assignment in `port/pacing.py` (`980790a` removes it). `mcp/threads.py` was missing from the section\
+second `NO_PACING` assignment in `port/pacing.py` (`9e91300` removes it). `mcp/threads.py` was missing from the section\
 5.1 tree and from the layout in `CONTRIBUTING.md`. The unit 11 record miscounted the cancellation tests.
 
-The final `code-reviewer` pass (Opus, medium effort) over `2a13952..cb39707` requested changes for one finding and\
+The final `code-reviewer` pass (Opus, medium effort) over `21afcf1..c03e202` requested changes for one finding and\
 raised two optional ones; all three are fixed, because each was a regression the design's no-regression goal forbids.\
 `SerialState`, which plugins reach through `plugin_api`, now takes `Settings` instead of `max_connections`; the\
 CHANGELOG plugin entry says so. `SERIAL_MCP_MIRROR_LINK` became a `Path`, which dropped a trailing slash and so renamed\
 the links of a mirror pointed at a directory; it is a string prefix again. `SERIAL_MCP_LOG_LEVEL` rejected `WARN` and\
 `FATAL`, which the `logging` lookup accepted before; they map to `WARNING` and `CRITICAL`. New tests cover both and\
-fail on `cb39707`. The reviewer's doubt that the CI lint job finds the package without installing it was checked: in a\
+fail on `c03e202`. The reviewer's doubt that the CI lint job finds the package without installing it was checked: in a\
 fresh environment with only Ruff and import-linter, `lint-imports` keeps all three contracts.
 
 P1 results after the fixes: 776 tests passed (three new configuration tests); `just check` clean with three contracts\

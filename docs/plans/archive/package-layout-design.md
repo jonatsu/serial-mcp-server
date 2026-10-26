@@ -5,7 +5,7 @@ document is updated to match. Basis: the user's request of 9 October 2026 to reo
 capability and to move all configuration to one place, and the entanglement analysis summarized in section 1.1. No spec\
 governs this work; the refactor keeps every tool's observable behavior, except the configuration changes that section\
 8.1 lists. Format: arc42, as in [the script runner design](script-runner-design.md). Branch:\
-`refactor/package-layout`, from `main` at `2a13952`.
+`refactor/package-layout`, from `main` at `21afcf1`.
 
 ## 1. Introduction and Goals
 
